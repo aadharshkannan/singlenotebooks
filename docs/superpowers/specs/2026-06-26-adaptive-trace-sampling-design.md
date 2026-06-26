@@ -80,9 +80,30 @@ Per-trace decision pipeline, all O(1) and bounded memory:
    identical repeat. This simultaneously preserves variety and keeps the kept
    distribution close to the true one.
 
-4. **Anti-starvation floor.** Every active agent — and every observed signature —
-   receives a guaranteed minimum admission probability so it can never be driven
-   to zero, regardless of how loud other agents are.
+4. **Anti-starvation floor.** Every active agent is guaranteed retention through a
+   **deterministic keep-one rule**: when an agent has had zero kept traces in the
+   trailing `active_window`, its next arriving trace is kept unconditionally (budget
+   permitting per step 6 precedence), independent of its diversity score. Above that
+   guarantee, the agent also receives a minimum admission *share* of the budget.
+   Together these ensure both an observed floor (≥1 keep per active agent per
+   window) and a probabilistic floor, so the success metric is satisfiable for even
+   single-trace low-volume agents. Signatures are tracked in a **bounded, LRU-evicted table**
+   (cap `max_signatures_per_agent`, default 256); when full, the least-recently-seen
+   signature is evicted so memory stays bounded. A signature floor applies only
+   while its entry is resident; a re-appearing evicted signature is treated as
+   cold-start (step 5), which restores its protection. This keeps the floor set
+   finite even though the true signature space is unbounded.
+
+   **Precedence under contention.** Floors are expressed as a guaranteed share of
+   the *budget*, not an absolute admit. The controller allocates the LLM budget in
+   priority order: (a) per-active-agent floors first, (b) cold-start exploration
+   boosts second, (c) remaining budget distributed by diversity weight. If the sum
+   of agent floors would exceed `llm_throughput` (too many simultaneously active
+   agents), floors are scaled down **proportionally and equally** across agents so
+   fairness is preserved while the total stays within budget — i.e. the budget cap
+   in step 6 always wins, but it degrades every agent equally rather than starving
+   any single one. The floor is therefore `min(configured_floor,
+   fair_share_of_budget)`.
 
 5. **Cold-start exploration.** An unknown agent or signature enters a temporary
    boosted-admission "exploration" state until its velocity/variety estimates
@@ -97,6 +118,22 @@ Per-trace decision pipeline, all O(1) and bounded memory:
    - When slack appears, it additively increases.
    - This keeps the **total** kept-rate bounded while the floors (step 4) and
      diversity weighting (step 3) decide *which* traces survive the squeeze.
+
+### Default parameters (tunable in the notebook)
+
+| parameter | default | meaning |
+|-----------|---------|---------|
+| `llm_throughput` | 50 traces / sim-sec | LLM consumer drain rate (the budget) |
+| `agent_floor` | 0.02 of budget | guaranteed per-active-agent share |
+| `active_window` | 30 sim-sec | an agent/signature is "active" if seen within this window |
+| `max_signatures_per_agent` | 256 | LRU cap on tracked signatures per agent |
+| `coldstart_min_samples` | 20 | samples before an agent/signature leaves exploration |
+| `coldstart_boost` | 5× base rate | exploration admission multiplier |
+| `ewma_alpha` | 0.1 | velocity EWMA smoothing |
+| `aimd_increase` | +0.05 | additive increase of admission multiplier per slack tick |
+| `aimd_decrease` | ×0.5 | multiplicative decrease per backpressure tick |
+| `queue_high / queue_low` | 2× / 0.5× throughput | backpressure trigger thresholds |
+| `reservoir_size` | 8 per stratum | weighted reservoir capacity |
 
 ### Baseline for comparison (Strategy A)
 
@@ -140,8 +177,11 @@ external services or network calls.
 
 The prototype is successful if, at equal budget, Strategy B vs Strategy A shows:
 
-- Higher rare-signature coverage and no starved agent (min kept-rate > 0 for all
-  active agents), **and**
+- Higher rare-signature coverage and no starved agent — every agent that is
+  **active** (emitted ≥1 trace within the trailing `active_window`) has kept-rate
+  > 0 measured over that same window (assuming a feasible budget, i.e. the sum of
+  active-agent floors does not exceed `llm_throughput`; otherwise floors degrade
+  equally per step 4 precedence), **and**
 - Lower per-agent distributional divergence (more representative), **while**
 - Holding total kept-rate within the configured `llm_throughput` budget through the
   burst (demonstrated backpressure response).
