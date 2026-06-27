@@ -19,9 +19,10 @@ sampler. Key properties:
   signature fraction) meets or beats a budget-matched uniform baseline.
 - **Representativeness** — lower TV / KL divergence vs. the stream's true
   signature distribution, measured per agent.
-- **Backpressure** — an EWMA-based rate controller caps the sustained kept-rate
-  to the configured LLM throughput budget, absorbing short bursts without
-  exceeding the average limit.
+- **Backpressure** — an AIMD rate controller (additive-increase /
+  multiplicative-decrease over a drained consumer queue) caps the sustained
+  kept-rate to the configured LLM throughput budget, absorbing short bursts
+  without exceeding the average limit.
 
 **Demo notebook:** `adaptive_trace_sampling.ipynb` runs a synthetic scenario
 with fast/slow and low/high-variety agents plus a mid-stream burst, compares
