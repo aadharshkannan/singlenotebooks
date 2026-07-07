@@ -76,3 +76,19 @@ def test_rare_agent_floor_keeps_almost_everything():
             for i in range(20)]
     kept = [t for t in rare if sampler.decide(t)]
     assert len(kept) >= 18  # rare/low-velocity agent is protected
+
+
+def test_adaptive_sets_last_observation():
+    from trace_sampling.model import Trace
+    from trace_sampling.samplers import AdaptiveSampler, SamplerConfig
+    s = AdaptiveSampler(SamplerConfig(llm_throughput=50.0), seed=0)
+    s.decide(Trace(0, "a", 0.0, ("search",), 1, 1.0, "ok"))
+    assert s.last_observation is not None
+    assert s.last_observation.key.kind == "signature"
+
+
+def test_adaptive_default_variety_matches_prior_behavior():
+    stream = _stream()
+    cfg = SamplerConfig(llm_throughput=15.0)
+    kept = _run(AdaptiveSampler(cfg, seed=1), stream)
+    assert {t.agent_id for t in kept} == {t.agent_id for t in stream}
