@@ -93,7 +93,8 @@ class AzureClusterIndex:
     def _touch_recent(self, cluster_id: str, now: float):
         for i, (cid, aid, v, _) in enumerate(self._recent):
             if cid == cluster_id:
-                self._recent[i] = (cid, aid, v, now)
+                self._recent.pop(i)
+                self._recent.append((cid, aid, v, now))
                 return
 
     def _recent_nearest(self, agent_id, vec):
@@ -134,8 +135,10 @@ class AzureClusterIndex:
                 self._since_purge = 0
             vec = self._cache.get(trace.signature)
             near = self._recent_nearest(trace.agent_id, vec)
-            if near is None:
-                near = self._store.nearest(vec, agent_id=trace.agent_id)
+            if near is None or near[1] < self.tau:
+                store_near = self._store.nearest(vec, agent_id=trace.agent_id)
+                if store_near is not None and (near is None or store_near[1] > near[1]):
+                    near = store_near
             if near is not None and near[1] >= self.tau:
                 cluster_id, score = near
                 novelty = max(0.0, 1.0 - score)

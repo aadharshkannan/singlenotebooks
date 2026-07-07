@@ -65,3 +65,17 @@ def test_fallback_preserves_exact_signature_rarity():
     assert a.key.kind == "fallback-signature" and b.key.kind == "fallback-signature"
     assert a.rarity == 0.5
     assert b.rarity == 1.0 / 3.0
+
+def test_recent_low_sim_does_not_suppress_store_match():
+    idx = _index(recent_buffer_size=64)
+    # create the "deploy" cluster; it goes into the recent buffer
+    idx.observe(_t(("deploy",), agent="a", cid=2))
+    # create a "search" cluster, then evict it from the recent buffer only,
+    # leaving it live in the store, by pushing enough NEW clusters past the buffer cap.
+    first_search = idx.observe(_t(("search",), agent="a", cid=0))
+    # shrink the recent buffer so the search cluster is dropped but stays in the store
+    idx._recent = [e for e in idx._recent if e[0] != first_search.key.value]
+    # a synonym of search should JOIN the store's search cluster, not spawn a new one
+    again = idx.observe(_t(("query",), agent="a", cid=0))
+    assert again.key == first_search.key
+    assert again.novelty < 0.5
