@@ -55,8 +55,8 @@ Azure embedding approach is a drop-in alternative — this is what enables a cle
 
 ```
 Trace ─▶ AdaptiveSampler.decide()
-             │  key = variety_index.observe(trace)
-             │  rarity, novelty = variety_index.rarity/novelty(trace)
+             │  obs = variety_index.observe(trace)   # -> VarietyObservation(key, rarity, novelty)
+             │  self.last_observation = obs           # for the eval harness (see §6)
              ▼
         VarietyIndex (protocol)
           ├── ExactSignatureIndex     (baseline; wraps today's AgentStats)
@@ -68,14 +68,22 @@ Trace ─▶ AdaptiveSampler.decide()
 
 ### Components (new files, each single-purpose)
 
-* **`trace_sampling/variety.py`** — `VarietyIndex` protocol + `ExactSignatureIndex` (the baseline,
-  wrapping current `AgentStats` behavior verbatim, no behavior change).
-  * **Single atomic call:** `observe(trace) -> VarietyObservation`. This avoids the ordering bug of
-    separate `observe`/`rarity`/`novelty` methods: `rarity` and `novelty` must be measured against the
-    index state **before** the current trace is incorporated, so they are computed inside `observe`
-    (which does NN-query-then-upsert atomically) and returned together. Replaces the current
+* **`trace_sampling/variety.py`** — `VarietyIndex` protocol + `ExactSignatureIndex` (the baseline).
+  * **Single atomic call:** `observe(trace) -> VarietyObservation`. `rarity` and `novelty` are
+    computed **inside** `observe` and returned together, replacing the current
     "`stats.observe()` then `stats.rarity()`" two-step.
   * `VarietyObservation` = `(key: VarietyKey, rarity: float, novelty: float)`, both scores in `[0,1]`.
+  * **Exact baseline scoring semantics (explicit):** `ExactSignatureIndex.observe` **preserves the
+    current sampler's rarity behavior exactly** — it increments the signature count first and returns
+    `rarity = 1 / (1 + count_after)`, so a first-seen signature yields `rarity = 0.5` (identical to
+    today's `AgentStats.observe()`→`rarity()` sequence; the ablation baseline must not silently change
+    this). `novelty` is a **new** signal the base sampler never had: `1.0` when the signature was
+    unseen **before** this trace (`count_before == 0`), else `0.0`. Thus "no behavior change" refers to
+    rarity/stratum-key parity with today; novelty is strictly additive. (The base sampler ignored
+    novelty, so surfacing it does not alter baseline decisions unless the diversity formula uses it —
+    which it does only in the treatment path; for a faithful A/B, the baseline run uses the *original*
+    `diversity = rarity * (1 - 0.5*fill)`, and the treatment run uses `max(rarity, novelty) * ...`.
+    This is stated in §5.)
   * **`VarietyKey`** is a **tagged** value — `VarietyKey(kind, value)` where `kind ∈ {"signature",
     "cluster", "fallback-signature"}`. `"cluster"` = a real cluster id from vector NN; `"signature"` =
     the baseline exact tuple; `"fallback-signature"` = treatment degraded to the exact tuple (embed
@@ -165,9 +173,12 @@ metrics as **means over multiple runs**, not from deterministic embeddings.
    also assigns `self.last_observation = obs` so the eval harness can record the assignment (see §6).
 2. `rarity, novelty = obs.rarity, obs.novelty` (both from the single `observe` call; no separate
    lookups, preserving pre-observe measurement).
-3. **Diversity score upgrade:** `diversity = max(rarity, novelty) * (1 - 0.5 * fill)`. A brand-new
-   cluster scores high even when its cluster count is tiny, so genuinely novel behavior is
-   preferentially kept.
+3. **Diversity score (differs by arm):** the **baseline** run uses the original
+   `diversity = rarity * (1 - 0.5 * fill)` unchanged. The **treatment** run uses
+   `diversity = max(rarity, novelty) * (1 - 0.5 * fill)`, so a brand-new cluster scores high even when
+   its cluster count is tiny and genuinely novel behavior is preferentially kept. Keeping the baseline
+   formula untouched makes the ablation clean (only the variety mechanism + its novelty contribution
+   change).
 4. **Unchanged guarantees:** the deterministic keep-one floor stays **per `agent_id`** exactly as
    today (`_last_kept_ts: Dict[str, float]`, keyed by `trace.agent_id`) — it is **not** re-keyed to
    `(agent_id, cluster_id)`, because doing so would raise the guaranteed-keep volume to one-per-cluster
