@@ -1,4 +1,6 @@
+import os
 import numpy as np
+import pytest
 from trace_sampling.model import Trace
 from trace_sampling.embedding import FakeEmbedder, EmbeddingCache
 from trace_sampling.vector_store import InMemoryVectorStore
@@ -79,3 +81,22 @@ def test_recent_low_sim_does_not_suppress_store_match():
     again = idx.observe(_t(("query",), agent="a", cid=0))
     assert again.key == first_search.key
     assert again.novelty < 0.5
+
+
+@pytest.mark.azure
+def test_azure_cluster_index_end_to_end():
+    from trace_sampling.azure_config import AzureConfig
+    from trace_sampling.embedding import AzureOpenAIEmbedder, EmbeddingCache
+    from trace_sampling.vector_store import AzureSearchVectorStore
+    from trace_sampling.cluster_index import AzureClusterIndex
+    cfg = AzureConfig.from_env()
+    idx = AzureClusterIndex(
+        EmbeddingCache(AzureOpenAIEmbedder(cfg)),
+        AzureSearchVectorStore(cfg, dim=1536, ensure_index=True),
+        tau=0.55)
+    a = idx.observe(_t(("search", "read"), agent="live", cid=0))
+    b = idx.observe(_t(("query", "read"), agent="live", cid=0))
+    assert a.key.kind == "cluster" and b.key.kind == "cluster"
+    assert a.key == b.key
+    c = idx.observe(_t(("deploy", "release"), agent="live", cid=1))
+    assert c.key != a.key
