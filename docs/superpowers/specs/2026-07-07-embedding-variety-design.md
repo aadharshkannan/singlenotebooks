@@ -70,10 +70,19 @@ Trace ─▶ AdaptiveSampler.decide()
 
 * **`trace_sampling/variety.py`** — `VarietyIndex` protocol + `ExactSignatureIndex` (the baseline,
   wrapping current `AgentStats` behavior verbatim, no behavior change).
-  * `observe(trace) -> VarietyKey` — stratum key (baseline: signature tuple; treatment: cluster id).
-  * `rarity(trace) -> float` in `[0,1]`.
-  * `novelty(trace) -> float` in `[0,1]` (baseline returns a degenerate 0/1: 1 for first sight of a
-    signature, else 0).
+  * **Single atomic call:** `observe(trace) -> VarietyObservation`. This avoids the ordering bug of
+    separate `observe`/`rarity`/`novelty` methods: `rarity` and `novelty` must be measured against the
+    index state **before** the current trace is incorporated, so they are computed inside `observe`
+    (which does NN-query-then-upsert atomically) and returned together. Replaces the current
+    "`stats.observe()` then `stats.rarity()`" two-step.
+  * `VarietyObservation` = `(key: VarietyKey, rarity: float, novelty: float)`, both scores in `[0,1]`.
+  * **`VarietyKey`** is a **tagged** value — `VarietyKey(kind, value)` where `kind ∈ {"signature",
+    "cluster", "fallback-signature"}`. `"cluster"` = a real cluster id from vector NN; `"signature"` =
+    the baseline exact tuple; `"fallback-signature"` = treatment degraded to the exact tuple (embed
+    budget exhausted or circuit-breaker open). The sampler treats the key opaquely; the tag is for
+    metrics/diagnostics (e.g. measuring fallback rate).
+  * Baseline `novelty` is a degenerate 0/1: `1.0` for the first sight of a signature (pre-observe
+    count `== 0`), else `0.0`.
 * **`trace_sampling/embedding.py`** — `Embedder` protocol, `AzureOpenAIEmbedder`, `EmbeddingCache`,
   and a `FakeEmbedder` (unit tests only).
   * `Embedder.embed(texts: list[str]) -> np.ndarray` (batch-friendly).
@@ -106,9 +115,12 @@ centroids:
 3. **Recent-centroids buffer** — check a small in-process buffer of just-created centroids first, to
    cluster back-to-back near-identical traces correctly before Azure Search has indexed the new doc
    (indexing latency is sub-second but nonzero).
-4. **Vector NN query** — `VectorStore.nearest(vec, agent_id=...)` returns top-1 by cosine. The
-   query is scoped to the same `agent_id` for the stratum; a **global** (cross-agent) variant powers
-   the vocab-mismatch metric.
+4. **Vector NN query** — `VectorStore.nearest(vec, agent_id=...)` returns top-1 by cosine. For the
+   **online stratum key, the query is scoped to the same `agent_id`** (an agent's strata are its own
+   clusters), matching the base sampler's per-agent stratification. Cross-agent unification is **not**
+   done online — it is a separate offline metric-only pass (see §6), so agent-scoped strata and the
+   vocab-mismatch metric do not conflict. `nn_scope` remains a config knob for experimentation, but
+   the headline eval runs agent-scoped.
 5. **Assign:**
    * **Hit** (cosine ≥ `tau`): join that `cluster_id`; refresh its `last_seen`, increment `hits`
      (merge/update the doc).
@@ -135,7 +147,9 @@ a **new** cluster → re-sampled as fresh variety (captures drift / regression r
 | `hits` | `Edm.Int64` | merge count (diagnostics) |
 
 **Parameters (config):** `tau` (cosine threshold, start ~0.85), `ttl`, purge cadence,
-`embed_budget_per_tick`, cache size, `nn_scope` (agent vs global).
+`embed_budget_per_tick`, cache size, `nn_scope` (agent vs global; default **agent**), and the
+circuit-breaker settings: `azure_timeout_s` (default 2.0s per embed/query call), `breaker_fail_threshold`
+(default 5 consecutive failures → open), `breaker_cooldown_s` (default 30s open before half-open retry).
 
 **Determinism.** Live embeddings + HNSW ANN are approximate/non-deterministic (accepted per the
 "live for everything" choice). Reproducibility comes from fixed **generator** seeds and reporting
@@ -145,14 +159,21 @@ metrics as **means over multiple runs**, not from deterministic embeddings.
 
 `AdaptiveSampler.decide()` delegates variety to the injected `VarietyIndex`:
 
-1. `key = variety_index.observe(trace)` → stratum key becomes `(agent_id, cluster_id)`. The reservoir
-   map, keep-one floor, and fair-share floor are **unchanged**; they simply key on clusters.
-2. `rarity = variety_index.rarity(trace)`, `novelty = variety_index.novelty(trace)`.
+1. `obs = variety_index.observe(trace)` → one atomic call returning `(key, rarity, novelty)`. The
+   stratum key becomes `(agent_id, obs.key)` (the cluster id, or a signature tuple under fallback).
+   The reservoir map and fair-share floor are **unchanged**; they simply key on clusters. `decide()`
+   also assigns `self.last_observation = obs` so the eval harness can record the assignment (see §6).
+2. `rarity, novelty = obs.rarity, obs.novelty` (both from the single `observe` call; no separate
+   lookups, preserving pre-observe measurement).
 3. **Diversity score upgrade:** `diversity = max(rarity, novelty) * (1 - 0.5 * fill)`. A brand-new
    cluster scores high even when its cluster count is tiny, so genuinely novel behavior is
    preferentially kept.
-4. **Unchanged guarantees:** deterministic keep-one per `(agent_id, cluster_id)` per `active_window`,
-   velocity fair-share floor, cold-start boost, AIMD `bp_multiplier`.
+4. **Unchanged guarantees:** the deterministic keep-one floor stays **per `agent_id`** exactly as
+   today (`_last_kept_ts: Dict[str, float]`, keyed by `trace.agent_id`) — it is **not** re-keyed to
+   `(agent_id, cluster_id)`, because doing so would raise the guaranteed-keep volume to one-per-cluster
+   -per-window and change the base sampler's budget semantics. Cluster-level variety is driven by the
+   diversity score (step 3), not by keep-one. Velocity fair-share floor, cold-start boost, and AIMD
+   `bp_multiplier` are likewise unchanged.
 
 **Two decoupled budgets:**
 
@@ -180,9 +201,24 @@ Extend the synthetic generator with `K` hidden **behavior concepts**:
 * Emitting a trace: pick a concept (per-agent Zipf), realize the canonical sequence, substitute tools
   via the synonym map, and apply light edits (insert/drop/reorder one step). Two traces from the same
   concept are **ground-truth-equivalent** despite different surface tokens.
-* Each `Trace` carries a hidden `concept_id`, used **only** for scoring, never fed to the sampler.
+* Each `Trace` gains a hidden `concept_id: int` field, populated by the generator and used **only**
+  for scoring — it is never read by any `VarietyIndex` or the sampler. (`Trace` is a frozen
+  dataclass; add the field with a default so existing construction sites/tests stay valid.)
 * **Vocab mismatch:** different agents draw synonyms from different regions of the map, so the same
   concept surfaces as different tuples across agents.
+
+### Recording assignments for scoring
+
+`AdaptiveSampler.decide()` returns only `bool`, which is insufficient to compute the metrics. The
+**eval harness** (in the notebook, not the sampler) therefore records one row per trace into an
+in-memory **assignment log** (a list of dicts / a small SQLite or DataFrame):
+
+`(timestamp, agent_id, concept_id, variety_key, key_kind, kept: bool)`
+
+To obtain `variety_key`/`key_kind` per trace without changing `decide()`'s return type, the sampler
+sets a public `last_observation` attribute (the `VarietyObservation` for the most recent `decide`
+call). The harness reads it after each `decide()`. All metrics below are computed from this
+assignment log after the run.
 
 ### Ablation
 
@@ -193,15 +229,21 @@ Same generator stream, same sampler config, same budget; swap only the `VarietyI
 
 ### Metrics
 
-* **Headline — concept coverage at fixed budget:** fraction of active ground-truth concepts with ≥1
-  kept trace (per-second and cumulative). Treatment should cover more concepts per dollar.
+All computed from the assignment log (+ the treatment's kept-trace embeddings for the offline pass):
+
+* **Headline — concept coverage at fixed budget:** fraction of active ground-truth concepts (distinct
+  `concept_id`) with ≥1 kept trace (per-second and cumulative). Treatment should cover more concepts
+  per dollar.
 * **Redundancy:** kept traces per concept (over-counting; lower is better).
-* **Cluster agreement:** V-measure / Adjusted Rand Index between assigned `cluster_id` and true
-  `concept_id`.
+* **Cluster agreement:** V-measure / Adjusted Rand Index between assigned `variety_key` and true
+  `concept_id`, over all observed traces.
 * **Novel-concept detection latency:** traces/seconds from a concept's first appearance to its first
   kept trace.
-* **Cross-agent unification:** fraction of concepts whose clusters correctly span multiple agents'
-  vocabularies.
+* **Cross-agent unification (offline metric-only pass):** because online strata are agent-scoped,
+  this is computed **after** the run by globally clustering the **kept** traces' embeddings (single
+  global leader-clustering at the same `tau`, or agglomerative at `1-tau`) and measuring the fraction
+  of ground-truth concepts whose resulting global cluster spans ≥2 agents. This isolates "can the
+  embedding space unify vocab-divergent expressions of one concept" from the online stratum key.
 * **Cost/latency ledger:** embedding calls, Search queries, cache hit-rate, p50/p95 added latency,
   and a $ estimate.
 
