@@ -20,7 +20,7 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
 
 
 class VectorStore(Protocol):
-    def nearest(self, vec: np.ndarray, agent_id: Optional[str] = None): ...
+    def nearest(self, vec: np.ndarray, agent_id: Optional[str] = None) -> Optional[Tuple[str, float]]: ...
     def upsert(self, doc: VectorDoc) -> None: ...
     def touch(self, cluster_id: str, now: float) -> None: ...
     def purge_stale(self, now: float, ttl: float) -> "List[str]": ...
@@ -106,7 +106,10 @@ class AzureSearchVectorStore:
         from azure.search.documents.models import VectorizedQuery
         self.n_queries += 1
         vq = VectorizedQuery(vector=vec.tolist(), k_nearest_neighbors=1, fields="vector")
-        flt = f"agent_id eq '{agent_id}'" if agent_id is not None else None
+        if agent_id is not None:
+            flt = "agent_id eq '{}'".format(agent_id.replace("'", "''"))
+        else:
+            flt = None
         results = self._client.search(search_text=None, vector_queries=[vq], filter=flt, top=1)
         for r in results:
             return (r["cluster_id"], float(r["@search.score"]))
@@ -116,7 +119,7 @@ class AzureSearchVectorStore:
         self._client.merge_or_upload_documents([{
             "cluster_id": doc.cluster_id, "agent_id": doc.agent_id,
             "last_seen": doc.last_seen, "hits": doc.hits,
-            "vector": doc.vector.tolist(),
+            "vector": doc.vector.astype("float32").tolist(),
         }])
 
     def touch(self, cluster_id: str, now: float) -> None:

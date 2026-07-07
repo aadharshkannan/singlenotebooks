@@ -27,6 +27,22 @@ def test_inmemory_purge_stale():
     assert res is not None and res[0] == "c1"
 
 
+def test_inmemory_touch_updates_last_seen_only():
+    vs = InMemoryVectorStore()
+    vs.upsert(VectorDoc("c0", np.array([1.0, 0.0]), "a", last_seen=10.0))
+    vs.touch("c0", 20.0)
+    d = vs._docs["c0"]
+    assert d.last_seen == 20.0
+    assert np.allclose(d.vector, np.array([1.0, 0.0]))  # centroid unchanged
+
+
+def test_inmemory_delete_removes_doc():
+    vs = InMemoryVectorStore()
+    vs.upsert(VectorDoc("c0", np.array([1.0, 0.0]), "a", last_seen=0.0))
+    vs.delete("c0")
+    assert vs.nearest(np.array([1.0, 0.0]), agent_id="a") is None
+
+
 @pytest.mark.azure
 def test_azure_search_roundtrip():
     from trace_sampling.azure_config import AzureConfig
