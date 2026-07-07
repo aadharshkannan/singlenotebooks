@@ -172,7 +172,8 @@ metrics as **means over multiple runs**, not from deterministic embeddings.
    The reservoir map and fair-share floor are **unchanged**; they simply key on clusters. `decide()`
    also assigns `self.last_observation = obs` so the eval harness can record the assignment (see §6).
 2. `rarity, novelty = obs.rarity, obs.novelty` (both from the single `observe` call; no separate
-   lookups, preserving pre-observe measurement).
+   lookups, preserving observation-time semantics — baseline rarity is intentionally post-increment,
+   novelty pre-increment, both fixed inside `observe`).
 3. **Diversity score (differs by arm):** the **baseline** run uses the original
    `diversity = rarity * (1 - 0.5 * fill)` unchanged. The **treatment** run uses
    `diversity = max(rarity, novelty) * (1 - 0.5 * fill)`, so a brand-new cluster scores high even when
