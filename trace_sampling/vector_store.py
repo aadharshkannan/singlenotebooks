@@ -112,7 +112,11 @@ class AzureSearchVectorStore:
             flt = None
         results = self._client.search(search_text=None, vector_queries=[vq], filter=flt, top=1)
         for r in results:
-            return (r["cluster_id"], float(r["@search.score"]))
+            # Azure AI Search maps cosine to @search.score = (1 + cosine) / 2 in [0, 1];
+            # invert it back to raw cosine in [-1, 1] so callers (recent-buffer NN uses
+            # raw cosine) and tau are all evaluated in one consistent scale.
+            cosine = 2.0 * float(r["@search.score"]) - 1.0
+            return (r["cluster_id"], cosine)
         return None
 
     def upsert(self, doc: VectorDoc) -> None:
