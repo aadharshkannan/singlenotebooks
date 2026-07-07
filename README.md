@@ -39,3 +39,77 @@ python -m pytest tests/ -q
 ```bash
 python -m jupyter nbconvert --to notebook --execute --inplace adaptive_trace_sampling.ipynb
 ```
+
+## Embedding-Based Variety Comparison (`embedding_variety.ipynb`)
+
+**Problem:** The base sampler measures variety by *exact* tool-call signature.
+That over-counts trivially different signatures as distinct, treats synonym
+vocabulary (`search` vs. `query`) as unrelated behavior, and has no notion of
+*novel vs. seen-before* beyond first sight. This upgrade makes the variety
+comparison production-grade by clustering **semantically similar** tool
+sequences with embeddings.
+
+**What it does:** A swappable `VarietyIndex` interface (`trace_sampling/variety.py`)
+lets the sampler score variety by either the exact-signature baseline
+(`ExactSignatureIndex`) or an embedding-cluster treatment
+(`AzureClusterIndex`, `trace_sampling/cluster_index.py`). The treatment:
+
+- **Embeds** each tool-call signature (Azure OpenAI `text-embedding-3-small`),
+  behind an LRU `EmbeddingCache` so repeated signatures cost nothing.
+- **Leader-clusters** embeddings with a cosine threshold `tau` over a vector
+  store (Azure AI Search vector NN, with an in-process recent-centroid
+  fast-path), joining an existing cluster or creating a new one.
+- **TTL-purges** stale centroids so returning behavior is re-flagged as fresh
+  and memory stays bounded.
+- **Degrades gracefully** to exact-signature scoring when a per-tick embed
+  budget is exhausted or when Azure calls fail (a `CircuitBreaker` trips and
+  the index falls back, then recovers after a cooldown).
+
+**Evaluation:** `trace_sampling/eval_harness.py` runs baseline vs. treatment
+arms over a latent-concept synthetic stream (`generate_concept_stream`) and
+`trace_sampling/variety_metrics.py` scores concept coverage, ARI / V-measure
+vs. the ground-truth concept labels, per-concept redundancy, novel-concept
+latency, and cross-agent unification. The treatment recovers more distinct
+concepts at a fixed keep budget, unifies synonym vocabulary across agents, and
+lowers redundant keeps — all with a >99% embedding-cache hit rate.
+
+### Azure setup (live arm)
+
+The live treatment arm uses two Azure resources in resource group
+`aadkannan-trace-sampling`:
+
+- **Azure OpenAI** account `aadkannan-trace-aoai` with a
+  `text-embedding-3-small` deployment.
+- **Azure AI Search** service `aadkannan-trace-search` (Basic tier) holding the
+  `trace-clusters` vector index.
+
+Authentication is **Entra ID only** (no keys in code); the signed-in principal
+needs these RBAC roles:
+
+- **Cognitive Services OpenAI User** (on the OpenAI account) — to call embeddings.
+- **Search Index Data Contributor** (on the Search service) — to read/write documents.
+- **Search Service Contributor** (on the Search service) — to create the index.
+
+Configure and run:
+
+```bash
+cp .env.example .env          # then fill in your resource endpoints
+az login                      # Entra auth for the DefaultAzureCredential chain
+
+# run the opt-in live Azure tests (embedding roundtrip + end-to-end cluster smoke)
+RUN_AZURE_TESTS=1 python -m pytest -m azure -v
+
+# run the notebook against live Azure (omit RUN_AZURE_TESTS for the deterministic
+# offline fallback that uses FakeEmbedder + InMemoryVectorStore)
+RUN_AZURE_TESTS=1 python -m jupyter nbconvert --to notebook --execute --inplace embedding_variety.ipynb
+```
+
+On Windows PowerShell, set the variable with `$env:RUN_AZURE_TESTS=1` instead of
+the inline `RUN_AZURE_TESTS=1` prefix.
+
+> **💸 Cost caveat:** The Azure AI Search Basic tier bills continuously
+> (~$75/month) and Azure OpenAI embeddings are usage-based. **Delete the
+> resource group when you are done** to stop all charges:
+> ```bash
+> az group delete -n aadkannan-trace-sampling
+> ```
