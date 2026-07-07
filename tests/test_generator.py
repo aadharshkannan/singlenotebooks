@@ -44,3 +44,24 @@ def test_variety_controls_distinct_signatures():
     for t in s:
         distinct.setdefault(t.agent_id, set()).add(t.signature)
     assert len(distinct["slow_highvar"]) > len(distinct["fast_lowvar"])
+
+
+def test_concept_stream_labels_and_vocab_divergence():
+    from trace_sampling.concepts import ConceptSpec, SynonymMap
+    from trace_sampling.generator import generate_concept_stream, ConceptAgentConfig
+
+    sm = SynonymMap([["search", "query", "find"], ["edit", "modify"], ["run", "exec"]])
+    concepts = [ConceptSpec(0, ("search", "edit")), ConceptSpec(1, ("run", "search"))]
+    agents = [
+        ConceptAgentConfig("agent_a", velocity=10.0, concept_ids=(0, 1), zipf_s=1.0,
+                           vocab_bias={"search": "search", "edit": "edit", "run": "run"}),
+        ConceptAgentConfig("agent_b", velocity=10.0, concept_ids=(0, 1), zipf_s=1.0,
+                           vocab_bias={"search": "query", "edit": "modify", "run": "exec"}),
+    ]
+    stream = generate_concept_stream(agents, concepts, sm, duration=5.0, seed=3)
+    assert len(stream) > 0
+    assert all(t.concept_id in (0, 1) for t in stream)
+    sig_a = {t.signature for t in stream if t.agent_id == "agent_a" and t.concept_id == 0}
+    sig_b = {t.signature for t in stream if t.agent_id == "agent_b" and t.concept_id == 0}
+    assert sig_a and sig_b
+    assert sig_a.isdisjoint(sig_b)  # vocab mismatch is real
