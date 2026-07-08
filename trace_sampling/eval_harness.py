@@ -33,7 +33,7 @@ def _make_index(arm: str, cfg: SamplerConfig, synonym_map=None):
         return AzureClusterIndex(
             EmbeddingCache(AzureOpenAIEmbedder(c)),
             AzureSearchVectorStore(c, dim=1536, ensure_index=True),
-            tau=0.55, breaker=CircuitBreaker()), True
+            tau=0.50, breaker=CircuitBreaker()), True
     raise ValueError(arm)
 
 
