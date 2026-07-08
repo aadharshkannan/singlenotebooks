@@ -40,7 +40,7 @@ python -m pytest tests/ -q
 python -m jupyter nbconvert --to notebook --execute --inplace adaptive_trace_sampling.ipynb
 ```
 
-## Embedding-Based Variety Comparison (`embedding_variety.ipynb`)
+## Embedding-Based Variety Comparison (`adaptive_trace_sampling.ipynb`, Section 8)
 
 **Problem:** The base sampler measures variety by *exact* tool-call signature.
 That over-counts trivially different signatures as distinct, treats synonym
@@ -71,7 +71,9 @@ arms over a latent-concept synthetic stream (`generate_concept_stream`) and
 vs. the ground-truth concept labels, per-concept redundancy, novel-concept
 latency, and cross-agent unification. The treatment recovers more distinct
 concepts at a fixed keep budget, unifies synonym vocabulary across agents, and
-lowers redundant keeps — all with a >99% embedding-cache hit rate.
+lowers redundant keeps — all with a >99% embedding-cache hit rate. This
+comparison lives in **Section 8** of `adaptive_trace_sampling.ipynb`, alongside
+the base adaptive-sampling demo, for a single combined view.
 
 ### Azure setup (live arm)
 
@@ -99,9 +101,9 @@ az login                      # Entra auth for the DefaultAzureCredential chain
 # run the opt-in live Azure tests (embedding roundtrip + end-to-end cluster smoke)
 RUN_AZURE_TESTS=1 python -m pytest -m azure -v
 
-# run the notebook against live Azure (omit RUN_AZURE_TESTS for the deterministic
-# offline fallback that uses FakeEmbedder + InMemoryVectorStore)
-RUN_AZURE_TESTS=1 python -m jupyter nbconvert --to notebook --execute --inplace embedding_variety.ipynb
+# run the combined notebook against live Azure (omit RUN_AZURE_TESTS for the
+# deterministic offline fallback that uses FakeEmbedder + InMemoryVectorStore)
+RUN_AZURE_TESTS=1 python -m jupyter nbconvert --to notebook --execute --inplace adaptive_trace_sampling.ipynb
 ```
 
 On Windows PowerShell, set the variable with `$env:RUN_AZURE_TESTS=1` instead of
