@@ -2,6 +2,8 @@
 import itertools
 import numpy as np
 
+_EPS = 1e-9
+
 from .model import Trace
 from .variety import VarietyObservation, VarietyKey, ExactSignatureIndex
 from .embedding import EmbeddingCache
@@ -52,7 +54,11 @@ class AzureClusterIndex:
     def __init__(self, cache: EmbeddingCache, store: VectorStore, tau: float = 0.85,
                  ttl: float = 60.0, purge_every: int = 200,
                  embed_budget_per_tick: int = 8, recent_buffer_size: int = 64,
-                 breaker=None, decay_half_life: float = 30.0):
+                 breaker=None, k: float = 8.0, iat_alpha: float = 0.3):
+        if not k > 0:
+            raise ValueError(f"k must be > 0, got {k}")
+        if not (0.0 < iat_alpha <= 1.0):
+            raise ValueError(f"iat_alpha must be in (0, 1], got {iat_alpha}")
         self._cache = cache
         self._store = store
         self.tau = tau
@@ -63,9 +69,10 @@ class AzureClusterIndex:
         self._recent_max = recent_buffer_size
         self._breaker = breaker
         self._ids = itertools.count()
-        self._counts = {}
-        self._last_decay_ts = {}
-        self._decay_half_life = decay_half_life
+        self.k = k
+        self.iat_alpha = iat_alpha
+        self._last_seen = {}        # cluster_id -> last observe timestamp
+        self._iat = {}              # cluster_id -> EWMA of inter-observe gap (seeded on first join)
         self._since_purge = 0
         self._embeds_this_tick = 0
         self._last_tick = None

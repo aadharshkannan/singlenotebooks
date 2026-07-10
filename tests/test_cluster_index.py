@@ -83,6 +83,23 @@ def test_recent_low_sim_does_not_suppress_store_match():
     assert again.novelty < 0.5
 
 
+def test_ctor_rejects_bad_k():
+    with pytest.raises(ValueError):
+        _index(k=0.0)
+
+def test_ctor_rejects_bad_iat_alpha():
+    with pytest.raises(ValueError):
+        _index(iat_alpha=0.0)
+    with pytest.raises(ValueError):
+        _index(iat_alpha=1.5)
+
+def test_ctor_defaults_present():
+    idx = _index()
+    assert idx.k == 8.0
+    assert idx.iat_alpha == 0.3
+    assert not hasattr(idx, "_decay_half_life")
+
+
 @pytest.mark.azure
 def test_azure_cluster_index_end_to_end():
     from trace_sampling.azure_config import AzureConfig
