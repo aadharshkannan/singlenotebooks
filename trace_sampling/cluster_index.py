@@ -54,7 +54,7 @@ class AzureClusterIndex:
     def __init__(self, cache: EmbeddingCache, store: VectorStore, tau: float = 0.85,
                  ttl: float = 60.0, purge_every: int = 200,
                  embed_budget_per_tick: int = 8, recent_buffer_size: int = 64,
-                 breaker=None, k: float = 8.0, iat_alpha: float = 0.3):
+                 breaker=None, k: float = 16.0, iat_alpha: float = 0.3):
         if not k > 0:
             raise ValueError(f"k must be > 0, got {k}")
         if not (0.0 < iat_alpha <= 1.0):

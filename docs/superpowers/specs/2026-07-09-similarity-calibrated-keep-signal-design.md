@@ -138,7 +138,7 @@ known cluster → `staleness`. No mismatched scales, no arbitrary term winning o
   cluster id that is later reused cannot inherit stale cadence.
 - Remove the now-vestigial count-based rarity: delete `_counts` and `_bump`; `purge_stale` cleanup
   drops the `_iat`/last-seen entries instead of `_counts`.
-- **Constructor params:** add `k: float = 8.0` (dimensionless cadence multiplier) and
+- **Constructor params:** add `k: float = 16.0` (dimensionless cadence multiplier) and
   `iat_alpha: float = 0.3` (EWMA smoothing). **Remove `decay_half_life`** entirely — it only fed the
   deleted count-based rarity, and the only callers are `eval_harness._make_index` and the tests,
   which this change updates. Validate on construction: `k > 0` and `0 < iat_alpha <= 1` (raise
@@ -149,12 +149,22 @@ known cluster → `staleness`. No mismatched scales, no arbitrary term winning o
 
 ### 3.5 Default knob
 
-Default **`k = 8.0`**. From the validated spike this yields, on the live-representative stream: cluster
-arm **65 kept** (fewer than exact's 79) at **median redundancy 17.5** (equal to exact) with **ARI
-0.53** (≈2× exact's 0.27) and coverage 1.0 — i.e. *equal-or-better redundancy, fewer total keeps,
-far better variety fidelity*. `k` is the single tuning knob for keep-volume vs. redundancy.
+Default **`k = 16.0`**. This value is tuned against the **real `AdaptiveSampler`** on the
+live-representative stream (see §4): the cluster arm keeps **49** (vs exact's 79) at **median
+redundancy 13.5** (below exact's 17.5) with **ARI 0.53** (≈2× exact's 0.27) and coverage 1.0 —
+*equal-or-better redundancy, fewer total keeps, far better variety fidelity*. `k` is the single
+tuning knob for keep-volume vs. redundancy: larger `k` lowers the steady-state re-sample floor
+`1 − 2^(−1/k)` (k=8→0.083, k=16→0.043) and therefore keeps fewer routine cluster members, while a
+long-absent cluster is still re-sampled regardless of `k` (`dt ≫ half_life → staleness → 1`).
 
-## 4. Spike validation (already run, cached real embeddings, tau=0.50)
+## 4. Validation
+
+### 4.1 Early spike (cached real embeddings, tau=0.50, **simplified keep-rule**)
+
+This first spike scored keeps with a simplified threshold on the raw keep-signal, **not** the real
+`AdaptiveSampler.decide` (which adds diversity-fill scaling, floors, and backpressure). It correctly
+ranked the designs and confirmed the mechanism, but its absolute keep counts under-predicted the
+real sampler — it suggested `k=8` was sufficient. Kept for provenance:
 
 | design | kept | coverage | median redundancy | ARI |
 |---|---|---|---|---|
@@ -162,11 +172,26 @@ far better variety fidelity*. `k` is the single tuning knob for keep-volume vs. 
 | Scheme A, k=1 | 164 | 1.00 | 37.0 | 0.531 |
 | Scheme A, k=3 | 117 | 1.00 | 30.5 | 0.531 |
 | Scheme A, k=5 | 84 | 1.00 | 20.0 | 0.531 |
-| **Scheme A, k=8 (default)** | **65** | 1.00 | **17.5** | **0.531** |
+| Scheme A, k=8 | 65 | 1.00 | 17.5 | 0.531 |
 
-ARI/V-measure are identical across every cluster design (0.531/0.616), confirming the keep-signal is
-decoupled from clustering quality. The old design behaves like Scheme A at k≈3 but via a broken,
-non-uniform, non-scale-invariant floor.
+### 4.2 Real-sampler sweep (cached real embeddings, tau=0.50, **actual `AdaptiveSampler`**) — authoritative
+
+Re-run through the production `AdaptiveSampler` over the identical live-representative stream
+(1093 traces, seed=7). This matches the live Azure arm exactly (k=8 → kept 77 / red 21.0 reproduced
+the live result), and is what the **`k=16` default** is chosen from:
+
+| design | kept | coverage | median redundancy | ARI | assertion (`≤ exact 17.5`) |
+|---|---|---|---|---|---|
+| adaptive+exact (reference) | 79 | 1.00 | 17.5 | 0.266 | — |
+| Scheme A, k=8 | 77 | 1.00 | 21.0 | 0.531 | ✗ fails |
+| Scheme A, k=12 | 58 | 1.00 | 15.5 | 0.531 | ✓ |
+| **Scheme A, k=16 (default)** | **49** | 1.00 | **13.5** | **0.531** | ✓ (clean margin) |
+| Scheme A, k=20 | 46 | 1.00 | 13.0 | 0.531 | ✓ |
+| Scheme A, k=32 | 37 | 1.00 | 10.5 | 0.531 | ✓ |
+
+ARI/V-measure are identical across every cluster design and every `k` (0.531/0.616), confirming the
+keep-signal is decoupled from clustering quality. `k=16` is chosen for a comfortable redundancy
+margin (13.5 vs 17.5) while retaining a sensible steady-state re-sample floor.
 
 ## 5. Impact on the notebook and evals
 

@@ -155,7 +155,7 @@ def test_ctor_rejects_bad_iat_alpha():
 
 def test_ctor_defaults_present():
     idx = _index()
-    assert idx.k == 8.0
+    assert idx.k == 16.0
     assert idx.iat_alpha == 0.3
     assert not hasattr(idx, "_decay_half_life")
 
