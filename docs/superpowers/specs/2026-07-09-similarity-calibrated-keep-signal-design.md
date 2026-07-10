@@ -79,21 +79,41 @@ cluster overdue?".)
 ### 3.2 Rarity (temporal) — cadence-normalized staleness (Scheme A)
 
 Replace the count-based rarity with a **time-normalized staleness** on the same `[0, 1]` scale, whose
-half-life is **dynamic**, scaled to each cluster's own observed cadence:
+half-life is **dynamic**, scaled to each cluster's own observed cadence.
+
+**Exact per-join algorithm (ordering is significant).** For a trace that joins existing
+`cluster` at time `now`, with `eps = 1e-9`:
 
 ```
-dt          = now − last_seen[cluster]                       # gap since this cluster was last observed
-iat[cluster]= EWMA(dt, alpha=iat_alpha)                      # per-cluster mean inter-observe interval
-half_life   = max(k * iat[cluster], eps)                     # dimensionless knob k
-staleness   = 1 − 0.5 ** (dt / half_life)                    # in [0, 1)
+dt = max(0.0, now − last_seen[cluster])          # gap since this cluster's previous observe
+
+# 1) decide staleness using the PRIOR cadence (not yet folded with this dt):
+if cluster not in _iat:                           # first join after creation → seed
+    iat_ref = max(dt, eps)
+else:
+    iat_ref = max(_iat[cluster], eps)
+half_life = max(k * iat_ref, eps)                 # dimensionless knob k
+staleness = 1 − 0.5 ** (dt / half_life)           # in [0, 1); dt=0 → 0, no div-by-zero (eps floor)
+
+# 2) THEN update the cadence EWMA and last-seen for next time:
+_iat[cluster]      = max(dt, eps) if cluster not in _iat else (iat_alpha * dt + (1 − iat_alpha) * _iat[cluster])
+last_seen[cluster] = now
 ```
 
-- **New cluster:** `staleness = 0` (novelty=1 dominates anyway).
+Computing `staleness` from the **prior** `iat_ref` (step 1) *before* folding in the current `dt`
+(step 2) is what makes the returning-cluster case behave correctly — otherwise a huge `dt` would
+inflate `iat` in the same step and cancel its own staleness.
+
+- **Cluster creation** (`novelty = 1`): no staleness is computed; `last_seen[cluster] = now` and
+  `_iat` is left unset (seeded on the first *join*).
+- **First join after creation:** `iat_ref = max(dt, eps)`, so `half_life = k · dt` and
+  `staleness ≈ 1 − 2^(−1/k)` — the steady-state floor value.
 - **Regularly-hit cluster:** `dt ≈ iat`, so `staleness ≈ 1 − 2^(−1/k)` — a **uniform, tunable
   steady-state floor** (k=1→0.50, k=3→0.21, k=8→0.08), *identical across clusters regardless of their
   absolute velocity*.
-- **Returning rare cluster:** `dt ≫ iat`, so `staleness → 1` — the trace is re-sampled (the temporal
-  win: known-but-rare behaviors do not fade out).
+- **Returning rare cluster:** `dt ≫ iat_ref`, so `dt / half_life ≫ 1` and `staleness → 1` — the trace
+  is re-sampled (the temporal win: known-but-rare behaviors do not fade out).
+- **`dt = 0`** (two traces with identical timestamps joining the same cluster): `staleness = 0`.
 
 **Why dynamic (Scheme A) over a fixed half-life:** a fixed half-life in absolute seconds is brittle —
 it means something completely different on a 20-second vs a 20-minute stream, and it lets the fastest
@@ -112,13 +132,20 @@ known cluster → `staleness`. No mismatched scales, no arbitrary term winning o
 
 - Keep the existing per-cluster last-seen timestamp map (currently `_last_decay_ts`) to supply
   `last_seen[cluster]`; read it *before* updating to compute `dt`.
-- Add a per-cluster `iat` EWMA map (`_iat`), pruned alongside clusters on `purge_stale` (bounded
-  memory).
-- Remove the now-vestigial count-based rarity: `_counts` and `_bump`. `purge_stale` cleanup drops the
-  `_iat`/last-seen entries instead of `_counts`.
-- New constructor params: `k: float = 8.0` (dimensionless cadence multiplier) and
-  `iat_alpha: float = 0.3` (EWMA smoothing). The existing `decay_half_life` param is removed (or
-  retained only as a deprecated no-op if any caller passes it — resolve during implementation).
+- Add a per-cluster `iat` EWMA map (`_iat`), seeded on a cluster's first join.
+- **Purge/eviction:** on `purge_stale`, drop the `_iat` and last-seen entries for every purged
+  cluster (alongside removing its recent-buffer entry) so per-cluster state stays bounded and a
+  cluster id that is later reused cannot inherit stale cadence.
+- Remove the now-vestigial count-based rarity: delete `_counts` and `_bump`; `purge_stale` cleanup
+  drops the `_iat`/last-seen entries instead of `_counts`.
+- **Constructor params:** add `k: float = 8.0` (dimensionless cadence multiplier) and
+  `iat_alpha: float = 0.3` (EWMA smoothing). **Remove `decay_half_life`** entirely — it only fed the
+  deleted count-based rarity, and the only callers are `eval_harness._make_index` and the tests,
+  which this change updates. Validate on construction: `k > 0` and `0 < iat_alpha <= 1` (raise
+  `ValueError` otherwise). Define `eps = 1e-9` as a module/class constant.
+- **Circuit-breaker fallback** (`_fallback`) is unchanged: on Azure failure/budget-exhaustion the
+  index still returns exact-signature `rarity`/`novelty`, and the `_iat`/`last_seen` maps are simply
+  not updated for that trace (no cluster was assigned).
 
 ### 3.5 Default knob
 
