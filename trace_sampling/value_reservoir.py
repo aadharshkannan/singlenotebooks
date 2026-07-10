@@ -44,13 +44,13 @@ class _Running:
 class ClusterValueReservoir:
     def __init__(self, k: int = 64, power: float = 2.0,
                  eps: float = 1e-6, prior: float = 0.5, ttl: float = 60.0):
-        if not k >= 1:
+        if k < 1:
             raise ValueError(f"k must be >= 1, got {k}")
-        if not power > 0:
+        if power <= 0:
             raise ValueError(f"power must be > 0, got {power}")
-        if not eps > 0:
+        if eps <= 0:
             raise ValueError(f"eps must be > 0, got {eps}")
-        if not ttl > 0:
+        if ttl <= 0:
             raise ValueError(f"ttl must be > 0, got {ttl}")
         self.k = k
         self.power = power
@@ -83,7 +83,7 @@ class ClusterValueReservoir:
                 buf = self._members.get(cluster_id)
                 if buf is None:
                     buf = self._members[cluster_id] = deque(maxlen=self.k)
-                buf.append((np.asarray(vec, dtype=np.float64), float(value)))
+                buf.append((np.array(vec, dtype=np.float64), float(value)))
                 self._last_seen[cluster_id] = ts
         return True
 
@@ -93,6 +93,9 @@ class ClusterValueReservoir:
         falling back to agent-mean -> global-mean -> prior (first applicable)."""
         with self._lock:
             members = self._members.get(cluster_id) if cluster_id is not None else None
+            # Invariant: _members never holds an empty deque — deques are created on
+            # first append and removed wholesale by purge_stale/evict, so `members`
+            # being truthy (non-None, non-empty) is sufficient to proceed with IDW.
             if vec is not None and members:
                 q = np.asarray(vec, dtype=np.float64)
                 num = 0.0
@@ -113,7 +116,12 @@ class ClusterValueReservoir:
             return Imputation(self.prior, "prior", 0, math.nan)
 
     def purge_stale(self, now: float, ttl: Optional[float] = None) -> List[str]:
-        """Drop cluster reservoirs untouched for longer than ttl. Returns dropped ids."""
+        """Drop cluster reservoirs untouched for longer than ttl. Returns dropped ids.
+
+        `now` must come from the same clock used by `record_eval` — i.e.
+        `time.monotonic()` when records were inserted with the default `now=None`.
+        Mixing clock epochs (e.g. passing `time.time()` against monotonic timestamps)
+        will produce incorrect `now - ts` comparisons."""
         ttl = self.ttl if ttl is None else ttl
         with self._lock:
             stale = [cid for cid, ts in self._last_seen.items() if now - ts > ttl]

@@ -51,6 +51,16 @@ def test_record_eval_rejects_non_finite():
     assert res._global.count == 0 and res._members == {}
 
 
+def test_record_eval_copies_donor_vector():
+    res = ClusterValueReservoir()
+    original = np.array([1.0, 0.0], dtype=np.float64)
+    res.record_eval("c1", "a", original, 0.7)
+    original[0] = 999.0   # mutate after recording
+    stored_vec, stored_val = res._members["c1"][0]
+    assert stored_vec[0] == pytest.approx(1.0)   # copy, not aliased
+    assert res.impute("c1", "a", _vec(1.0, 0.0)).value == pytest.approx(0.7, abs=1e-3)
+
+
 def test_impute_idw_weighted_average():
     res = ClusterValueReservoir(power=2.0, eps=1e-6)
     # two orthogonal-ish donors; query closer to the first
