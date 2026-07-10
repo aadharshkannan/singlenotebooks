@@ -4,7 +4,7 @@ import time
 import numpy as np
 import pandas as pd
 
-from .samplers import AdaptiveSampler, SamplerConfig
+from .samplers import AdaptiveSampler, BaselineSampler, SamplerConfig
 from .variety import ExactSignatureIndex
 
 
@@ -16,23 +16,25 @@ class RunResult:
 
 
 def _make_index(arm: str, cfg: SamplerConfig, synonym_map=None):
-    if arm == "baseline":
+    if arm == "adaptive_exact":
         return ExactSignatureIndex(max_signatures_per_agent=cfg.max_signatures_per_agent), False
-    if arm == "treatment_offline":
+    if arm == "adaptive_cluster_offline":
         from .embedding import FakeEmbedder, EmbeddingCache
         from .vector_store import InMemoryVectorStore
         from .cluster_index import AzureClusterIndex
         fe = FakeEmbedder(dim=64, synonym_map=synonym_map, noise=0.01, seed=0)
         return AzureClusterIndex(EmbeddingCache(fe), InMemoryVectorStore(), tau=0.9), True
-    if arm == "treatment_azure":
+    if arm == "adaptive_cluster_azure":
         from .azure_config import AzureConfig
         from .embedding import AzureOpenAIEmbedder, EmbeddingCache
         from .vector_store import AzureSearchVectorStore
         from .cluster_index import AzureClusterIndex, CircuitBreaker
         c = AzureConfig.from_env()
+        store = AzureSearchVectorStore(c, dim=1536, ensure_index=True)
+        store.clear()  # start each eval run from a clean index for reproducibility
         return AzureClusterIndex(
             EmbeddingCache(AzureOpenAIEmbedder(c)),
-            AzureSearchVectorStore(c, dim=1536, ensure_index=True),
+            store,
             tau=0.50, breaker=CircuitBreaker()), True
     raise ValueError(arm)
 
@@ -62,9 +64,26 @@ def _ledger(index, kept_count: int, decide_latencies_ms=None) -> dict:
 
 
 def run_arm(stream, cfg: SamplerConfig, arm: str, seed: int = 0,
-            synonym_map=None) -> RunResult:
-    index, use_novelty = _make_index(arm, cfg, synonym_map)
-    sampler = AdaptiveSampler(cfg, seed=seed, variety_index=index, use_novelty=use_novelty)
+            synonym_map=None, keep_prob: Optional[float] = None) -> RunResult:
+    """Run one sampling arm over the stream.
+
+    Arms:
+      * ``baseline`` -- ``BaselineSampler`` (random uniform, no variety index).
+        Pass ``keep_prob`` to match its keep volume to an adaptive arm for a fair
+        comparison; defaults to 0.5 if omitted.
+      * ``adaptive_exact`` -- ``AdaptiveSampler`` + ``ExactSignatureIndex`` (the
+        current-production, exact tool-call-signature variety comparison).
+      * ``adaptive_cluster_offline`` / ``adaptive_cluster_azure`` --
+        ``AdaptiveSampler`` + embedding-based ``AzureClusterIndex``.
+    """
+    if arm == "baseline":
+        sampler = BaselineSampler(keep_prob=keep_prob if keep_prob is not None else 0.5,
+                                  seed=seed)
+        index = None
+    else:
+        index, use_novelty = _make_index(arm, cfg, synonym_map)
+        sampler = AdaptiveSampler(cfg, seed=seed, variety_index=index,
+                                  use_novelty=use_novelty)
     rows = []
     kept_count = 0
     decide_latencies_ms = []
@@ -73,11 +92,20 @@ def run_arm(stream, cfg: SamplerConfig, arm: str, seed: int = 0,
         kept = sampler.decide(t)
         decide_latencies_ms.append((time.perf_counter() - t0) * 1000.0)
         kept_count += int(kept)
-        obs = sampler.last_observation
+        if index is None:
+            # Random baseline has no variety index: log the raw signature so
+            # keep-based metrics (coverage/redundancy/latency) still apply, but
+            # clustering metrics (ARI/V-measure) are intentionally not computed.
+            variety_key = str(t.signature)
+            key_kind = "signature"
+        else:
+            obs = sampler.last_observation
+            variety_key = str(obs.key.value)
+            key_kind = obs.key.kind
         rows.append(dict(
             timestamp=t.timestamp, agent_id=t.agent_id, concept_id=t.concept_id,
-            signature=t.signature, variety_key=str(obs.key.value),
-            key_kind=obs.key.kind, kept=kept,
+            signature=t.signature, variety_key=variety_key,
+            key_kind=key_kind, kept=kept,
         ))
     return RunResult(pd.DataFrame(rows), _ledger(index, kept_count, decide_latencies_ms), index)
 

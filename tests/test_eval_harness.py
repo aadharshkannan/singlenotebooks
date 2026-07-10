@@ -20,7 +20,7 @@ def _sm():
 
 def test_run_arm_produces_result_with_log_and_ledger():
     stream = _stream()
-    result = run_arm(stream, SamplerConfig(llm_throughput=20.0), arm="baseline", seed=0)
+    result = run_arm(stream, SamplerConfig(llm_throughput=20.0), arm="adaptive_exact", seed=0)
     log = result.log
     assert set(["timestamp", "agent_id", "concept_id", "signature",
                 "variety_key", "key_kind", "kept"]).issubset(log.columns)
@@ -34,10 +34,23 @@ def test_run_arm_produces_result_with_log_and_ledger():
     assert result.ledger["est_cost_usd"] == 0.0
 
 
-def test_run_arm_offline_treatment_unifies_variants():
+def test_run_arm_baseline_is_random_sampler_without_variety_index():
     stream = _stream()
     result = run_arm(stream, SamplerConfig(llm_throughput=20.0),
-                     arm="treatment_offline", seed=0, synonym_map=_sm())
+                     arm="baseline", seed=0, keep_prob=0.5)
+    log = result.log
+    assert len(log) == len(stream)
+    assert log["kept"].sum() > 0
+    # Random baseline has no variety index: every row logs the raw signature.
+    assert (log["key_kind"] == "signature").all()
+    assert result.ledger["embed_calls"] == 0
+    assert result.ledger["est_cost_usd"] == 0.0
+
+
+def test_run_arm_offline_cluster_unifies_variants():
+    stream = _stream()
+    result = run_arm(stream, SamplerConfig(llm_throughput=20.0),
+                     arm="adaptive_cluster_offline", seed=0, synonym_map=_sm())
     assert result.ledger["embed_calls"] > 0
     log = result.log
     distinct_sigs = log.groupby("agent_id")["signature"].nunique().sum()

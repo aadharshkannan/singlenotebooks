@@ -56,6 +56,11 @@ class InMemoryVectorStore:
     def delete(self, cluster_id: str) -> None:
         self._docs.pop(cluster_id, None)
 
+    def clear(self) -> int:
+        n = len(self._docs)
+        self._docs.clear()
+        return n
+
     def purge_stale(self, now: float, ttl: float) -> List[str]:
         stale = [cid for cid, d in self._docs.items() if now - d.last_seen > ttl]
         for cid in stale:
@@ -134,6 +139,22 @@ class AzureSearchVectorStore:
 
     def delete(self, cluster_id: str) -> None:
         self._client.delete_documents([{"cluster_id": cluster_id}])
+
+    def clear(self) -> int:
+        """Delete every document in the index so an eval run starts from a clean
+        slate (the index otherwise persists clusters across runs, which pollutes
+        clustering metrics). Returns the number of documents removed."""
+        import time as _time
+        total = 0
+        for _ in range(20):
+            ids = [r["cluster_id"] for r in
+                   self._client.search(search_text="*", select=["cluster_id"], top=1000)]
+            if not ids:
+                break
+            self._client.delete_documents([{"cluster_id": c} for c in ids])
+            total += len(ids)
+            _time.sleep(1.0)  # deletes are eventually consistent; let them commit
+        return total
 
     def purge_stale(self, now: float, ttl: float) -> List[str]:
         flt = f"last_seen lt {now - ttl}"
