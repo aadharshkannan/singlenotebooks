@@ -114,13 +114,22 @@ class AzureClusterIndex:
                 best = (cid, s)
         return best
 
-    def _bump(self, cluster_id: str, ts: float) -> float:
-        prev_ts = self._last_decay_ts.get(cluster_id, ts)
-        decay = 0.5 ** ((ts - prev_ts) / self._decay_half_life) if self._decay_half_life else 1.0
-        c = self._counts.get(cluster_id, 0.0) * decay + 1.0
-        self._counts[cluster_id] = c
-        self._last_decay_ts[cluster_id] = ts
-        return 1.0 / (1.0 + c)
+    def _staleness(self, cluster_id: str, now: float) -> float:
+        """Cadence-normalized temporal under-representation in [0, 1).
+
+        Uses the PRIOR inter-arrival EWMA to size the half-life, THEN folds the
+        current gap into the EWMA. Reading the prior cadence first is what lets a
+        long-absent cluster score ~1 instead of cancelling its own staleness."""
+        dt = max(0.0, now - self._last_seen.get(cluster_id, now))
+        if cluster_id not in self._iat:                      # first join after creation -> seed
+            iat_ref = max(dt, _EPS)
+            self._iat[cluster_id] = iat_ref
+        else:
+            iat_ref = max(self._iat[cluster_id], _EPS)
+            self._iat[cluster_id] = self.iat_alpha * dt + (1.0 - self.iat_alpha) * self._iat[cluster_id]
+        half_life = max(self.k * iat_ref, _EPS)
+        self._last_seen[cluster_id] = now
+        return 1.0 - 0.5 ** (dt / half_life)
 
     def observe(self, trace: Trace) -> VarietyObservation:
         self._tick(trace.timestamp)
@@ -154,6 +163,7 @@ class AzureClusterIndex:
             else:
                 cluster_id = self._new_id()
                 novelty = 1.0
+                self._last_seen[cluster_id] = trace.timestamp
                 self._store.upsert(VectorDoc(cluster_id, vec, trace.agent_id, trace.timestamp))
                 self._recent.append((cluster_id, trace.agent_id, vec, trace.timestamp))
                 if len(self._recent) > self._recent_max:
@@ -165,5 +175,8 @@ class AzureClusterIndex:
                 self._breaker.on_failure(trace.timestamp)
             return self._fallback(trace)
 
-        rarity = self._bump(cluster_id, trace.timestamp)
+        if novelty == 1.0:                    # new cluster: nothing is stale yet
+            rarity = 0.0
+        else:
+            rarity = self._staleness(cluster_id, trace.timestamp)
         return VarietyObservation(VarietyKey("cluster", cluster_id), rarity, novelty)

@@ -91,6 +91,47 @@ def test_novelty_is_binary():
     assert join.novelty == 0.0                     # joins existing cluster -> exactly 0
 
 
+def test_creation_has_zero_staleness_rarity():
+    idx = _index()
+    new = idx.observe(_t(("search",), agent="a", ts=0.0, cid=0))
+    assert new.rarity == 0.0                        # nothing stale on first sight
+
+def test_zero_gap_join_has_zero_staleness():
+    # Two joins at the identical timestamp -> dt=0 -> staleness exactly 0, no div-by-zero.
+    idx = _index()
+    idx.observe(_t(("search",), agent="a", ts=5.0, cid=0))   # create
+    idx.observe(_t(("query",),  agent="a", ts=6.0, cid=0))   # first join seeds iat
+    same_ts = idx.observe(_t(("find",), agent="a", ts=6.0, cid=0))  # dt = 0
+    assert same_ts.rarity == 0.0
+
+def test_staleness_grows_with_gap():
+    # Two indices, identical except the returning gap; larger gap -> larger rarity.
+    def run(gap):
+        idx = _index(k=8.0)
+        idx.observe(_t(("search",), agent="a", ts=0.0, cid=0))   # create
+        idx.observe(_t(("query",),  agent="a", ts=1.0, cid=0))   # first join, seeds iat=1
+        return idx.observe(_t(("find",), agent="a", ts=1.0 + gap, cid=0)).rarity
+    assert run(50.0) > run(1.0) > 0.0
+
+def test_cadence_normalization_converges_across_speeds():
+    # A regularly-hit cluster reaches steady-state staleness ~ 1 - 2^(-1/k),
+    # independent of absolute cadence. Compare a fast and a slow cluster.
+    import math
+    k = 8.0
+    expected = 1 - 2 ** (-1.0 / k)
+    def steady(step):
+        idx = _index(k=k)
+        idx.observe(_t(("search",), agent="a", ts=0.0, cid=0))    # create
+        r = 0.0
+        for i in range(1, 6):
+            r = idx.observe(_t(("query",), agent="a", ts=i * step, cid=0)).rarity
+        return r
+    fast, slow = steady(0.5), steady(50.0)
+    assert abs(fast - expected) < 0.05
+    assert abs(slow - expected) < 0.05
+    assert abs(fast - slow) < 0.05
+
+
 def test_ctor_rejects_bad_k():
     with pytest.raises(ValueError):
         _index(k=0.0)
