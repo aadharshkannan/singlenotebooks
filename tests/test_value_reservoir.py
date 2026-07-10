@@ -98,3 +98,39 @@ def test_impute_no_vec_skips_idw():
     res.record_eval("c1", "a", _vec(1.0, 0.0), 0.7)
     imp = res.impute("c1", "a", None)                 # no query vec -> cannot IDW
     assert imp.provenance == "agent_mean"
+
+
+def test_ring_buffer_caps_at_k():
+    res = ClusterValueReservoir(k=3)
+    for i in range(5):
+        res.record_eval("c1", "a", _vec(float(i), 0.0), float(i))
+    assert len(res._members["c1"]) == 3          # only last k retained
+    vals = [v for _, v in res._members["c1"]]
+    assert vals == [2.0, 3.0, 4.0]
+
+
+def test_purge_stale_drops_and_returns_ids():
+    res = ClusterValueReservoir(ttl=10.0)
+    res.record_eval("c1", "a", _vec(1.0), 0.5, now=0.0)
+    res.record_eval("c2", "a", _vec(1.0), 0.5, now=100.0)
+    dropped = res.purge_stale(now=105.0)          # c1 is stale (>10s), c2 fresh
+    assert dropped == ["c1"]
+    assert "c1" not in res._members and "c1" not in res._last_seen
+    assert "c2" in res._members
+
+
+def test_evict_removes_named_clusters():
+    res = ClusterValueReservoir()
+    res.record_eval("c1", "a", _vec(1.0), 0.5, now=0.0)
+    res.record_eval("c2", "a", _vec(1.0), 0.5, now=0.0)
+    res.evict(["c1"])
+    assert "c1" not in res._members and "c1" not in res._last_seen
+    assert "c2" in res._members
+
+
+def test_record_eval_without_now_is_fresh_not_immediately_purgeable():
+    res = ClusterValueReservoir(ttl=3600.0)
+    res.record_eval("c1", "a", _vec(1.0), 0.5)          # no explicit now -> monotonic()
+    dropped = res.purge_stale(now=time.monotonic())      # same clock, just recorded
+    assert "c1" not in dropped
+    assert "c1" in res._members

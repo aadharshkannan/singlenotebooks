@@ -111,3 +111,20 @@ class ClusterValueReservoir:
             if self._global.count > 0:
                 return Imputation(self._global.mean, "global_mean", 0, math.nan)
             return Imputation(self.prior, "prior", 0, math.nan)
+
+    def purge_stale(self, now: float, ttl: Optional[float] = None) -> List[str]:
+        """Drop cluster reservoirs untouched for longer than ttl. Returns dropped ids."""
+        ttl = self.ttl if ttl is None else ttl
+        with self._lock:
+            stale = [cid for cid, ts in self._last_seen.items() if now - ts > ttl]
+            for cid in stale:
+                self._members.pop(cid, None)
+                self._last_seen.pop(cid, None)
+        return stale
+
+    def evict(self, cluster_ids: Iterable[str]) -> None:
+        """Forget the named cluster reservoirs (e.g. mirroring the index's purge)."""
+        with self._lock:
+            for cid in cluster_ids:
+                self._members.pop(cid, None)
+                self._last_seen.pop(cid, None)
