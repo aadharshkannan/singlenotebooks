@@ -31,11 +31,18 @@ class ValuePipeline:
     def __init__(self, sampler, cache, reservoir: ClusterValueReservoir,
                  submit_judge: Optional[SubmitJudge],
                  on_value: "Optional[Callable[[TraceValue], None]]" = None):
+        """
+        Args:
+            on_value: optional sink called for every emitted TraceValue. May be
+                invoked from both the process() thread ("pending"/imputed emissions)
+                and a judge thread ("judged" emissions), so it must be thread-safe.
+        """
         self.sampler = sampler
         self.cache = cache
         self.reservoir = reservoir
         self.submit_judge = submit_judge
         self.on_value = on_value
+        self.n_submit_failures = 0
 
     def _emit(self, tv: TraceValue) -> TraceValue:
         if self.on_value is not None:
@@ -58,8 +65,12 @@ class ValuePipeline:
             try:
                 if self.submit_judge is not None:
                     self.submit_judge(trace, _done)
+                # NOTE: for a synchronous judge, an exception escaping the judge
+                # callback (including from _done / record_eval / on_value) is caught
+                # here and counted as a submission failure; async judges run _done on
+                # their own thread and must handle callback exceptions themselves.
             except Exception:
-                pass  # submission failed: treat as never-judged, no reservoir update
+                self.n_submit_failures += 1
             return pending
         imp = self.reservoir.impute(cid, trace.agent_id, vec)
         return self._emit(TraceValue(trace.trace_id, False, imp.value, imp.provenance))

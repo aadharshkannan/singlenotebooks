@@ -174,3 +174,20 @@ def test_submit_judge_failure_still_returns_pending_no_record():
     tv = pipe.process(_trace(sig=sig))
     assert tv.kept is True and tv.provenance == "pending"
     assert res._global.count == 0 and res._members == {}
+
+
+def test_submit_failure_increments_counter():
+    sig = ("write",)
+    vec = np.array([1.0, 0.0])
+    sampler = _FakeSampler()
+    sampler.queue(keep=True, key=VarietyKey("cluster", "c1"))
+    res = ClusterValueReservoir()
+    cache = _Cache({sig: vec})
+
+    def boom(trace, on_done):
+        raise RuntimeError("judge queue full")
+
+    pipe = ValuePipeline(sampler, cache, res, submit_judge=boom)
+    tv = pipe.process(_trace(sig=sig))
+    assert tv.provenance == "pending"
+    assert pipe.n_submit_failures == 1
