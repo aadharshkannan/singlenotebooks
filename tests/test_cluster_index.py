@@ -91,6 +91,18 @@ def test_novelty_is_binary():
     assert join.novelty == 0.0                     # joins existing cluster -> exactly 0
 
 
+def test_purge_drops_per_cluster_state():
+    idx = _index(ttl=10.0, purge_every=1)
+    first = idx.observe(_t(("search",), agent="a", ts=0.0, cid=0))
+    cid = first.key.value
+    idx.observe(_t(("query",), agent="a", ts=1.0, cid=0))     # join -> seeds _iat[cid]
+    assert cid in idx._iat and cid in idx._last_seen
+    # far-future trace triggers purge of the now-stale cluster
+    idx.observe(_t(("search",), agent="a", ts=100.0, cid=0))
+    assert cid not in idx._iat
+    assert cid not in idx._last_seen
+
+
 def test_creation_has_zero_staleness_rarity():
     idx = _index()
     new = idx.observe(_t(("search",), agent="a", ts=0.0, cid=0))

@@ -146,8 +146,8 @@ class AzureClusterIndex:
             self._since_purge += 1
             if self._since_purge >= self.purge_every:
                 for cid in self._store.purge_stale(now=trace.timestamp, ttl=self.ttl):
-                    self._counts.pop(cid, None)
-                    self._last_decay_ts.pop(cid, None)
+                    self._iat.pop(cid, None)
+                    self._last_seen.pop(cid, None)
                 self._since_purge = 0
             vec = self._cache.get(trace.signature)
             near = self._recent_nearest(trace.agent_id, vec)
