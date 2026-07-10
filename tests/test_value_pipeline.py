@@ -1,0 +1,176 @@
+import numpy as np
+import pytest
+from trace_sampling.model import Trace
+from trace_sampling.variety import VarietyKey, VarietyObservation
+from trace_sampling.value_reservoir import ClusterValueReservoir
+from trace_sampling.value_pipeline import ValuePipeline, TraceValue
+
+
+class _FakeSampler:
+    """Minimal sampler stub: decide() returns a queued verdict and sets
+    last_observation to a preset VarietyObservation."""
+
+    def __init__(self):
+        self._verdicts = []
+        self._obs = []
+        self.last_observation = None
+
+    def queue(self, keep: bool, key: VarietyKey):
+        self._verdicts.append(keep)
+        self._obs.append(VarietyObservation(key, rarity=0.0, novelty=0.0))
+
+    def decide(self, trace):
+        self.last_observation = self._obs.pop(0)
+        return self._verdicts.pop(0)
+
+
+class _Cache:
+    """dict-backed stand-in for EmbeddingCache: supports `sig in cache` and get()."""
+
+    def __init__(self, mapping=None):
+        self._m = dict(mapping or {})
+        self.get_calls = []
+
+    def __contains__(self, sig):
+        return sig in self._m
+
+    def get(self, sig):
+        self.get_calls.append(sig)
+        return self._m[sig]
+
+
+def _trace(tid=1, agent="a", sig=("search",)):
+    return Trace(tid, agent, 0.0, sig, len(sig), 1.0, "ok")
+
+
+def test_drop_path_returns_immediate_imputed_value():
+    sig = ("search",)
+    vec = np.array([1.0, 0.0])
+    sampler = _FakeSampler()
+    sampler.queue(keep=False, key=VarietyKey("cluster", "c1"))
+    res = ClusterValueReservoir()
+    res.record_eval("c1", "a", vec, 0.7)          # one judged donor
+    cache = _Cache({sig: vec})
+    emitted = []
+    pipe = ValuePipeline(sampler, cache, res, submit_judge=None, on_value=emitted.append)
+
+    tv = pipe.process(_trace(sig=sig))
+    assert tv.kept is False
+    assert tv.provenance == "idw"
+    assert tv.value == pytest.approx(0.7, abs=1e-3)
+    assert emitted == [tv]
+
+
+def test_keep_path_pending_then_judged_and_is_causal():
+    sig = ("edit",)
+    vec = np.array([0.0, 1.0])
+    sampler = _FakeSampler()
+    # first a keep, then a later drop in the same cluster
+    sampler.queue(keep=True, key=VarietyKey("cluster", "c1"))
+    sampler.queue(keep=False, key=VarietyKey("cluster", "c1"))
+    res = ClusterValueReservoir()
+    cache = _Cache({sig: vec})
+
+    pending_judge = {}
+
+    def submit_judge(trace, on_done):
+        pending_judge[trace.trace_id] = on_done   # defer -> async
+
+    emitted = []
+    pipe = ValuePipeline(sampler, cache, res, submit_judge, on_value=emitted.append)
+
+    tv_keep = pipe.process(_trace(tid=1, sig=sig))
+    assert tv_keep.kept is True and tv_keep.value is None and tv_keep.provenance == "pending"
+
+    # BEFORE the judge returns, a drop cannot use the pending eval -> not idw
+    tv_drop_early = pipe.process(_trace(tid=2, sig=sig))
+    assert tv_drop_early.provenance != "idw"
+
+    # judge returns -> recorded, "judged" emitted
+    pending_judge[1](0.9)
+    assert emitted[-1] == TraceValue(1, True, 0.9, "judged")
+
+    # a NEW drop now sees the donor -> idw
+    sampler.queue(keep=False, key=VarietyKey("cluster", "c1"))
+    tv_drop_late = pipe.process(_trace(tid=3, sig=sig))
+    assert tv_drop_late.provenance == "idw"
+    assert tv_drop_late.value == pytest.approx(0.9, abs=1e-3)
+
+
+def test_synchronous_judge_emits_pending_before_judged():
+    sig = ("fetch",)
+    vec = np.array([1.0, 0.0])
+    sampler = _FakeSampler()
+    sampler.queue(keep=True, key=VarietyKey("cluster", "c1"))
+    res = ClusterValueReservoir()
+    cache = _Cache({sig: vec})
+    emitted = []
+
+    def sync_judge(trace, on_done):
+        on_done(0.6)                              # fire inline (synchronous judge)
+
+    pipe = ValuePipeline(sampler, cache, res, sync_judge, on_value=emitted.append)
+    pipe.process(_trace(tid=1, sig=sig))
+    # natural order preserved even for a synchronous callback
+    assert [tv.provenance for tv in emitted] == ["pending", "judged"]
+
+
+def test_judge_returning_non_finite_does_not_emit_judged():
+    sig = ("run",)
+    vec = np.array([1.0, 0.0])
+    sampler = _FakeSampler()
+    sampler.queue(keep=True, key=VarietyKey("cluster", "c1"))
+    res = ClusterValueReservoir()
+    cache = _Cache({sig: vec})
+    captured = {}
+    pipe = ValuePipeline(sampler, cache, res,
+                         submit_judge=lambda t, cb: captured.setdefault("cb", cb))
+    emitted = []
+    pipe.on_value = emitted.append
+    pipe.process(_trace(tid=1, sig=sig))
+    captured["cb"](float("nan"))                  # bad eval
+    assert all(tv.provenance != "judged" for tv in emitted)
+    assert res._global.count == 0                 # nothing recorded
+
+
+def test_fallback_signature_yields_no_embed_and_mean_fallback():
+    sig = ("plan",)
+    sampler = _FakeSampler()
+    sampler.queue(keep=False, key=VarietyKey("fallback-signature", sig))
+    res = ClusterValueReservoir()
+    res.record_eval(None, "a", None, 0.4)         # seed agent mean
+    cache = _Cache({})                            # sig NOT cached
+    pipe = ValuePipeline(sampler, cache, res, submit_judge=None)
+
+    tv = pipe.process(_trace(sig=sig))
+    assert cache.get_calls == []                  # NEVER embedded on the hot path
+    assert tv.provenance == "agent_mean"
+    assert tv.value == pytest.approx(0.4)
+
+
+def test_uncached_cluster_trace_does_not_embed():
+    sig = ("test",)
+    sampler = _FakeSampler()
+    sampler.queue(keep=False, key=VarietyKey("cluster", "c1"))
+    res = ClusterValueReservoir()
+    cache = _Cache({})                            # cluster kind but sig not cached
+    pipe = ValuePipeline(sampler, cache, res, submit_judge=None)
+    pipe.process(_trace(sig=sig))
+    assert cache.get_calls == []                  # guard prevents embed
+
+
+def test_submit_judge_failure_still_returns_pending_no_record():
+    sig = ("write",)
+    vec = np.array([1.0, 0.0])
+    sampler = _FakeSampler()
+    sampler.queue(keep=True, key=VarietyKey("cluster", "c1"))
+    res = ClusterValueReservoir()
+    cache = _Cache({sig: vec})
+
+    def boom(trace, on_done):
+        raise RuntimeError("judge queue full")
+
+    pipe = ValuePipeline(sampler, cache, res, submit_judge=boom)
+    tv = pipe.process(_trace(sig=sig))
+    assert tv.kept is True and tv.provenance == "pending"
+    assert res._global.count == 0 and res._members == {}
