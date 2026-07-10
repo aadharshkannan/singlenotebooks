@@ -86,3 +86,28 @@ class ClusterValueReservoir:
                 buf.append((np.asarray(vec, dtype=np.float64), float(value)))
                 self._last_seen[cluster_id] = ts
         return True
+
+    def impute(self, cluster_id: Optional[str], agent_id: str,
+               vec: Optional[np.ndarray]) -> Imputation:
+        """Snap value for a dropped trace: IDW over the cluster's judged members,
+        falling back to agent-mean -> global-mean -> prior (first applicable)."""
+        with self._lock:
+            members = self._members.get(cluster_id) if cluster_id is not None else None
+            if vec is not None and members:
+                q = np.asarray(vec, dtype=np.float64)
+                num = 0.0
+                den = 0.0
+                nearest = math.inf
+                for mvec, mval in members:
+                    d = max(0.0, 1.0 - _cosine(q, mvec))
+                    nearest = min(nearest, d)
+                    w = 1.0 / (d + self.eps) ** self.power
+                    num += w * mval
+                    den += w
+                return Imputation(num / den, "idw", len(members), nearest)
+            am = self._agent_mean.get(agent_id)
+            if am is not None and am.count > 0:
+                return Imputation(am.mean, "agent_mean", 0, math.nan)
+            if self._global.count > 0:
+                return Imputation(self._global.mean, "global_mean", 0, math.nan)
+            return Imputation(self.prior, "prior", 0, math.nan)
