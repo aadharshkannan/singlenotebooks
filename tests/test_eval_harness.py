@@ -47,6 +47,17 @@ def test_run_arm_baseline_is_random_sampler_without_variety_index():
     assert result.ledger["est_cost_usd"] == 0.0
 
 
+def test_cluster_arm_does_not_inflate_keeps_offline():
+    # Calibrated keep-signal must NOT keep more than the exact arm on the same stream.
+    stream = _stream()
+    cfg = SamplerConfig(llm_throughput=20.0)
+    exact = run_arm(stream, cfg, arm="adaptive_exact", seed=0)
+    cluster = run_arm(stream, cfg, arm="adaptive_cluster_offline", seed=0, synonym_map=_sm())
+    assert cluster.ledger["kept"] <= exact.ledger["kept"]
+    # cluster unification still collapses signature variants into fewer distinct keys
+    assert cluster.log["variety_key"].nunique() < exact.log["variety_key"].nunique()
+
+
 def test_run_arm_offline_cluster_unifies_variants():
     stream = _stream()
     result = run_arm(stream, SamplerConfig(llm_throughput=20.0),
