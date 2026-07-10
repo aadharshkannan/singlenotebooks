@@ -1,7 +1,7 @@
 # Snap Imputed Evals via a Cluster Value Reservoir — Design
 
 **Date:** 2026-07-09
-**Status:** Approved design, pending spec review
+**Status:** Approved (spec review passed), pending user review
 **Builds on:** `2026-07-09-similarity-calibrated-keep-signal-design.md` (agent-scoped embedding clusters + `AzureClusterIndex`)
 
 ---
@@ -77,7 +77,8 @@ class ClusterValueReservoir:
         self._lock = threading.Lock()
 
     def record_eval(self, cluster_id: str | None, agent_id: str,
-                    vec: np.ndarray | None, value: float, now: float | None = None) -> None: ...
+                    vec: np.ndarray | None, value: float,
+                    now: float | None = None) -> bool: ...   # returns True iff value accepted
     def impute(self, cluster_id: str | None, agent_id: str,
                vec: np.ndarray | None) -> Imputation: ...
     def purge_stale(self, now: float, ttl: float | None = None) -> list[str]: ...
@@ -89,8 +90,8 @@ State notes:
   giving bounded memory and `O(k)` imputation. Recency bias is acceptable and desirable.
 - `_Running` is a tiny incremental `(count, mean)` accumulator (Welford mean), `O(1)` update,
   `O(#agents)` memory.
-- `record_eval` **always** updates the agent + global running means (even when `vec is None`), so
-  the fallbacks keep improving under circuit-breaker conditions.
+- `record_eval` **always** updates the agent + global running means for any **finite** eval (even
+  when `vec is None`), so the fallbacks keep improving under circuit-breaker conditions.
 - The reservoir stores each **member's own embedding**, not the cluster centroid — IDW needs the
   actual points to weight by distance. This is the one piece of per-member state deliberately kept
   here (in a separate component) rather than in the index.
@@ -117,10 +118,15 @@ State notes:
 - Cosine reuses the index's `_cos` helper (zero-norm → 0).
 - Provenance is emitted on every call for observability (§3.5).
 
-`record_eval` always `_global.update(value)` and `_agent_mean[agent_id].update(value)`; if
-`vec is not None`, append `(vec, value)` to `_members[cluster_id]` (created lazily) and refresh
-`_last_seen[cluster_id]`. Each judged trace is recorded exactly once by the pipeline (no idempotency
-requirement).
+`record_eval` first **validates `value`** (non-finite / NaN → discard, no mean or member update, so
+a bad judge response can never poison the estimators). For a finite value it always
+`_global.update(value)` and `_agent_mean[agent_id].update(value)`; it appends `(vec, value)` to
+`_members[cluster_id]` (created lazily) and refreshes `_last_seen[cluster_id]` **only when both
+`cluster_id is not None` and `vec is not None`** — otherwise there is no valid cluster ring buffer to
+attach the point to (fallback-signature / error paths still update the means but contribute no IDW
+donor, and `_members[None]` is never created). Each judged trace is recorded exactly once by the
+pipeline (no idempotency requirement). **`record_eval` returns `True` iff the value was accepted**
+(finite) and `False` if it was discarded, so the pipeline can decide whether to emit `"judged"`.
 
 ### 3.4 Async-eval lifecycle & integration wrapper (`trace_sampling/value_pipeline.py`)
 
@@ -145,9 +151,13 @@ class ValuePipeline:
         vec  = self.cache.get(trace.signature) if trace.signature in self.cache else None
         if kept:
             def _done(v):
-                self.reservoir.record_eval(cid, trace.agent_id, vec, v)
-                self._emit(TraceValue(trace.trace_id, True, v, "judged"))
-            self.submit_judge(trace, _done)
+                if self.reservoir.record_eval(cid, trace.agent_id, vec, v):   # True iff v accepted
+                    self._emit(TraceValue(trace.trace_id, True, v, "judged"))
+                # rejected (non-finite) eval: no member/mean update, no "judged" emission
+            try:
+                self.submit_judge(trace, _done)
+            except Exception:
+                pass  # submission failed: treat as never-judged, no reservoir update
             return self._emit(TraceValue(trace.trace_id, True, None, "pending"))
         imp = self.reservoir.impute(cid, trace.agent_id, vec)
         return self._emit(TraceValue(trace.trace_id, False, imp.value, imp.provenance))
@@ -156,9 +166,21 @@ class ValuePipeline:
 - **No hot-path embed:** `vec` is read only if already cached; non-fallback traces were embedded
   inside `sampler.decide`, so this is a guaranteed cache hit; fallback-signature traces stay
   `vec=None`.
+- **Sampler requirement:** `ValuePipeline` requires a sampler that populates `last_observation` on
+  every `decide` (satisfied by `AdaptiveSampler`); this is a documented precondition of the wrapper,
+  not a generic-sampler guarantee.
+- **Judge failure handling:** the judge seam is best-effort and must not corrupt state or stall the
+  hot path. `submit_judge` is invoked inside a guard — if submission itself raises, the trace is
+  emitted as `"pending"` and treated as never-judged (no reservoir update). `_done` validates its
+  value via `record_eval` (non-finite → discarded), so a bad or exceptional eval never poisons the
+  estimators. A callback that never fires simply leaves that kept trace un-judged: no member is added
+  and imputations fall back through the mean chain — correctness degrades gracefully rather than
+  breaking. Timeouts/retries are the responsibility of the injected `submit_judge`, not the pipeline.
 - **Value stream:** `on_value` fires at most twice per trace, in natural order — once immediately
   (imputed for drops, `"pending"` for keeps) and again with `"judged"` when a kept trace's real eval
-  returns.
+  returns. `_emit(tv)` calls `on_value(tv)` if a sink is set and returns `tv`; because the second
+  (`"judged"`) emission originates on a judge thread, the sink must be thread-safe (documented
+  contract; the reservoir's own updates are already lock-guarded).
 - **Eviction wiring:** the pipeline calls `reservoir.purge_stale(now, ttl)` on the same cadence the
   index purges (self-TTL keeps the index untouched); `evict(cluster_ids)` is also exposed for a
   caller that prefers to forward the index's purge output.
@@ -180,17 +202,22 @@ class ValuePipeline:
 1. **IDW math:** hand-computed 2–3-donor weighted mean; higher `power` → closer to nearest donor.
 2. **eps floor:** a near-duplicate donor makes the estimate ≈ that donor's value; no divide-by-zero.
 3. **Fallback chain order:** empty cluster → `agent_mean` → `global_mean` → `prior`;
-   `record_eval` updates means even when `vec is None`.
-4. **Ring-buffer cap:** more than `k` evals retains only the last `k`; imputation uses `k`.
-5. **Self-TTL:** `purge_stale` drops a stale cluster reservoir and returns its id.
-6. **Concurrency (light):** interleaved `record_eval`/`impute` under the lock stays consistent.
+   `record_eval` updates means even when `vec is None`; a `cluster_id=None` or `vec=None` eval
+   creates **no** `_members` entry.
+4. **Bad-value rejection:** a non-finite / NaN eval passed to `record_eval` updates neither the means
+   nor any ring buffer.
+5. **Ring-buffer cap:** more than `k` evals retains only the last `k`; imputation uses `k`.
+6. **Self-TTL:** `purge_stale` drops a stale cluster reservoir and returns its id.
+7. **Concurrency (light):** interleaved `record_eval`/`impute` under the lock stays consistent.
 
 `tests/test_value_pipeline.py`:
-7. **Drop path:** dropped trace returns an immediate imputed value + provenance.
-8. **Keep path & causality:** a kept trace emits `"pending"` then `"judged"` with the true value;
+8. **Drop path:** dropped trace returns an immediate imputed value + provenance.
+9. **Keep path & causality:** a kept trace emits `"pending"` then `"judged"` with the true value;
    its eval affects only imputations produced **after** `_done` fires.
-9. **No hot-path embed:** spy on the cache — a dropped fallback-signature trace yields `vec=None`,
-   routes to a mean fallback, and triggers **zero** embed calls.
+10. **No hot-path embed:** spy on the cache — a dropped fallback-signature trace yields `vec=None`,
+    routes to a mean fallback, and triggers **zero** embed calls.
+11. **Judge-submit failure:** if `submit_judge` raises, `process` still returns `"pending"` and no
+    reservoir member is added.
 
 ## 5. Integration & simulation note
 
