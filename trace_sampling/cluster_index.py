@@ -148,7 +148,7 @@ class AzureClusterIndex:
                     near = store_near
             if near is not None and near[1] >= self.tau:
                 cluster_id, score = near
-                novelty = max(0.0, 1.0 - score)
+                novelty = 0.0
                 self._store.touch(cluster_id, trace.timestamp)
                 self._touch_recent(cluster_id, trace.timestamp)
             else:

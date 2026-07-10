@@ -83,6 +83,14 @@ def test_recent_low_sim_does_not_suppress_store_match():
     assert again.novelty < 0.5
 
 
+def test_novelty_is_binary():
+    idx = _index()
+    new = idx.observe(_t(("search",), agent="a", cid=0))
+    assert new.novelty == 1.0                      # new cluster
+    join = idx.observe(_t(("query",), agent="a", cid=0))
+    assert join.novelty == 0.0                     # joins existing cluster -> exactly 0
+
+
 def test_ctor_rejects_bad_k():
     with pytest.raises(ValueError):
         _index(k=0.0)
