@@ -2,12 +2,12 @@
 import itertools
 import numpy as np
 
-_EPS = 1e-9
-
 from .model import Trace
 from .variety import VarietyObservation, VarietyKey, ExactSignatureIndex
 from .embedding import EmbeddingCache
 from .vector_store import VectorStore, VectorDoc
+
+_EPS = 1e-9
 
 
 class CircuitBreaker:
@@ -122,6 +122,8 @@ class AzureClusterIndex:
         long-absent cluster score ~1 instead of cancelling its own staleness."""
         dt = max(0.0, now - self._last_seen.get(cluster_id, now))
         if cluster_id not in self._iat:                      # first join after creation -> seed
+            # dt=0 on a degenerate first join seeds cadence to _EPS; next visit may briefly
+            # spike staleness — accepted per spec.
             iat_ref = max(dt, _EPS)
             self._iat[cluster_id] = iat_ref
         else:
@@ -158,11 +160,13 @@ class AzureClusterIndex:
             if near is not None and near[1] >= self.tau:
                 cluster_id, score = near
                 novelty = 0.0
+                is_new_cluster = False
                 self._store.touch(cluster_id, trace.timestamp)
                 self._touch_recent(cluster_id, trace.timestamp)
             else:
                 cluster_id = self._new_id()
                 novelty = 1.0
+                is_new_cluster = True
                 self._last_seen[cluster_id] = trace.timestamp
                 self._store.upsert(VectorDoc(cluster_id, vec, trace.agent_id, trace.timestamp))
                 self._recent.append((cluster_id, trace.agent_id, vec, trace.timestamp))
@@ -175,8 +179,5 @@ class AzureClusterIndex:
                 self._breaker.on_failure(trace.timestamp)
             return self._fallback(trace)
 
-        if novelty == 1.0:                    # new cluster: nothing is stale yet
-            rarity = 0.0
-        else:
-            rarity = self._staleness(cluster_id, trace.timestamp)
+        rarity = 0.0 if is_new_cluster else self._staleness(cluster_id, trace.timestamp)
         return VarietyObservation(VarietyKey("cluster", cluster_id), rarity, novelty)

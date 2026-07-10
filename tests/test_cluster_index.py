@@ -128,7 +128,6 @@ def test_staleness_grows_with_gap():
 def test_cadence_normalization_converges_across_speeds():
     # A regularly-hit cluster reaches steady-state staleness ~ 1 - 2^(-1/k),
     # independent of absolute cadence. Compare a fast and a slow cluster.
-    import math
     k = 8.0
     expected = 1 - 2 ** (-1.0 / k)
     def steady(step):
