@@ -134,3 +134,35 @@ def test_record_eval_without_now_is_fresh_not_immediately_purgeable():
     dropped = res.purge_stale(now=time.monotonic())      # same clock, just recorded
     assert "c1" not in dropped
     assert "c1" in res._members
+
+
+import threading
+
+
+def test_concurrent_record_and_impute_stays_consistent():
+    res = ClusterValueReservoir(k=128)
+    errors = []
+
+    def writer():
+        try:
+            for i in range(500):
+                res.record_eval("c1", "a", _vec(float(i % 7), 1.0), (i % 10) / 10.0)
+        except Exception as e:  # pragma: no cover
+            errors.append(e)
+
+    def reader():
+        try:
+            for _ in range(500):
+                imp = res.impute("c1", "a", _vec(1.0, 1.0))
+                assert math.isfinite(imp.value)
+        except Exception as e:  # pragma: no cover
+            errors.append(e)
+
+    ts = [threading.Thread(target=writer) for _ in range(2)] + \
+         [threading.Thread(target=reader) for _ in range(2)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert not errors
+    assert res._global.count == 1000
