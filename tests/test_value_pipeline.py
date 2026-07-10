@@ -191,3 +191,41 @@ def test_submit_failure_increments_counter():
     tv = pipe.process(_trace(sig=sig))
     assert tv.provenance == "pending"
     assert pipe.n_submit_failures == 1
+
+
+def test_non_finite_eval_increments_rejected_counter():
+    sig = ("run",)
+    vec = np.array([1.0, 0.0])
+    sampler = _FakeSampler()
+    sampler.queue(keep=True, key=VarietyKey("cluster", "c1"))
+    res = ClusterValueReservoir()
+    cache = _Cache({sig: vec})
+    captured = {}
+    pipe = ValuePipeline(sampler, cache, res,
+                         submit_judge=lambda t, cb: captured.setdefault("cb", cb))
+    pipe.process(_trace(tid=1, sig=sig))
+    captured["cb"](float("nan"))
+    assert pipe.n_rejected_evals == 1
+    assert res._global.count == 0
+
+
+def test_process_triggers_purge_on_cadence():
+    sig = ("search",)
+    vec = np.array([1.0, 0.0])
+    res = ClusterValueReservoir()
+    purge_calls = []
+    _original_purge = res.purge_stale
+    res.purge_stale = lambda **kw: purge_calls.append(kw) or _original_purge(**kw)
+
+    sampler = _FakeSampler()
+    for _ in range(3):
+        sampler.queue(keep=False, key=VarietyKey("cluster", "c1"))
+    cache = _Cache({sig: vec})
+    pipe = ValuePipeline(sampler, cache, res, submit_judge=None, purge_every=3)
+
+    pipe.process(_trace(tid=1, sig=sig))
+    assert len(purge_calls) == 0          # not yet
+    pipe.process(_trace(tid=2, sig=sig))
+    assert len(purge_calls) == 0          # not yet
+    pipe.process(_trace(tid=3, sig=sig))
+    assert len(purge_calls) == 1          # exactly on the 3rd

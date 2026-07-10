@@ -9,6 +9,7 @@ into the reservoir causally (only already-returned evals are ever stored).
 Requires a sampler that populates `last_observation` on every `decide` (satisfied
 by AdaptiveSampler). See docs/superpowers/specs/2026-07-09-snap-imputed-evals-cluster-value-reservoir-design.md
 """
+import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -28,21 +29,36 @@ class TraceValue:
 
 
 class ValuePipeline:
+    """Wires sampler + cache + reservoir + async judge per trace.
+
+    process() must be called from a single hot-path thread: it reads
+    sampler.last_observation immediately after decide(), and the n_* counters
+    are non-atomic. Only judge callbacks (_done) may run on other threads.
+    """
+
     def __init__(self, sampler, cache, reservoir: ClusterValueReservoir,
                  submit_judge: Optional[SubmitJudge],
-                 on_value: "Optional[Callable[[TraceValue], None]]" = None):
+                 on_value: "Optional[Callable[[TraceValue], None]]" = None,
+                 purge_every: int = 200):
         """
         Args:
             on_value: optional sink called for every emitted TraceValue. May be
                 invoked from both the process() thread ("pending"/imputed emissions)
                 and a judge thread ("judged" emissions), so it must be thread-safe.
+            purge_every: call reservoir.purge_stale() every this many traces to
+                reclaim stale cluster buffers (must be >= 1).
         """
+        if purge_every < 1:
+            raise ValueError(f"purge_every must be >= 1, got {purge_every}")
         self.sampler = sampler
         self.cache = cache
         self.reservoir = reservoir
         self.submit_judge = submit_judge
         self.on_value = on_value
+        self.purge_every = purge_every
         self.n_submit_failures = 0
+        self.n_rejected_evals = 0
+        self._since_purge = 0
 
     def _emit(self, tv: TraceValue) -> TraceValue:
         if self.on_value is not None:
@@ -58,6 +74,8 @@ class ValuePipeline:
             def _done(v: float) -> None:
                 if self.reservoir.record_eval(cid, trace.agent_id, vec, v):
                     self._emit(TraceValue(trace.trace_id, True, v, "judged"))
+                else:
+                    self.n_rejected_evals += 1
             # Emit "pending" BEFORE submitting so a synchronous judge (one that
             # calls _done inline) still emits "judged" AFTER "pending" — the
             # natural-order contract holds for sync and async judges alike.
@@ -71,6 +89,13 @@ class ValuePipeline:
                 # their own thread and must handle callback exceptions themselves.
             except Exception:
                 self.n_submit_failures += 1
-            return pending
-        imp = self.reservoir.impute(cid, trace.agent_id, vec)
-        return self._emit(TraceValue(trace.trace_id, False, imp.value, imp.provenance))
+            tv = pending
+        else:
+            imp = self.reservoir.impute(cid, trace.agent_id, vec)
+            tv = self._emit(TraceValue(trace.trace_id, False, imp.value, imp.provenance))
+
+        self._since_purge += 1
+        if self._since_purge >= self.purge_every:
+            self.reservoir.purge_stale(now=time.monotonic())
+            self._since_purge = 0
+        return tv
