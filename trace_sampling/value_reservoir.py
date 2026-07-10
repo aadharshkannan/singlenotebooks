@@ -62,3 +62,27 @@ class ClusterValueReservoir:
         self._agent_mean: Dict[str, _Running] = {}
         self._global = _Running()
         self._lock = threading.Lock()
+
+    def record_eval(self, cluster_id: Optional[str], agent_id: str,
+                    vec: Optional[np.ndarray], value: float,
+                    now: Optional[float] = None) -> bool:
+        """Record a judged eval. Returns True iff the value was accepted (finite).
+
+        Always updates the agent + global running means for a finite value.
+        Appends an IDW donor (vec, value) to the cluster ring buffer only when
+        BOTH cluster_id and vec are present; otherwise no _members entry is made.
+        `now` defaults to a monotonic-clock reading (time.monotonic) so a donor
+        recorded without an explicit timestamp is fresh, not immediately purgeable."""
+        if not math.isfinite(value):
+            return False
+        ts = time.monotonic() if now is None else now
+        with self._lock:
+            self._global.update(value)
+            self._agent_mean.setdefault(agent_id, _Running()).update(value)
+            if cluster_id is not None and vec is not None:
+                buf = self._members.get(cluster_id)
+                if buf is None:
+                    buf = self._members[cluster_id] = deque(maxlen=self.k)
+                buf.append((np.asarray(vec, dtype=np.float64), float(value)))
+                self._last_seen[cluster_id] = ts
+        return True
