@@ -48,6 +48,10 @@ class AgentStats:
     def total(self) -> int:
         return self._total
 
+    def has_seen(self, signature: Tuple[str, ...]) -> bool:
+        """True if this signature was observed before (pre-observe novelty check)."""
+        return signature in self._counts
+
     def rarity(self, signature: Tuple[str, ...]) -> float:
         """In [0, 1]; ~1 for unseen/rare signatures, ->0 for very frequent ones."""
         if self._total == 0:

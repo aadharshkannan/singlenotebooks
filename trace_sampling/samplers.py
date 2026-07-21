@@ -7,6 +7,7 @@ from .model import Trace
 from .stats import AgentStats
 from .reservoir import WeightedReservoir
 from .backpressure import BackpressureController
+from .variety import VarietyIndex, VarietyObservation, VarietyKey, ExactSignatureIndex
 
 
 @dataclass
@@ -39,14 +40,23 @@ class BaselineSampler:
 
 
 class AdaptiveSampler:
-    """Strategy B: stratified, diversity-weighted, floored, backpressure-aware."""
+    """Strategy B: stratified, diversity-weighted, floored, backpressure-aware.
+    
+    AdaptiveSampler holds two AgentStats sources per agent:
+      * self._stats — velocity, coldstart, and active-agent counting (sampler-owned)
+      * the injected VarietyIndex (default ExactSignatureIndex) — rarity/novelty + stratum key
+    This separation lets the variety mechanism be swapped (exact-match vs embedding clusters)
+    without touching the sampler's velocity/floor logic.
+    """
 
-    def __init__(self, config: SamplerConfig, seed: int = 0):
+    def __init__(self, config: SamplerConfig, seed: int = 0, 
+                 variety_index: "VarietyIndex | None" = None, 
+                 use_novelty: bool = False):  # If True, diversity uses max(rarity, novelty); else rarity only.
         self.cfg = config
         self._rng = np.random.default_rng(seed)
         self._stats: Dict[str, AgentStats] = {}
-        # LRU-bounded map of (agent, signature) -> reservoir; keeps memory bounded.
-        self._reservoirs: "OrderedDict[Tuple[str, Tuple[str, ...]], WeightedReservoir]" = OrderedDict()
+        # LRU-bounded map of (agent, VarietyKey) -> reservoir; keeps memory bounded.
+        self._reservoirs: "OrderedDict[Tuple[str, VarietyKey], WeightedReservoir]" = OrderedDict()
         self._last_kept_ts: Dict[str, float] = {}
         self._last_seen_ts: Dict[str, float] = {}   # for active-agent counting
         self._bp = BackpressureController(
@@ -58,6 +68,9 @@ class AdaptiveSampler:
             min_multiplier=config.min_multiplier,
         )
         self._res_seed = seed
+        self._variety = variety_index or ExactSignatureIndex(max_signatures_per_agent=config.max_signatures_per_agent)
+        self._use_novelty = use_novelty
+        self.last_observation = None
 
     def _stats_for(self, agent_id: str) -> AgentStats:
         if agent_id not in self._stats:
@@ -87,16 +100,18 @@ class AdaptiveSampler:
         cfg = self.cfg
         self._bp.tick(trace.timestamp)
         stats = self._stats_for(trace.agent_id)
-        stats.observe(trace.timestamp, trace.signature)
+        stats.observe(trace.timestamp, trace.signature)   # velocity/coldstart only
         self._last_seen_ts[trace.agent_id] = trace.timestamp
 
-        key = (trace.agent_id, trace.signature)
+        obs = self._variety.observe(trace)                # variety via index
+        self.last_observation = obs                       # expose for eval harness
+        key = (trace.agent_id, obs.key)                   # stratify by VarietyKey
         reservoir = self._reservoir_for(key)
 
         # Diversity score: rarer signatures and under-filled strata score higher.
-        rarity = stats.rarity(trace.signature)
         fill = len(reservoir) / max(cfg.reservoir_size, 1)
-        diversity = rarity * (1.0 - 0.5 * fill)
+        base = max(obs.rarity, obs.novelty) if self._use_novelty else obs.rarity
+        diversity = base * (1.0 - 0.5 * fill)
 
         # Velocity-based fair-share floor (spec step 4 precedence):
         # each active agent is guaranteed a share of the budget, scaled down
