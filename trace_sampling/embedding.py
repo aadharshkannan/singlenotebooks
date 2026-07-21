@@ -1,0 +1,103 @@
+from collections import OrderedDict
+from typing import List, Optional, Protocol, Tuple
+import numpy as np
+
+
+def sequence_to_text(signature: Tuple[str, ...]) -> str:
+    return " -> ".join(signature)
+
+
+class Embedder(Protocol):
+    def embed(self, texts: List[str]) -> np.ndarray: ...
+
+
+class FakeEmbedder:
+    """Deterministic, offline embedder for unit tests.
+
+    Builds each text's vector as the SUM of per-token basis vectors, where every
+    token is first mapped to its canonical synonym (via an optional ``SynonymMap``).
+    Because synonyms collapse to the same canonical token, two surface sequences
+    that express the same concept with different vocabulary embed to (near-)identical
+    vectors — mimicking a real semantic embedder — while unrelated tokens are far
+    apart. This is what lets the offline unit tests exercise concept unification
+    deterministically, with no network. noise: gaussian scale added per-text
+    (deterministic per text+seed), so the same text always embeds identically."""
+
+    def __init__(self, dim: int = 64, synonym_map=None, noise: float = 0.01, seed: int = 0):
+        self.dim = dim
+        self.synonym_map = synonym_map
+        self.noise = noise
+        self.seed = seed
+
+    def _token_vec(self, token: str) -> np.ndarray:
+        import hashlib
+        h = int(hashlib.md5(token.encode("utf-8")).hexdigest(), 16) % (2**31)
+        v = np.random.default_rng([self.seed, h]).normal(size=self.dim)
+        n = np.linalg.norm(v)
+        return v / (n or 1.0)
+
+    def _canonical(self, token: str) -> str:
+        return self.synonym_map.canonical(token) if self.synonym_map is not None else token
+
+    def embed(self, texts: List[str]) -> np.ndarray:
+        out = np.zeros((len(texts), self.dim), dtype=np.float32)
+        for i, txt in enumerate(texts):
+            tokens = [t.strip() for t in txt.split("->") if t.strip()]
+            vec = np.zeros(self.dim, dtype=np.float64)
+            for tok in tokens:
+                vec += self._token_vec(self._canonical(tok))
+            if self.noise:
+                import hashlib
+                h = int(hashlib.md5(txt.encode("utf-8")).hexdigest(), 16) % (2**31)
+                vec += np.random.default_rng([self.seed, h]).normal(scale=self.noise, size=self.dim)
+            out[i] = vec.astype(np.float32)
+        return out
+
+
+class AzureOpenAIEmbedder:
+    """Live Azure OpenAI embeddings via Entra ID (no keys)."""
+
+    def __init__(self, config):
+        from openai import AzureOpenAI
+        from .azure_config import openai_token_provider
+        self._deployment = config.embedding_deployment
+        self._client = AzureOpenAI(
+            azure_endpoint=config.openai_endpoint,
+            api_version=config.openai_api_version,
+            azure_ad_token_provider=openai_token_provider(),
+        )
+
+    def embed(self, texts: List[str]) -> np.ndarray:
+        resp = self._client.embeddings.create(model=self._deployment, input=texts)
+        return np.array([d.embedding for d in resp.data], dtype=np.float32)
+
+
+class EmbeddingCache:
+    """Bounded LRU cache keyed by the signature tuple -> vector. Tracks call/hit
+    counters and per-miss embed latency for the eval cost/latency ledger."""
+
+    def __init__(self, embedder: Embedder, max_size: int = 4096):
+        self._embedder = embedder
+        self._max = max_size
+        self._cache: "OrderedDict[Tuple[str, ...], np.ndarray]" = OrderedDict()
+        self.n_calls = 0                 # underlying embed() invocations (cache misses)
+        self.n_hits = 0                  # cache hits
+        self.embed_latencies_ms = []     # wall-clock ms per miss (for p50/p95)
+
+    def get(self, signature: Tuple[str, ...]) -> np.ndarray:
+        if signature in self._cache:
+            self._cache.move_to_end(signature)
+            self.n_hits += 1
+            return self._cache[signature]
+        import time
+        t0 = time.perf_counter()
+        vec = self._embedder.embed([sequence_to_text(signature)])[0]
+        self.embed_latencies_ms.append((time.perf_counter() - t0) * 1000.0)
+        self.n_calls += 1
+        self._cache[signature] = vec
+        if len(self._cache) > self._max:
+            self._cache.popitem(last=False)
+        return vec
+
+    def __contains__(self, signature) -> bool:
+        return signature in self._cache

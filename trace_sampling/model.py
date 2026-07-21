@@ -12,6 +12,7 @@ class Trace:
     span_count: int
     duration_ms: float
     status: str  # "ok" | "error"
+    concept_id: int = -1  # ground-truth latent concept; -1 = unlabeled. Scoring only.
 
 
 @dataclass
