@@ -10,9 +10,17 @@ Requires a sampler that populates `last_observation` on every `decide` (satisfie
 by AdaptiveSampler). See docs/superpowers/specs/2026-07-09-snap-imputed-evals-cluster-value-reservoir-design.md
 """
 import time
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, replace
 from typing import Callable, Optional
 
+import numpy as np
+
+from .lipschitz import (
+    ConditionalGeodesicBounds,
+    LipschitzEstimatorConfig,
+    calculate_conditional_geodesic_bounds,
+)
 from .model import Trace
 from .value_reservoir import ClusterValueReservoir
 
@@ -26,6 +34,7 @@ class TraceValue:
     kept: bool
     value: Optional[float]   # imputed now (dropped); None until judge returns (kept)
     provenance: str          # "idw"|"agent_mean"|"global_mean"|"prior"|"pending"|"judged"
+    conditional_geodesic_bounds: Optional[ConditionalGeodesicBounds] = None
 
 
 class ValuePipeline:
@@ -39,7 +48,9 @@ class ValuePipeline:
     def __init__(self, sampler, cache, reservoir: ClusterValueReservoir,
                  submit_judge: Optional[SubmitJudge],
                  on_value: "Optional[Callable[[TraceValue], None]]" = None,
-                 purge_every: int = 200):
+                 purge_every: int = 200,
+                 lipschitz_config: Optional[LipschitzEstimatorConfig] = None,
+                 lipschitz_fallback: Optional[float] = None):
         """
         Args:
             on_value: optional sink called for every emitted TraceValue. May be
@@ -56,8 +67,13 @@ class ValuePipeline:
         self.submit_judge = submit_judge
         self.on_value = on_value
         self.purge_every = purge_every
+        config = lipschitz_config or LipschitzEstimatorConfig()
+        if lipschitz_fallback is not None:
+            config = replace(config, conservative_fallback=lipschitz_fallback)
+        self.lipschitz_config = config
         self.n_submit_failures = 0
         self.n_rejected_evals = 0
+        self.n_lipschitz_failures = 0
         self._since_purge = 0
 
     def _emit(self, tv: TraceValue) -> TraceValue:
@@ -92,7 +108,30 @@ class ValuePipeline:
             tv = pending
         else:
             imp = self.reservoir.impute(cid, trace.agent_id, vec)
-            tv = self._emit(TraceValue(trace.trace_id, False, imp.value, imp.provenance))
+            bounds = None
+            # The envelope is telemetry for normalized IDW values only. It never
+            # participates in the sampler's keep/drop decision.
+            if (
+                imp.provenance == "idw"
+                and math.isfinite(imp.weighted_geodesic_angle)
+                and 0.0 <= imp.value <= 1.0
+            ):
+                try:
+                    estimate = self.reservoir.estimate_lipschitz(
+                        agent_id=trace.agent_id,
+                        embedding_dimension=int(np.asarray(vec).size),
+                        config=self.lipschitz_config,
+                    )
+                    bounds = calculate_conditional_geodesic_bounds(
+                        probability=imp.value,
+                        weighted_angle=imp.weighted_geodesic_angle,
+                        estimate=estimate,
+                    )
+                except (ArithmeticError, TypeError, ValueError):
+                    # Uncertainty reporting is best-effort; preserve the existing
+                    # imputed value if calibration data is temporarily unusable.
+                    self.n_lipschitz_failures += 1
+            tv = self._emit(TraceValue(trace.trace_id, False, imp.value, imp.provenance, bounds))
 
         self._since_purge += 1
         if self._since_purge >= self.purge_every:

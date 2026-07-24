@@ -109,6 +109,23 @@ RUN_AZURE_TESTS=1 python -m jupyter nbconvert --to notebook --execute --inplace 
 On Windows PowerShell, set the variable with `$env:RUN_AZURE_TESTS=1` instead of
 the inline `RUN_AZURE_TESTS=1` prefix.
 
+## Snap Value Imputation and Lipschitz Bounds
+
+`trace_sampling/value_pipeline.py` gives dropped traces an immediate value from
+the same-cluster judged donors retained by `ClusterValueReservoir`. For IDW
+imputations in `[0, 1]`, `TraceValue.conditional_geodesic_bounds` contains a
+deterministic Lipschitz envelope around the imputed value. The allowance is the
+agent-scoped empirical Lipschitz estimate multiplied by the IDW-weighted angular
+distance to the donors; display bounds are clamped to `[0, 1]` while raw bounds
+remain available for audit.
+
+Calibration uses only completed judge results, keeps all-observation summary
+statistics outside the bounded IDW ring, and is cached until judged data changes.
+Kept, pending, mean-fallback, prior, and out-of-range values do not claim a band.
+The envelope is a sensitivity bound, explicitly **not a confidence interval**.
+Configure the estimator with `LipschitzEstimatorConfig` when constructing
+`ValuePipeline`; sparse calibration uses its `conservative_fallback`.
+
 > **💸 Cost caveat:** The Azure AI Search Basic tier bills continuously
 > (~$75/month) and Azure OpenAI embeddings are usage-based. **Delete the
 > resource group when you are done** to stop all charges:

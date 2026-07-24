@@ -58,6 +58,8 @@ def test_drop_path_returns_immediate_imputed_value():
     assert tv.kept is False
     assert tv.provenance == "idw"
     assert tv.value == pytest.approx(0.7, abs=1e-3)
+    assert tv.conditional_geodesic_bounds is not None
+    assert tv.conditional_geodesic_bounds.is_confidence_interval is False
     assert emitted == [tv]
 
 
@@ -81,10 +83,12 @@ def test_keep_path_pending_then_judged_and_is_causal():
 
     tv_keep = pipe.process(_trace(tid=1, sig=sig))
     assert tv_keep.kept is True and tv_keep.value is None and tv_keep.provenance == "pending"
+    assert tv_keep.conditional_geodesic_bounds is None
 
     # BEFORE the judge returns, a drop cannot use the pending eval -> not idw
     tv_drop_early = pipe.process(_trace(tid=2, sig=sig))
     assert tv_drop_early.provenance != "idw"
+    assert tv_drop_early.conditional_geodesic_bounds is None
 
     # judge returns -> recorded, "judged" emitted
     pending_judge[1](0.9)
@@ -95,6 +99,7 @@ def test_keep_path_pending_then_judged_and_is_causal():
     tv_drop_late = pipe.process(_trace(tid=3, sig=sig))
     assert tv_drop_late.provenance == "idw"
     assert tv_drop_late.value == pytest.approx(0.9, abs=1e-3)
+    assert tv_drop_late.conditional_geodesic_bounds is not None
 
 
 def test_synchronous_judge_emits_pending_before_judged():
@@ -113,6 +118,75 @@ def test_synchronous_judge_emits_pending_before_judged():
     pipe.process(_trace(tid=1, sig=sig))
     # natural order preserved even for a synchronous callback
     assert [tv.provenance for tv in emitted] == ["pending", "judged"]
+    assert emitted[0].conditional_geodesic_bounds is None
+    assert emitted[1].conditional_geodesic_bounds is None
+
+
+def test_idw_drop_band_uses_only_completed_judged_observations_causally():
+    sig = ("causal",)
+    vec = np.array([1.0, 0.0])
+    sampler = _FakeSampler()
+    sampler.queue(keep=False, key=VarietyKey("cluster", "c1"))
+    sampler.queue(keep=True, key=VarietyKey("cluster", "c1"))
+    sampler.queue(keep=False, key=VarietyKey("cluster", "c1"))
+    cache = _Cache({sig: vec})
+    res = ClusterValueReservoir()
+    pending = {}
+
+    def submit_judge(trace, on_done):
+        pending[trace.trace_id] = on_done
+
+    pipe = ValuePipeline(sampler, cache, res, submit_judge=submit_judge)
+
+    first_drop = pipe.process(_trace(tid=1, sig=sig))
+    assert first_drop.provenance != "idw"
+    assert first_drop.conditional_geodesic_bounds is None
+
+    kept_pending = pipe.process(_trace(tid=2, sig=sig))
+    assert kept_pending.provenance == "pending"
+    assert kept_pending.conditional_geodesic_bounds is None
+
+    second_drop_before_judge = pipe.process(_trace(tid=3, sig=sig))
+    assert second_drop_before_judge.provenance != "idw"
+    assert second_drop_before_judge.conditional_geodesic_bounds is None
+
+    pending[2](0.8)
+    sampler.queue(keep=False, key=VarietyKey("cluster", "c1"))
+    third_drop_after_judge = pipe.process(_trace(tid=4, sig=sig))
+    assert third_drop_after_judge.provenance == "idw"
+    assert third_drop_after_judge.conditional_geodesic_bounds is not None
+
+
+def test_out_of_range_idw_value_does_not_raise_or_claim_probability_bounds():
+    sig = ("unbounded",)
+    vec = np.array([1.0, 0.0])
+    sampler = _FakeSampler()
+    sampler.queue(keep=False, key=VarietyKey("cluster", "c1"))
+    res = ClusterValueReservoir()
+    res.record_eval("c1", "a", vec, 2.0)
+    pipe = ValuePipeline(sampler, _Cache({sig: vec}), res, submit_judge=None)
+
+    tv = pipe.process(_trace(sig=sig))
+
+    assert tv.value == pytest.approx(2.0)
+    assert tv.conditional_geodesic_bounds is None
+
+
+def test_lipschitz_failure_does_not_break_drop_path(monkeypatch):
+    sig = ("best-effort-band",)
+    vec = np.array([1.0, 0.0])
+    sampler = _FakeSampler()
+    sampler.queue(keep=False, key=VarietyKey("cluster", "c1"))
+    res = ClusterValueReservoir()
+    res.record_eval("c1", "a", vec, 0.7)
+    monkeypatch.setattr(res, "estimate_lipschitz", lambda **kwargs: (_ for _ in ()).throw(ValueError()))
+    pipe = ValuePipeline(sampler, _Cache({sig: vec}), res, submit_judge=None)
+
+    tv = pipe.process(_trace(sig=sig))
+
+    assert tv.value == pytest.approx(0.7)
+    assert tv.conditional_geodesic_bounds is None
+    assert pipe.n_lipschitz_failures == 1
 
 
 def test_judge_returning_non_finite_does_not_emit_judged():
