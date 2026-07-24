@@ -2,6 +2,7 @@ import math
 import time
 import numpy as np
 import pytest
+from trace_sampling.lipschitz import LipschitzEstimatorConfig
 from trace_sampling.value_reservoir import ClusterValueReservoir, Imputation, _Running
 
 
@@ -71,6 +72,31 @@ def test_impute_idw_weighted_average():
     assert imp.n_donors == 2
     assert 0.0 <= imp.value < 0.5                  # pulled toward the near donor
     assert imp.nearest_dist == pytest.approx(0.0, abs=0.05)
+
+
+def test_impute_reports_weighted_geodesic_angle_not_cosine_distance() -> None:
+    res = ClusterValueReservoir(power=2.0, eps=1e-6)
+    # Choose donors so weighted angle is clearly different from weighted cosine distance.
+    res.record_eval("c1", "a", _vec(1.0, 0.0), 0.2)
+    res.record_eval("c1", "a", _vec(0.0, 1.0), 0.8)
+    query = _vec(1.0, 1.0)
+
+    imp = res.impute("c1", "a", query)
+
+    q = query / np.linalg.norm(query)
+    d1 = _vec(1.0, 0.0)
+    d2 = _vec(0.0, 1.0)
+    c1 = float(np.dot(q, d1) / (np.linalg.norm(q) * np.linalg.norm(d1)))
+    c2 = float(np.dot(q, d2) / (np.linalg.norm(q) * np.linalg.norm(d2)))
+    dist1 = 1.0 - c1
+    dist2 = 1.0 - c2
+    w1 = 1.0 / (dist1 + res.eps) ** res.power
+    w2 = 1.0 / (dist2 + res.eps) ** res.power
+    expected_angle = (w1 * math.acos(c1) + w2 * math.acos(c2)) / (w1 + w2)
+    weighted_distance = (w1 * dist1 + w2 * dist2) / (w1 + w2)
+
+    assert imp.weighted_geodesic_angle == pytest.approx(expected_angle)
+    assert imp.weighted_geodesic_angle != pytest.approx(weighted_distance)
 
 
 def test_impute_higher_power_favors_nearest_donor():
@@ -176,3 +202,154 @@ def test_concurrent_record_and_impute_stays_consistent():
         t.join()
     assert not errors
     assert res._global.count == 1000
+
+
+def test_reservoir_lipschitz_fallback_when_insufficient_clusters() -> None:
+    res = ClusterValueReservoir()
+    res.record_eval("c1", "a", _vec(1.0, 0.0), 0.7)
+
+    estimate = res.estimate_lipschitz(
+        agent_id="a",
+        embedding_dimension=2,
+        config=LipschitzEstimatorConfig(quantile=0.9, conservative_fallback=0.75),
+    )
+
+    assert estimate.value == pytest.approx(0.75)
+    assert estimate.provenance == "configured_fallback_insufficient_clusters"
+    assert estimate.usable_clusters == 1
+
+
+def test_reservoir_lipschitz_matches_reference_fixture_from_cluster_summaries() -> None:
+    res = ClusterValueReservoir(k=64)
+    va = _vec(1.0, 0.0)
+    vb = _vec(2**-0.5, 2**-0.5)
+    vc = _vec(0.0, 1.0)
+    for _ in range(50):
+        res.record_eval("a", "agent", va, 0.9)
+        res.record_eval("b", "agent", vb, 0.7)
+        res.record_eval("c", "agent", vc, 0.3)
+
+    estimate = res.estimate_lipschitz(
+        agent_id="agent",
+        embedding_dimension=2,
+        config=LipschitzEstimatorConfig(quantile=0.9),
+    )
+
+    assert estimate.value == pytest.approx(0.4629945461053807)
+    assert estimate.provenance == "empirical_smoothed_cluster_values"
+    assert estimate.pair_count == 3
+
+
+def test_reservoir_lipschitz_uses_only_cluster_judged_donors() -> None:
+    res = ClusterValueReservoir()
+    # These update means but should not create cluster summaries for calibration.
+    res.record_eval(None, "a", None, 0.1)
+    res.record_eval("c1", "a", None, 0.9)
+    assert res._members == {}
+
+    estimate = res.estimate_lipschitz(
+        agent_id="a",
+        embedding_dimension=1,
+        config=LipschitzEstimatorConfig(quantile=0.9, conservative_fallback=0.55),
+    )
+    assert estimate.value == pytest.approx(0.55)
+    assert estimate.usable_clusters == 0
+
+
+def test_reservoir_lipschitz_preserves_continuous_cluster_values() -> None:
+    res = ClusterValueReservoir()
+    for _ in range(10):
+        res.record_eval("a", "agent", _vec(1.0, 0.0), 0.44)
+        res.record_eval("b", "agent", _vec(0.0, 1.0), 0.76)
+
+    estimate = res.estimate_lipschitz(
+        agent_id="agent",
+        embedding_dimension=2,
+        config=LipschitzEstimatorConfig(conservative_fallback=1.0),
+    )
+
+    assert estimate.provenance == "empirical_smoothed_cluster_values"
+    assert estimate.value > 0.0
+
+
+def test_reservoir_lipschitz_is_agent_scoped() -> None:
+    res = ClusterValueReservoir()
+    for _ in range(20):
+        res.record_eval("a1", "agent-a", _vec(1.0, 0.0), 0.9)
+        res.record_eval("a2", "agent-a", _vec(0.0, 1.0), 0.1)
+        res.record_eval("b1", "agent-b", _vec(1.0, 0.0), 0.5)
+        res.record_eval("b2", "agent-b", _vec(0.0, 1.0), 0.5)
+
+    config = LipschitzEstimatorConfig(conservative_fallback=1.0)
+    agent_a = res.estimate_lipschitz(agent_id="agent-a", embedding_dimension=2, config=config)
+    agent_b = res.estimate_lipschitz(agent_id="agent-b", embedding_dimension=2, config=config)
+
+    assert agent_a.value > agent_b.value
+
+
+def test_reservoir_lipschitz_uses_all_observations_beyond_ring_capacity() -> None:
+    res = ClusterValueReservoir(k=2)
+    for _ in range(10):
+        res.record_eval("a", "agent", _vec(1.0, 0.0), 0.9)
+        res.record_eval("b", "agent", _vec(0.0, 1.0), 0.1)
+
+    estimate = res.estimate_lipschitz(
+        agent_id="agent",
+        embedding_dimension=2,
+        config=LipschitzEstimatorConfig(),
+    )
+    high_rate = (9.0 + 0.5) / 11.0
+    low_rate = (1.0 + 0.5) / 11.0
+    expected_variance = (
+        10 * high_rate * (1.0 - high_rate) / 121
+        + 10 * low_rate * (1.0 - low_rate) / 121
+    ) / 2
+
+    assert len(res._members["a"]) == 2
+    assert estimate.mean_rate_variance == pytest.approx(expected_variance)
+
+
+def test_reservoir_lipschitz_cache_invalidates_after_judged_eval(monkeypatch) -> None:
+    res = ClusterValueReservoir()
+    res.record_eval("a", "agent", _vec(1.0, 0.0), 0.9)
+    res.record_eval("b", "agent", _vec(0.0, 1.0), 0.1)
+    calls = 0
+
+    from trace_sampling import value_reservoir
+
+    original = value_reservoir.estimate_bounded_lipschitz
+
+    def counted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(value_reservoir, "estimate_bounded_lipschitz", counted)
+    kwargs = dict(agent_id="agent", embedding_dimension=2, config=LipschitzEstimatorConfig())
+    first = res.estimate_lipschitz(**kwargs)
+    second = res.estimate_lipschitz(**kwargs)
+    res.record_eval("a", "agent", _vec(1.0, 0.0), 0.8)
+    third = res.estimate_lipschitz(**kwargs)
+
+    assert first is second
+    assert third is not second
+    assert calls == 2
+
+
+@pytest.mark.parametrize("remove", ["purge", "evict"])
+def test_reservoir_lipschitz_cache_invalidates_when_cluster_removed(remove) -> None:
+    res = ClusterValueReservoir(ttl=10.0)
+    res.record_eval("a", "agent", _vec(1.0, 0.0), 0.9, now=0.0)
+    res.record_eval("b", "agent", _vec(0.0, 1.0), 0.1, now=100.0)
+    kwargs = dict(agent_id="agent", embedding_dimension=2, config=LipschitzEstimatorConfig())
+    before = res.estimate_lipschitz(**kwargs)
+
+    if remove == "purge":
+        res.purge_stale(now=105.0)
+    else:
+        res.evict(["a"])
+    after = res.estimate_lipschitz(**kwargs)
+
+    assert before.usable_clusters == 2
+    assert after.usable_clusters == 1
+    assert after.provenance == "configured_fallback_insufficient_clusters"
