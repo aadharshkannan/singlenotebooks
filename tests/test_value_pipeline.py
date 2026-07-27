@@ -1,9 +1,11 @@
 import numpy as np
 import pytest
-from trace_sampling.model import Trace
+from trace_sampling.model import SessionEvent, Trace
+from trace_sampling.representation import CanonicalizationOptions, SessionEvidencePacketBuilder
+from trace_sampling.session_embedding import EmbeddingProfile, SessionEmbeddingCache
 from trace_sampling.variety import VarietyKey, VarietyObservation
 from trace_sampling.value_reservoir import ClusterValueReservoir
-from trace_sampling.value_pipeline import ValuePipeline, TraceValue
+from trace_sampling.value_pipeline import LiveEvaluationRequest, ValuePipeline, TraceValue
 
 
 class _FakeSampler:
@@ -303,3 +305,136 @@ def test_process_triggers_purge_on_cadence():
     assert len(purge_calls) == 0          # not yet
     pipe.process(_trace(tid=3, sig=sig))
     assert len(purge_calls) == 1          # exactly on the 3rd
+
+
+def test_embedding_and_judge_receive_one_byte_identical_bounded_packet():
+    class CharacterTokenizer:
+        name = "characters"
+        version = "1"
+
+        def count(self, text):
+            return len(text)
+
+    class CapturingEmbedder:
+        def __init__(self):
+            self.calls = []
+
+        def embed(self, texts):
+            self.calls.append(list(texts))
+            return np.array([[1.0, 0.0] for _ in texts], dtype=np.float32)
+
+    class EmbeddingSampler:
+        def __init__(self, cache):
+            self.cache = cache
+            self.last_observation = None
+
+        def decide(self, trace):
+            self.cache.get_trace(trace)
+            self.last_observation = VarietyObservation(
+                VarietyKey("cluster", "c1"), rarity=0.0, novelty=0.0
+            )
+            return True
+
+    trace = Trace(
+        42,
+        "agent",
+        123.0,
+        ("search",),
+        1,
+        1.0,
+        "ok",
+        events=(
+            SessionEvent("user", "A" * 8_000),
+            SessionEvent("tool", tool_name="search", output="result " + ("R" * 2_000)),
+            SessionEvent("assistant", "Final outcome: complete"),
+        ),
+    )
+    builder = SessionEvidencePacketBuilder(CanonicalizationOptions(max_utf8_bytes=900))
+    embedder = CapturingEmbedder()
+    profile = EmbeddingProfile(
+        model_id="test",
+        model_version="1",
+        tokenizer_id="characters",
+        tokenizer_version="1",
+        max_input_tokens=900,
+        max_representation_utf8_bytes=900,
+    )
+    cache = SessionEmbeddingCache(
+        embedder,
+        CharacterTokenizer(),
+        profile,
+        packet_builder=builder,
+    )
+    captured = {}
+
+    def submit_judge(request, on_done):
+        captured["request"] = request
+        on_done(0.9)
+
+    pipe = ValuePipeline(
+        EmbeddingSampler(cache),
+        cache,
+        ClusterValueReservoir(),
+        submit_judge,
+    )
+
+    pipe.process(trace)
+
+    request = captured["request"]
+    assert isinstance(request, LiveEvaluationRequest)
+    assert not hasattr(request, "trace")
+    assert request.trace_id == trace.trace_id
+    assert request.canonical_representation_json == embedder.calls[0][0]
+    assert request.representation_audit.truncated is True
+    assert len(request.canonical_representation_json.encode("utf-8")) <= 900
+    assert len(embedder.calls) == 1
+    assert len(embedder.calls[0]) == 1
+    assert builder.n_builds == 1
+    assert builder.n_hits == 2
+
+
+def test_unrepresentable_trace_fails_before_sampling_or_judge_submission():
+    class UntouchedSampler:
+        last_observation = None
+
+        def __init__(self):
+            self.calls = 0
+
+        def decide(self, trace):
+            self.calls += 1
+            raise AssertionError("sampler must not run")
+
+    sampler = UntouchedSampler()
+    submitted = []
+    builder = SessionEvidencePacketBuilder(CanonicalizationOptions(max_utf8_bytes=5))
+    pipe = ValuePipeline(
+        sampler,
+        _Cache(),
+        ClusterValueReservoir(),
+        lambda request, on_done: submitted.append(request),
+        packet_builder=builder,
+    )
+
+    with pytest.raises(ValueError, match="non-content canonical structure"):
+        pipe.process(_trace())
+
+    assert sampler.calls == 0
+    assert submitted == []
+
+
+def test_judge_and_embedding_builders_must_use_identical_options():
+    class CacheWithBuilder(_Cache):
+        packet_builder = SessionEvidencePacketBuilder(
+            CanonicalizationOptions(max_utf8_bytes=900)
+        )
+
+    with pytest.raises(ValueError, match="identical options"):
+        ValuePipeline(
+            _FakeSampler(),
+            CacheWithBuilder(),
+            ClusterValueReservoir(),
+            submit_judge=None,
+            packet_builder=SessionEvidencePacketBuilder(
+                CanonicalizationOptions(max_utf8_bytes=1_000)
+            ),
+        )

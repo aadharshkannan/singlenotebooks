@@ -11,6 +11,16 @@ import numpy as np
 
 from .embedding import Embedder
 from .model import SessionEvent, Trace
+from .representation import (
+    CANONICAL_POLICY,
+    CANONICAL_VERSION,
+    CanonicalizationOptions,
+    DEFAULT_MAX_UTF8_BYTES,
+    NormalizedRepresentation,
+    RepresentationAudit,
+    RepresentationError,
+    SessionEvidencePacketBuilder,
+)
 
 
 class Tokenizer(Protocol):
@@ -46,12 +56,28 @@ class EmbeddingProfile:
     tokenizer_version: str
     max_input_tokens: int
     pooling_version: str = "token-weighted-unit-v1"
+    representation_policy: str = CANONICAL_POLICY
+    representation_version: str = CANONICAL_VERSION
+    max_representation_utf8_bytes: Optional[int] = None
 
     def __post_init__(self):
         if self.max_input_tokens < 1:
             raise ValueError("max_input_tokens must be >= 1")
         if not self.model_id or not self.model_version:
             raise ValueError("model_id and model_version are required")
+        CanonicalizationOptions(
+            max_utf8_bytes=self.representation_max_utf8_bytes,
+            policy=self.representation_policy,
+            version=self.representation_version,
+        )
+
+    @property
+    def representation_max_utf8_bytes(self) -> int:
+        return (
+            self.max_representation_utf8_bytes
+            if self.max_representation_utf8_bytes is not None
+            else DEFAULT_MAX_UTF8_BYTES
+        )
 
     @property
     def cache_version(self) -> str:
@@ -61,6 +87,9 @@ class EmbeddingProfile:
                 "model_id": self.model_id,
                 "model_version": self.model_version,
                 "pooling_version": self.pooling_version,
+                "representation_max_utf8_bytes": self.representation_max_utf8_bytes,
+                "representation_policy": self.representation_policy,
+                "representation_version": self.representation_version,
                 "tokenizer_id": self.tokenizer_id,
                 "tokenizer_version": self.tokenizer_version,
             },
@@ -89,6 +118,7 @@ class SessionEmbeddingRecord:
     vector: np.ndarray
     chunk_count: int
     token_count: int
+    representation_audit: RepresentationAudit
 
 
 @dataclass(frozen=True)
@@ -303,13 +333,19 @@ class SessionEmbeddingCache:
         profile: EmbeddingProfile,
         max_size: int = 4096,
         serializer: Optional[SessionSerializer] = None,
+        packet_builder: Optional[SessionEvidencePacketBuilder] = None,
     ):
         self._embedder = embedder
         self._tokenizer = tokenizer
         self.profile = profile
         self.serializer = serializer or SessionSerializer()
-        self._chunker = SessionChunker(
-            self.serializer, tokenizer, max_input_tokens=profile.max_input_tokens
+        self.packet_builder = packet_builder or SessionEvidencePacketBuilder(
+            CanonicalizationOptions(
+                max_utf8_bytes=profile.representation_max_utf8_bytes,
+                policy=profile.representation_policy,
+                version=profile.representation_version,
+            ),
+            max_size=max_size,
         )
         self._max = max_size
         self._cache: "OrderedDict[SessionCacheKey, SessionEmbeddingRecord]" = OrderedDict()
@@ -327,34 +363,30 @@ class SessionEmbeddingCache:
 
     @property
     def split_output_events(self) -> int:
-        return self._chunker.split_output_events
+        return 0
 
-    def _snapshot_and_key(
+    def _representation_and_key(
         self, trace: Trace
-    ) -> Tuple[Tuple[Dict[str, Any], ...], SessionCacheKey]:
-        events = trace.events or tuple(
-            SessionEvent(role="tool", tool_name=tool_name) for tool_name in trace.signature
-        )
-        snapshot = self.serializer.snapshot(events)
-        serialized = self.serializer.serialize(snapshot)
-        digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-        return snapshot, SessionCacheKey(
+    ) -> Tuple[NormalizedRepresentation, SessionCacheKey]:
+        representation = self.packet_builder.build(trace)
+        digest = hashlib.sha256(representation.canonical_json.encode("utf-8")).hexdigest()
+        return representation, SessionCacheKey(
             content_sha256=digest,
-            serializer_version=self.serializer.version,
+            serializer_version=f"{representation.policy}:{representation.version}",
             model_version=self.profile.cache_version,
         )
 
     def contains_trace(self, trace: Trace) -> bool:
         try:
-            _, key = self._snapshot_and_key(trace)
-        except SessionEmbeddingError:
+            _, key = self._representation_and_key(trace)
+        except (SessionEmbeddingError, ValueError):
             return False
         return key in self._cache
 
     def peek_trace(self, trace: Trace) -> Optional[SessionEmbeddingRecord]:
         try:
-            _, key = self._snapshot_and_key(trace)
-        except SessionEmbeddingError:
+            _, key = self._representation_and_key(trace)
+        except (SessionEmbeddingError, ValueError):
             return None
         return self._cache.get(key)
 
@@ -362,7 +394,7 @@ class SessionEmbeddingCache:
         content_sha256 = None
         chunks: List[SessionChunk] = []
         try:
-            snapshot, key = self._snapshot_and_key(trace)
+            representation, key = self._representation_and_key(trace)
             content_sha256 = key.content_sha256
             cached = self._cache.get(key)
             if cached is not None:
@@ -371,9 +403,16 @@ class SessionEmbeddingCache:
                 self.last_record = cached
                 return cached.vector
 
-            chunks = self._chunker.chunk(snapshot)
-            texts = [chunk.text for chunk in chunks]
-            token_counts = [chunk.token_count for chunk in chunks]
+            token_count = self._tokenizer.count(representation.canonical_json)
+            if token_count > self.profile.max_input_tokens:
+                raise SessionEmbeddingError(
+                    "representation",
+                    "token_limit",
+                    "bounded canonical representation exceeds max_input_tokens",
+                )
+            chunks = [SessionChunk(representation.canonical_json, token_count)]
+            texts = [representation.canonical_json]
+            token_counts = [token_count]
             started = time.perf_counter()
             self.n_calls += 1
             try:
@@ -393,6 +432,7 @@ class SessionEmbeddingCache:
                 vector=vector,
                 chunk_count=len(chunks),
                 token_count=sum(token_counts),
+                representation_audit=representation.audit,
             )
             self._cache[key] = record
             self.last_record = record
@@ -412,6 +452,27 @@ class SessionEmbeddingCache:
                     content_sha256=content_sha256,
                     chunk_count=len(chunks),
                     token_count=sum(chunk.token_count for chunk in chunks),
+                    message=str(exc),
+                )
+            )
+            raise
+        except RepresentationError as exc:
+            self.n_failures += 1
+            reason = (
+                "mandatory_evidence_floor"
+                if "mandatory task-completion evidence" in str(exc)
+                else "structural_floor"
+                if "non-content canonical structure" in str(exc)
+                else "invalid_representation"
+            )
+            self.failure_counts[("representation", reason)] += 1
+            self.failures.append(
+                EmbeddingFailure(
+                    stage="representation",
+                    reason=reason,
+                    content_sha256=content_sha256,
+                    chunk_count=0,
+                    token_count=0,
                     message=str(exc),
                 )
             )

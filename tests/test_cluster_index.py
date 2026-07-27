@@ -4,6 +4,7 @@ import pytest
 from trace_sampling.model import SessionEvent, Trace
 from trace_sampling.embedding import FakeEmbedder, EmbeddingCache
 from trace_sampling.session_embedding import EmbeddingProfile, SessionEmbeddingCache
+from trace_sampling.representation import RepresentationError
 from trace_sampling.vector_store import InMemoryVectorStore
 from trace_sampling.cluster_index import CircuitBreaker, AzureClusterIndex
 from trace_sampling.variety import VarietyKey
@@ -107,6 +108,30 @@ def test_session_cache_clusters_same_signature_by_full_session_content():
     assert cache.n_calls == 2
     assert any("alpha-result" in text for text in embedder.inputs)
     assert any("beta-result" in text for text in embedder.inputs)
+    assert index.semantic_scope == profile.cache_version
+    assert first.key.value.startswith(index._cluster_prefix + "-")
+
+
+def test_representation_failure_bypasses_breaker_and_signature_fallback():
+    class InvalidRepresentationCache:
+        def contains_trace(self, trace):
+            return False
+
+        def get_trace(self, trace):
+            raise RepresentationError("max_utf8_bytes too small for canonical structure")
+
+    breaker = CircuitBreaker(fail_threshold=1, cooldown_s=10.0)
+    index = AzureClusterIndex(
+        InvalidRepresentationCache(),
+        InMemoryVectorStore(),
+        breaker=breaker,
+    )
+
+    with pytest.raises(RepresentationError):
+        index.observe(_t(("search",), ts=1.0))
+
+    assert breaker.allow(now=2.0)
+    assert index.n_fallbacks == 0
 
 def test_fallback_preserves_exact_signature_rarity():
     idx = _index(embed_budget_per_tick=0)

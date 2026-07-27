@@ -148,6 +148,7 @@ def run_value_simulation(stream, cluster_result, *, field: Optional[ValueField] 
     global_running = _Running()
     drop_rows: List[dict] = []
     pending_drop: Dict[int, tuple] = {}   # trace_id -> (agent_id, true_value) awaiting its imputation
+    pending_judge: Dict[int, tuple] = {}  # trace_id -> (agent_id, already-cached vector)
 
     def sink(tv) -> None:
         if tv.provenance == "pending":
@@ -163,12 +164,15 @@ def run_value_simulation(stream, cluster_result, *, field: Optional[ValueField] 
             agent_id=agent_id, true=true_v, idw_pred=tv.value,
             agent_fill_pred=fill, provenance=tv.provenance))
 
-    def sync_judge(trace, on_done) -> None:
+    def sync_judge(request, on_done) -> None:
         # Judge only embedded traces so no new embedding is ever triggered.
-        vector = cache_peek_trace(cache, trace)
+        pending = pending_judge.pop(request.trace_id, None)
+        if pending is None:
+            return
+        agent_id, vector = pending
         if vector is not None:
-            v = _clip01(field(vector) + judge_noise(trace.trace_id))
-            agent_running.setdefault(trace.agent_id, _Running()).update(v)
+            v = _clip01(field(vector) + judge_noise(request.trace_id))
+            agent_running.setdefault(agent_id, _Running()).update(v)
             global_running.update(v)
             on_done(v)
 
@@ -177,6 +181,8 @@ def run_value_simulation(stream, cluster_result, *, field: Optional[ValueField] 
 
     for i, trace in enumerate(stream):
         embedded = cache_contains_trace(cache, trace)
+        if embedded and kept_flags[i]:
+            pending_judge[trace.trace_id] = (trace.agent_id, cache_peek_trace(cache, trace))
         if embedded and not kept_flags[i]:
             # Register the dropped trace's ground truth before process() imputes it.
             pending_drop[trace.trace_id] = (trace.agent_id, field(cache_peek_trace(cache, trace)))

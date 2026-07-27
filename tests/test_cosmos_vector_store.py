@@ -22,7 +22,10 @@ class FakeContainer:
         self.patch_call = kwargs
 
     def delete_stale(self, **kwargs):
-        assert kwargs == {"vector_space_id": "session-v1", "older_than": 40.0}
+        assert kwargs == {
+            "vector_space_id": "session-v1",
+            "older_than": 40.0,
+        }
         return ["c-old"]
 
 
@@ -40,15 +43,30 @@ def test_cosmos_store_scopes_documents_and_queries_to_vector_space_and_agent():
     store = _store(container)
     vector = np.array([1.0, 0.0], dtype=np.float32)
 
-    store.upsert(VectorDoc("c0", vector, "agent-a", last_seen=10.0))
-    nearest = store.nearest(vector, agent_id="agent-a")
+    store.upsert(
+        VectorDoc(
+            "c0",
+            vector,
+            "agent-a",
+            last_seen=10.0,
+            semantic_scope="representation-v2",
+        )
+    )
+    nearest = store.nearest(
+        vector,
+        agent_id="agent-a",
+        semantic_scope="representation-v2",
+    )
 
     document = container.documents[0]
     assert document["id"] == "session-v1|c0"
-    assert document["partition_key"] == "session-v1|agent-a"
+    assert document["partition_key"] == "session-v1|representation-v2|agent-a"
     assert document["schema_version"] == "cluster-vector-v1"
+    assert document["semantic_scope"] == "representation-v2"
     assert document["vector"] == [1.0, 0.0]
-    assert container.nearest_call["partition_key"] == "session-v1|agent-a"
+    assert container.nearest_call["partition_key"] == (
+        "session-v1|representation-v2|agent-a"
+    )
     assert nearest == ("c0", 0.75)
 
 

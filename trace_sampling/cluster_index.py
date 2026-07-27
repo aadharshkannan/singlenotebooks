@@ -1,10 +1,13 @@
 """VarietyIndex building blocks: CircuitBreaker for Azure resilience."""
+import hashlib
 import itertools
+from typing import Optional
 import numpy as np
 
 from .model import Trace
 from .variety import VarietyObservation, VarietyKey, ExactSignatureIndex
 from .embedding import EmbeddingCache, cache_contains_trace, cache_get_trace
+from .representation import RepresentationError
 from .vector_store import VectorStore, VectorDoc
 
 _EPS = 1e-9
@@ -54,7 +57,8 @@ class AzureClusterIndex:
     def __init__(self, cache: EmbeddingCache, store: VectorStore, tau: float = 0.85,
                  ttl: float = 60.0, purge_every: int = 200,
                  embed_budget_per_tick: int = 8, recent_buffer_size: int = 64,
-                 breaker=None, k: float = 16.0, iat_alpha: float = 0.3):
+                 breaker=None, k: float = 16.0, iat_alpha: float = 0.3,
+                 semantic_scope: Optional[str] = None):
         if not k > 0:
             raise ValueError(f"k must be > 0, got {k}")
         if not (0.0 < iat_alpha <= 1.0):
@@ -77,10 +81,17 @@ class AzureClusterIndex:
         self._embeds_this_tick = 0
         self._last_tick = None
         self._fallback_index = ExactSignatureIndex()
+        profile = getattr(cache, "profile", None)
+        self.semantic_scope = semantic_scope or getattr(
+            profile, "cache_version", "signature-embedding-v1"
+        )
+        self._cluster_prefix = hashlib.sha256(
+            self.semantic_scope.encode("utf-8")
+        ).hexdigest()[:12]
         self.n_fallbacks = 0
 
     def _new_id(self) -> str:
-        return f"c{next(self._ids)}"
+        return f"{self._cluster_prefix}-c{next(self._ids)}"
 
     def _tick(self, ts: float):
         if ts != self._last_tick:
@@ -154,7 +165,11 @@ class AzureClusterIndex:
             vec = cache_get_trace(self._cache, trace)
             near = self._recent_nearest(trace.agent_id, vec)
             if near is None or near[1] < self.tau:
-                store_near = self._store.nearest(vec, agent_id=trace.agent_id)
+                store_near = self._store.nearest(
+                    vec,
+                    agent_id=trace.agent_id,
+                    semantic_scope=self.semantic_scope,
+                )
                 if store_near is not None and (near is None or store_near[1] > near[1]):
                     near = store_near
             if near is not None and near[1] >= self.tau:
@@ -168,12 +183,22 @@ class AzureClusterIndex:
                 novelty = 1.0
                 is_new_cluster = True
                 self._last_seen[cluster_id] = trace.timestamp
-                self._store.upsert(VectorDoc(cluster_id, vec, trace.agent_id, trace.timestamp))
+                self._store.upsert(
+                    VectorDoc(
+                        cluster_id,
+                        vec,
+                        trace.agent_id,
+                        trace.timestamp,
+                        semantic_scope=self.semantic_scope,
+                    )
+                )
                 self._recent.append((cluster_id, trace.agent_id, vec, trace.timestamp))
                 if len(self._recent) > self._recent_max:
                     self._recent.pop(0)
             if self._breaker:
                 self._breaker.on_success()
+        except RepresentationError:
+            raise
         except Exception:
             if self._breaker:
                 self._breaker.on_failure(trace.timestamp)
