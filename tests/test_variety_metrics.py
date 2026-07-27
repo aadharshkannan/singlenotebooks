@@ -42,3 +42,14 @@ def test_cross_agent_unification():
     emb = np.array([[1.0, 0.0], [0.99, 0.01], [0.0, 1.0]], dtype=float)
     frac = cross_agent_unification(kept, emb, tau=0.9)
     assert abs(frac - 0.5) < 1e-9
+
+
+def test_cross_agent_unification_ignores_aligned_missing_embeddings():
+    kept = pd.DataFrame([
+        dict(agent_id="a", concept_id=0),
+        dict(agent_id="b", concept_id=0),
+        dict(agent_id="a", concept_id=1),
+    ])
+    emb = np.array([[1.0, 0.0], [0.99, 0.01], [np.nan, np.nan]], dtype=float)
+
+    assert cross_agent_unification(kept, emb, tau=0.9) == 1.0

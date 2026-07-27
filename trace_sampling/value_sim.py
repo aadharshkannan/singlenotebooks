@@ -31,6 +31,7 @@ from typing import Callable, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
+from .embedding import cache_contains_trace, cache_peek_trace
 from .variety import VarietyKey, VarietyObservation
 from .value_reservoir import ClusterValueReservoir, _Running
 from .value_pipeline import ValuePipeline
@@ -127,8 +128,9 @@ def run_value_simulation(stream, cluster_result, *, field: Optional[ValueField] 
     if field is None:
         dim = None
         for trace in stream:
-            if trace.signature in cache:
-                dim = cache.get(trace.signature).shape[0]
+            vector = cache_peek_trace(cache, trace)
+            if vector is not None:
+                dim = vector.shape[0]
                 break
         if dim is None:
             raise ValueError("no embedded traces in this run; cannot build a value field")
@@ -163,8 +165,9 @@ def run_value_simulation(stream, cluster_result, *, field: Optional[ValueField] 
 
     def sync_judge(trace, on_done) -> None:
         # Judge only embedded traces so no new embedding is ever triggered.
-        if trace.signature in cache:
-            v = _clip01(field(cache.get(trace.signature)) + judge_noise(trace.trace_id))
+        vector = cache_peek_trace(cache, trace)
+        if vector is not None:
+            v = _clip01(field(vector) + judge_noise(trace.trace_id))
             agent_running.setdefault(trace.agent_id, _Running()).update(v)
             global_running.update(v)
             on_done(v)
@@ -173,10 +176,10 @@ def run_value_simulation(stream, cluster_result, *, field: Optional[ValueField] 
                          submit_judge=sync_judge, on_value=sink)
 
     for i, trace in enumerate(stream):
-        embedded = trace.signature in cache
+        embedded = cache_contains_trace(cache, trace)
         if embedded and not kept_flags[i]:
             # Register the dropped trace's ground truth before process() imputes it.
-            pending_drop[trace.trace_id] = (trace.agent_id, field(cache.get(trace.signature)))
+            pending_drop[trace.trace_id] = (trace.agent_id, field(cache_peek_trace(cache, trace)))
         pipe.process(trace)
 
     per_trace = pd.DataFrame(drop_rows)

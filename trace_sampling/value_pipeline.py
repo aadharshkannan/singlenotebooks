@@ -22,6 +22,7 @@ from .lipschitz import (
     calculate_conditional_geodesic_bounds,
 )
 from .model import Trace
+from .embedding import cache_peek_trace
 from .value_reservoir import ClusterValueReservoir
 
 # on_done(value) may fire on any thread (asyncio task, thread pool, or synchronously).
@@ -85,7 +86,7 @@ class ValuePipeline:
         kept = self.sampler.decide(trace)
         obs = self.sampler.last_observation
         cid = obs.key.value if obs.key.kind == "cluster" else None
-        vec = self.cache.get(trace.signature) if trace.signature in self.cache else None
+        vec = cache_peek_trace(self.cache, trace)
         if kept:
             def _done(v: float) -> None:
                 if self.reservoir.record_eval(cid, trace.agent_id, vec, v):

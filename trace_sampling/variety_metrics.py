@@ -50,6 +50,14 @@ def cross_agent_unification(kept_log: pd.DataFrame, embeddings: np.ndarray,
     """Offline metric-only pass: globally leader-cluster KEPT traces' embeddings
     (ignoring agent scope) and report the fraction of concepts whose resulting
     global cluster spans >=2 agents."""
+    if len(kept_log) != len(embeddings):
+        raise ValueError("kept_log and embeddings must have the same row count")
+    available = np.all(np.isfinite(embeddings), axis=1)
+    kept_log = kept_log.loc[available].reset_index(drop=True)
+    embeddings = embeddings[available]
+    if kept_log.empty:
+        return 0.0
+
     assign = []
     centers = []
     for i in range(len(kept_log)):

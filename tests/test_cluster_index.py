@@ -1,8 +1,9 @@
 import os
 import numpy as np
 import pytest
-from trace_sampling.model import Trace
+from trace_sampling.model import SessionEvent, Trace
 from trace_sampling.embedding import FakeEmbedder, EmbeddingCache
+from trace_sampling.session_embedding import EmbeddingProfile, SessionEmbeddingCache
 from trace_sampling.vector_store import InMemoryVectorStore
 from trace_sampling.cluster_index import CircuitBreaker, AzureClusterIndex
 from trace_sampling.variety import VarietyKey
@@ -59,6 +60,53 @@ def test_embed_budget_exhaustion_falls_back_to_signature():
     idx = _index(embed_budget_per_tick=0)
     obs = idx.observe(_t(("search",), cid=0))
     assert obs.key.kind == "fallback-signature"
+
+
+def test_session_cache_clusters_same_signature_by_full_session_content():
+    class CharacterTokenizer:
+        name = "characters"
+        version = "1"
+
+        def count(self, text):
+            return len(text)
+
+    class ContentEmbedder:
+        def __init__(self):
+            self.inputs = []
+
+        def embed(self, texts):
+            self.inputs.extend(texts)
+            return np.array([
+                [1.0, 0.0] if "alpha-result" in text else [0.0, 1.0]
+                for text in texts
+            ], dtype=np.float32)
+
+    embedder = ContentEmbedder()
+    profile = EmbeddingProfile(
+        model_id="test",
+        model_version="1",
+        tokenizer_id="characters",
+        tokenizer_version="1",
+        max_input_tokens=1000,
+    )
+    cache = SessionEmbeddingCache(embedder, CharacterTokenizer(), profile)
+    index = AzureClusterIndex(cache, InMemoryVectorStore(), tau=0.9)
+    alpha = Trace(
+        1, "a", 0.0, ("search",), 1, 1.0, "ok",
+        events=(SessionEvent("tool", tool_name="search", output="alpha-result"),),
+    )
+    beta = Trace(
+        2, "a", 1.0, ("search",), 1, 1.0, "ok",
+        events=(SessionEvent("tool", tool_name="search", output="beta-result"),),
+    )
+
+    first = index.observe(alpha)
+    second = index.observe(beta)
+
+    assert first.key != second.key
+    assert cache.n_calls == 2
+    assert any("alpha-result" in text for text in embedder.inputs)
+    assert any("beta-result" in text for text in embedder.inputs)
 
 def test_fallback_preserves_exact_signature_rarity():
     idx = _index(embed_budget_per_tick=0)
