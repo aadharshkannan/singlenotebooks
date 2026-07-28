@@ -17,6 +17,26 @@ def test_inmemory_agent_scoping():
     assert vs.nearest(np.array([1.0, 0.0]), agent_id="b") is None
 
 
+def test_inmemory_semantic_scope_isolates_representation_lineage():
+    vs = InMemoryVectorStore()
+    vector = np.array([1.0, 0.0])
+    vs.upsert(
+        VectorDoc(
+            "c0",
+            vector,
+            "a",
+            last_seen=0.0,
+            semantic_scope="representation-v1",
+        )
+    )
+
+    assert vs.nearest(vector, agent_id="a", semantic_scope="representation-v2") is None
+    assert vs.nearest(vector, agent_id="a", semantic_scope="representation-v1") == (
+        "c0",
+        1.0,
+    )
+
+
 def test_inmemory_purge_stale():
     vs = InMemoryVectorStore()
     vs.upsert(VectorDoc("c0", np.array([1.0, 0.0]), "a", last_seen=0.0))
@@ -25,6 +45,15 @@ def test_inmemory_purge_stale():
     assert removed == ["c0"]
     res = vs.nearest(np.array([1.0, 0.0]), agent_id="a")
     assert res is not None and res[0] == "c1"
+
+
+def test_inmemory_unscoped_purge_removes_stale_docs_across_lineages():
+    vs = InMemoryVectorStore()
+    vector = np.array([1.0, 0.0])
+    vs.upsert(VectorDoc("old-v1", vector, "a", 0.0, semantic_scope="v1"))
+    vs.upsert(VectorDoc("old-v2", vector, "a", 0.0, semantic_scope="v2"))
+
+    assert set(vs.purge_stale(now=100.0, ttl=50.0)) == {"old-v1", "old-v2"}
 
 
 def test_inmemory_touch_updates_last_seen_only():

@@ -34,6 +34,7 @@ class EmbeddingConfig:
     tokenizer_id: str
     tokenizer_encoding: Optional[str]
     max_input_tokens: int
+    max_representation_utf8_bytes: int
 
     @classmethod
     def from_env(cls, default_model_id: str) -> "EmbeddingConfig":
@@ -44,6 +45,11 @@ class EmbeddingConfig:
         )
         if max_input_tokens < 1:
             raise ValueError("SESSION_EMBEDDING_MAX_INPUT_TOKENS must be >= 1")
+        max_representation_utf8_bytes = int(
+            os.environ.get("SESSION_REPRESENTATION_MAX_UTF8_BYTES", "32768")
+        )
+        if max_representation_utf8_bytes < 1:
+            raise ValueError("SESSION_REPRESENTATION_MAX_UTF8_BYTES must be >= 1")
         return cls(
             full_session_enabled=_parse_bool("ENABLE_FULL_SESSION_EMBEDDINGS"),
             model_id=model_id,
@@ -51,4 +57,5 @@ class EmbeddingConfig:
             tokenizer_id=os.environ.get("SESSION_EMBEDDING_TOKENIZER_ID", model_id),
             tokenizer_encoding=os.environ.get("SESSION_EMBEDDING_TOKENIZER_ENCODING") or None,
             max_input_tokens=max_input_tokens,
+            max_representation_utf8_bytes=max_representation_utf8_bytes,
         )

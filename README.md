@@ -57,8 +57,9 @@ lets the sampler score variety by either the exact-signature baseline
 - **Embeds** each tool-call signature by default (Azure OpenAI
   `text-embedding-3-small`), behind an LRU `EmbeddingCache` so repeated
   signatures cost nothing. Set `ENABLE_FULL_SESSION_EMBEDDINGS=TRUE` to embed
-  ordered user/assistant/tool session events instead, with token-aware chunking
-  and normalized token-weighted pooling for oversized sessions.
+  ordered user/assistant/tool session events instead. Oversized sessions become
+  one deterministic, UTF-8-bounded evidence packet that preserves task and
+  outcome evidence; the same packet is sent to the live judge for kept traces.
 - **Leader-clusters** embeddings with a cosine threshold `tau` over a vector
   store (Azure AI Search vector NN, with an in-process recent-centroid
   fast-path), joining an existing cluster or creating a new one.
@@ -112,7 +113,15 @@ RUN_AZURE_TESTS=1 python -m jupyter nbconvert --to notebook --execute --inplace 
 In `.env`, leave `ENABLE_FULL_SESSION_EMBEDDINGS=FALSE` (or omit it) for the
 original `search -> read -> edit` signature embeddings. Set it to `TRUE` to use
 full-session embeddings; the accompanying `SESSION_EMBEDDING_*` values select
-the model, immutable model version, tokenizer, and per-chunk token limit.
+the model, immutable model version, tokenizer, and model token limit.
+`SESSION_REPRESENTATION_MAX_UTF8_BYTES` bounds the canonical packet before any
+embedding or judge call. Packet policy/version, byte budget, model, tokenizer,
+and pooling identity jointly scope embedding caches and semantic clusters.
+
+Live judge adapters receive a `LiveEvaluationRequest`, not the raw `Trace`.
+They must judge `canonical_representation_json`; identity fields are provided
+only for routing, logging, and idempotency. Normalization failures propagate
+before sampling, external calls, or donor mutation.
 
 On Windows PowerShell, set the variable with `$env:RUN_AZURE_TESTS=1` instead of
 the inline `RUN_AZURE_TESTS=1` prefix.

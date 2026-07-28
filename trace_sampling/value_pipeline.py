@@ -23,10 +23,25 @@ from .lipschitz import (
 )
 from .model import Trace
 from .embedding import cache_peek_trace
+from .representation import (
+    RepresentationAudit,
+    SessionEvidencePacketBuilder,
+)
 from .value_reservoir import ClusterValueReservoir
 
 # on_done(value) may fire on any thread (asyncio task, thread pool, or synchronously).
-SubmitJudge = Callable[[Trace, Callable[[float], None]], None]
+
+
+@dataclass(frozen=True, kw_only=True)
+class LiveEvaluationRequest:
+    trace_id: int
+    agent_id: str
+    interaction_timestamp: float
+    canonical_representation_json: str
+    representation_audit: RepresentationAudit
+
+
+SubmitJudge = Callable[[LiveEvaluationRequest, Callable[[float], None]], None]
 
 
 @dataclass(frozen=True)
@@ -51,7 +66,8 @@ class ValuePipeline:
                  on_value: "Optional[Callable[[TraceValue], None]]" = None,
                  purge_every: int = 200,
                  lipschitz_config: Optional[LipschitzEstimatorConfig] = None,
-                 lipschitz_fallback: Optional[float] = None):
+                 lipschitz_fallback: Optional[float] = None,
+                 packet_builder: Optional[SessionEvidencePacketBuilder] = None):
         """
         Args:
             on_value: optional sink called for every emitted TraceValue. May be
@@ -66,6 +82,19 @@ class ValuePipeline:
         self.cache = cache
         self.reservoir = reservoir
         self.submit_judge = submit_judge
+        cache_packet_builder = getattr(cache, "packet_builder", None)
+        self.packet_builder = (
+            packet_builder
+            or cache_packet_builder
+            or SessionEvidencePacketBuilder()
+        )
+        if (
+            cache_packet_builder is not None
+            and self.packet_builder.options != cache_packet_builder.options
+        ):
+            raise ValueError(
+                "judge and embedding packet builders must use identical options"
+            )
         self.on_value = on_value
         self.purge_every = purge_every
         config = lipschitz_config or LipschitzEstimatorConfig()
@@ -83,6 +112,7 @@ class ValuePipeline:
         return tv
 
     def process(self, trace: Trace) -> TraceValue:
+        representation = self.packet_builder.build(trace)
         kept = self.sampler.decide(trace)
         obs = self.sampler.last_observation
         cid = obs.key.value if obs.key.kind == "cluster" else None
@@ -99,7 +129,16 @@ class ValuePipeline:
             pending = self._emit(TraceValue(trace.trace_id, True, None, "pending"))
             try:
                 if self.submit_judge is not None:
-                    self.submit_judge(trace, _done)
+                    self.submit_judge(
+                        LiveEvaluationRequest(
+                            trace_id=trace.trace_id,
+                            agent_id=trace.agent_id,
+                            interaction_timestamp=trace.timestamp,
+                            canonical_representation_json=representation.canonical_json,
+                            representation_audit=representation.audit,
+                        ),
+                        _done,
+                    )
                 # NOTE: for a synchronous judge, an exception escaping the judge
                 # callback (including from _done / record_eval / on_value) is caught
                 # here and counted as a submission failure; async judges run _done on

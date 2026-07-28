@@ -14,6 +14,7 @@ def _clear_embedding_env(monkeypatch):
         "SESSION_EMBEDDING_TOKENIZER_ID",
         "SESSION_EMBEDDING_TOKENIZER_ENCODING",
         "SESSION_EMBEDDING_MAX_INPUT_TOKENS",
+        "SESSION_REPRESENTATION_MAX_UTF8_BYTES",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -38,12 +39,27 @@ def test_false_uses_original_signature_embedding_cache(monkeypatch):
 
 
 def test_true_uses_full_session_embedding_cache(monkeypatch):
+    class CharacterTokenizer:
+        name = "characters"
+        version = "1"
+
+        def __init__(self, model_name, encoding_name=None):
+            pass
+
+        def count(self, text):
+            return len(text)
+
     _clear_embedding_env(monkeypatch)
+    monkeypatch.setattr(
+        "trace_sampling.session_embedding.TiktokenTokenizer",
+        CharacterTokenizer,
+    )
     monkeypatch.setenv("ENABLE_FULL_SESSION_EMBEDDINGS", "TRUE")
     monkeypatch.setenv("SESSION_EMBEDDING_MODEL_ID", "capi-embedding")
     monkeypatch.setenv("SESSION_EMBEDDING_MODEL_VERSION", "2026-07")
     monkeypatch.setenv("SESSION_EMBEDDING_TOKENIZER_ID", "text-embedding-3-small")
     monkeypatch.setenv("SESSION_EMBEDDING_MAX_INPUT_TOKENS", "1024")
+    monkeypatch.setenv("SESSION_REPRESENTATION_MAX_UTF8_BYTES", "4096")
 
     cache = _make_embedding_cache(FakeEmbedder(), "text-embedding-3-small")
 
@@ -51,6 +67,7 @@ def test_true_uses_full_session_embedding_cache(monkeypatch):
     assert cache.profile.model_id == "capi-embedding"
     assert cache.profile.model_version == "2026-07"
     assert cache.profile.max_input_tokens == 1024
+    assert cache.profile.representation_max_utf8_bytes == 4096
 
 
 def test_invalid_boolean_is_rejected(monkeypatch):

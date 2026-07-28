@@ -36,6 +36,7 @@ def _make_embedding_cache(embedder, default_model_id: str):
         tokenizer_id=tokenizer.name,
         tokenizer_version=tokenizer.version,
         max_input_tokens=config.max_input_tokens,
+        max_representation_utf8_bytes=config.max_representation_utf8_bytes,
     )
     return SessionEmbeddingCache(embedder, tokenizer, profile)
 

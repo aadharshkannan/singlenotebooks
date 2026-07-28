@@ -10,6 +10,7 @@ class VectorDoc:
     agent_id: str
     last_seen: float
     hits: int = 1
+    semantic_scope: str = "legacy"
 
 
 def _cosine(a: np.ndarray, b: np.ndarray) -> float:
@@ -20,10 +21,20 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
 
 
 class VectorStore(Protocol):
-    def nearest(self, vec: np.ndarray, agent_id: Optional[str] = None) -> Optional[Tuple[str, float]]: ...
+    def nearest(
+        self,
+        vec: np.ndarray,
+        agent_id: Optional[str] = None,
+        semantic_scope: Optional[str] = None,
+    ) -> Optional[Tuple[str, float]]: ...
     def upsert(self, doc: VectorDoc) -> None: ...
     def touch(self, cluster_id: str, now: float) -> None: ...
-    def purge_stale(self, now: float, ttl: float) -> "List[str]": ...
+    def purge_stale(
+        self,
+        now: float,
+        ttl: float,
+        semantic_scope: Optional[str] = None,
+    ) -> "List[str]": ...
 
 
 class InMemoryVectorStore:
@@ -33,11 +44,13 @@ class InMemoryVectorStore:
         self._docs: Dict[str, VectorDoc] = {}
         self.n_queries = 0   # nearest() calls (ledger telemetry)
 
-    def nearest(self, vec, agent_id=None):
+    def nearest(self, vec, agent_id=None, semantic_scope=None):
         self.n_queries += 1
         best = None
         for doc in self._docs.values():
             if agent_id is not None and doc.agent_id != agent_id:
+                continue
+            if semantic_scope is not None and doc.semantic_scope != semantic_scope:
                 continue
             s = _cosine(vec, doc.vector)
             if best is None or s > best[1]:
@@ -61,8 +74,18 @@ class InMemoryVectorStore:
         self._docs.clear()
         return n
 
-    def purge_stale(self, now: float, ttl: float) -> List[str]:
-        stale = [cid for cid, d in self._docs.items() if now - d.last_seen > ttl]
+    def purge_stale(
+        self,
+        now: float,
+        ttl: float,
+        semantic_scope: Optional[str] = None,
+    ) -> List[str]:
+        stale = [
+            cid
+            for cid, doc in self._docs.items()
+            if now - doc.last_seen > ttl
+            and (semantic_scope is None or doc.semantic_scope == semantic_scope)
+        ]
         for cid in stale:
             del self._docs[cid]
         return stale
@@ -93,6 +116,7 @@ class AzureSearchVectorStore:
         fields = [
             SimpleField(name="cluster_id", type=SearchFieldDataType.String, key=True),
             SimpleField(name="agent_id", type=SearchFieldDataType.String, filterable=True),
+            SimpleField(name="semantic_scope", type=SearchFieldDataType.String, filterable=True),
             SimpleField(name="last_seen", type=SearchFieldDataType.Double,
                         filterable=True, sortable=True),
             SimpleField(name="hits", type=SearchFieldDataType.Int64),
@@ -107,14 +131,18 @@ class AzureSearchVectorStore:
         )
         ic.create_or_update_index(SearchIndex(name=self._index, fields=fields, vector_search=vs))
 
-    def nearest(self, vec, agent_id=None):
+    def nearest(self, vec, agent_id=None, semantic_scope=None):
         from azure.search.documents.models import VectorizedQuery
         self.n_queries += 1
         vq = VectorizedQuery(vector=vec.tolist(), k_nearest_neighbors=1, fields="vector")
+        filters = []
         if agent_id is not None:
-            flt = "agent_id eq '{}'".format(agent_id.replace("'", "''"))
-        else:
-            flt = None
+            filters.append("agent_id eq '{}'".format(agent_id.replace("'", "''")))
+        if semantic_scope is not None:
+            filters.append(
+                "semantic_scope eq '{}'".format(semantic_scope.replace("'", "''"))
+            )
+        flt = " and ".join(filters) or None
         results = self._client.search(search_text=None, vector_queries=[vq], filter=flt, top=1)
         for r in results:
             # Azure AI Search maps cosine to @search.score = (1 + cosine) / 2 in [0, 1];
@@ -127,6 +155,7 @@ class AzureSearchVectorStore:
     def upsert(self, doc: VectorDoc) -> None:
         self._client.merge_or_upload_documents([{
             "cluster_id": doc.cluster_id, "agent_id": doc.agent_id,
+            "semantic_scope": doc.semantic_scope,
             "last_seen": doc.last_seen, "hits": doc.hits,
             "vector": doc.vector.astype("float32").tolist(),
         }])
@@ -156,8 +185,16 @@ class AzureSearchVectorStore:
             _time.sleep(1.0)  # deletes are eventually consistent; let them commit
         return total
 
-    def purge_stale(self, now: float, ttl: float) -> List[str]:
+    def purge_stale(
+        self,
+        now: float,
+        ttl: float,
+        semantic_scope: Optional[str] = None,
+    ) -> List[str]:
         flt = f"last_seen lt {now - ttl}"
+        if semantic_scope is not None:
+            escaped_scope = semantic_scope.replace("'", "''")
+            flt += f" and semantic_scope eq '{escaped_scope}'"
         stale = list(self._client.search(search_text=None, filter=flt, select=["cluster_id"], top=1000))
         ids = [r["cluster_id"] for r in stale]
         if ids:

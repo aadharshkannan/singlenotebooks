@@ -31,19 +31,24 @@ class CosmosVectorStore:
         self._distance_to_cosine = distance_to_cosine
         self.n_queries = 0
 
-    def _partition_key(self, agent_id: str) -> str:
-        return f"{self.vector_space_id}|{agent_id}"
+    def _partition_key(self, agent_id: str, semantic_scope: str) -> str:
+        return f"{self.vector_space_id}|{semantic_scope}|{agent_id}"
 
     def _document_id(self, cluster_id: str) -> str:
         return f"{self.vector_space_id}|{cluster_id}"
 
-    def nearest(self, vec, agent_id: Optional[str] = None):
+    def nearest(
+        self,
+        vec,
+        agent_id: Optional[str] = None,
+        semantic_scope: Optional[str] = None,
+    ):
         if agent_id is None:
             raise ValueError("Cosmos vector queries require agent_id partition scope")
         vector = self._validate_vector(vec)
         self.n_queries += 1
         result = self._container.nearest(
-            partition_key=self._partition_key(agent_id),
+            partition_key=self._partition_key(agent_id, semantic_scope or "legacy"),
             vector=vector.tolist(),
             vector_path="/vector",
             top=1,
@@ -62,7 +67,8 @@ class CosmosVectorStore:
                 "id": self._document_id(doc.cluster_id),
                 "schema_version": self.schema_version,
                 "vector_space_id": self.vector_space_id,
-                "partition_key": self._partition_key(doc.agent_id),
+                "semantic_scope": doc.semantic_scope,
+                "partition_key": self._partition_key(doc.agent_id, doc.semantic_scope),
                 "cluster_id": doc.cluster_id,
                 "agent_id": doc.agent_id,
                 "last_seen": doc.last_seen,
@@ -78,12 +84,20 @@ class CosmosVectorStore:
             changes={"last_seen": now},
         )
 
-    def purge_stale(self, now: float, ttl: float):
+    def purge_stale(
+        self,
+        now: float,
+        ttl: float,
+        semantic_scope: Optional[str] = None,
+    ):
+        request = {
+            "vector_space_id": self.vector_space_id,
+            "older_than": now - ttl,
+        }
+        if semantic_scope is not None:
+            request["semantic_scope"] = semantic_scope
         return list(
-            self._container.delete_stale(
-                vector_space_id=self.vector_space_id,
-                older_than=now - ttl,
-            )
+            self._container.delete_stale(**request)
         )
 
     def delete(self, cluster_id: str) -> None:

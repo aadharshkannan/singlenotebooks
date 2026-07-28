@@ -171,21 +171,42 @@ def test_empty_event_sessions_fall_back_to_ordered_signature_content():
     assert "read" in embedder.calls[1][0]
 
 
-def test_oversized_non_output_is_recorded_as_an_explicit_failure():
+def test_structurally_insufficient_representation_budget_fails_before_embedding():
     embedder = CountingEmbedder()
     trace = _trace([SessionEvent("user", text="x" * 300)])
+    profile = _profile(max_input_tokens=120)
+    profile = EmbeddingProfile(
+        model_id=profile.model_id,
+        model_version=profile.model_version,
+        tokenizer_id=profile.tokenizer_id,
+        tokenizer_version=profile.tokenizer_version,
+        max_input_tokens=profile.max_input_tokens,
+        max_representation_utf8_bytes=120,
+    )
     cache = SessionEmbeddingCache(
-        embedder, CharacterTokenizer(), _profile(max_input_tokens=120)
+        embedder, CharacterTokenizer(), profile
     )
 
-    with pytest.raises(SessionEmbeddingError, match="only be split"):
+    with pytest.raises(ValueError, match="non-content canonical structure"):
         cache.get_trace(trace)
 
     assert not embedder.calls
+    assert cache.n_calls == 0
     assert cache.n_failures == 1
-    assert cache.failures[0].stage == "chunking"
-    assert cache.failures[0].reason == "oversized_non_output"
-    assert cache.failures[0].content_sha256 is not None
+    assert cache.failures[0].stage == "representation"
+    assert cache.failures[0].reason == "structural_floor"
+
+
+def test_profile_rejects_zero_representation_budget():
+    with pytest.raises(ValueError, match="max_utf8_bytes must be > 0"):
+        EmbeddingProfile(
+            model_id="test",
+            model_version="1",
+            tokenizer_id="characters",
+            tokenizer_version="1",
+            max_input_tokens=100,
+            max_representation_utf8_bytes=0,
+        )
 
 
 def test_provider_failure_records_planned_chunks_and_tokens():
