@@ -1,31 +1,43 @@
 # singlenotebooks
 Repo where I have single notebooks for one off analysis
 
-## Alternative Agent Evaluation Sampling
+## Random Agent Evaluation Sampling
 
-`trace_sampling_alt/` is a separate, batch-oriented Agent 365 evaluation
+`random_sampling/` is a separate, batch-oriented Agent 365 evaluation
 sampling prototype. It normalizes observed OTLP, ESP, and Kusto trace shapes,
 reconstructs Agent 365 sessions, and evaluates one completed UTC-aligned window
 per run. The default window is the previous completed 24 hours; one-hour or
 other positive durations are configurable. Cochran/FPC planning runs per agent
 over that window's eligible sessions.
 
-When enabled, MinHash diversity reserves 20% inside the total evaluation budget
-and uses tagged n-grams from user queries, assistant responses, and tool
-names/inputs/outputs. It is reported separately from the probability-valid
-headline. Long sessions become deterministic UTF-8-bounded evidence packets
-that preserve first-task, final-outcome, and latest-tool evidence while auditing
-omitted middle content.
+All selected sessions come from a deterministic proportionate stratified random
+sample without replacement. Long sessions become deterministic UTF-8-bounded
+evidence packets that preserve first-task, final-outcome, and latest-tool
+evidence while auditing omitted middle content.
 
 The included judge is a deterministic stub. The provider-neutral async/sync
 judge contract is the swap point for a future CAPI or Foundry resource. See
-[`trace_sampling_alt/README.md`](trace_sampling_alt/README.md) for architecture,
+[`random_sampling/README.md`](random_sampling/README.md) for architecture,
 usage, schema support, privacy boundaries, and current limitations.
 
 Run the end-to-end comparison in
-[`trace_sampling_alt_experiments.ipynb`](trace_sampling_alt_experiments.ipynb).
-The notebook includes an offline label-based experiment and an opt-in GPT-5
-Foundry run after probing the Maven CAPI-backed EvalHarness.
+[`random_sampling_experiments.ipynb`](random_sampling_experiments.ipynb).
+The notebook compares deterministic random seeds against one reused labeled
+census pass.
+
+## MinHash Adaptive Trace Sampling
+
+`minhash_sampling/` adds a deterministic lexical MinHash `VarietyIndex` plugin
+for the existing online `trace_sampling.AdaptiveSampler`. It hashes bounded,
+field-tagged n-grams from session messages and tool evidence, then performs
+per-agent TTL/LRU leader clustering without an embedding model or network call.
+
+The package includes an exact-signature comparison and an 18-configuration
+sweep. Results show a real tradeoff: aggressive settings improve purity and
+separate concepts that share a tool signature, but can over-fragment one
+concept into many lexical clusters. See
+[`minhash_sampling/README.md`](minhash_sampling/README.md) and
+`minhash_sampling_experiments.ipynb` for the calibrated results.
 
 ## Adaptive Trace Sampling (`adaptive_trace_sampling.ipynb`)
 
@@ -151,6 +163,33 @@ before sampling, external calls, or donor mutation.
 
 On Windows PowerShell, set the variable with `$env:RUN_AZURE_TESTS=1` instead of
 the inline `RUN_AZURE_TESTS=1` prefix.
+
+## MinHash Variety Comparison (`minhash_sampling/`)
+
+`minhash_sampling/` adds a plugin-style lexical MinHash variety index for
+`trace_sampling.AdaptiveSampler` without forking the sampler itself.
+
+- `MinHashSignatureProvider` builds deterministic field-tagged n-gram signatures
+  from canonicalized session evidence.
+- `MinHashClusterIndex` implements `VarietyIndex.observe(trace)` with per-agent
+  immutable leader clusters, staleness-based rarity, novelty on new clusters,
+  TTL purge, and LRU memory bounds.
+- Known build-time MinHash failures fall back to exact signature scoring under
+  `key.kind="fallback-signature"`; canonical representation failures still
+  propagate.
+
+Important limits:
+
+- MinHash here is lexical, not semantic.
+- No raw shingles are persisted by the runtime index state.
+- Profiles are versioned by seed, n-gram size, permutations, and
+  representation policy/version/max-byte settings.
+- Complexity is approximately `O(k * shingles + clusters * k)` per trace,
+  bounded by configured caps.
+
+Use `minhash_sampling/experiments.py` for deterministic baseline-vs-minhash
+comparisons and parameter sweeps (`n`, `permutations`, threshold). Production
+usage still requires calibration on real workloads.
 
 ## Snap Value Imputation and Lipschitz Bounds
 
