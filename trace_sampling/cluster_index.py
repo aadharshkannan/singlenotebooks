@@ -4,7 +4,7 @@ import numpy as np
 
 from .model import Trace
 from .variety import VarietyObservation, VarietyKey, ExactSignatureIndex
-from .embedding import EmbeddingCache
+from .embedding import EmbeddingCache, cache_contains_trace, cache_get_trace
 from .vector_store import VectorStore, VectorDoc
 
 _EPS = 1e-9
@@ -138,7 +138,7 @@ class AzureClusterIndex:
         if self._breaker and not self._breaker.allow(trace.timestamp):
             return self._fallback(trace)
 
-        if trace.signature not in self._cache:
+        if not cache_contains_trace(self._cache, trace):
             if self._embeds_this_tick >= self.embed_budget_per_tick:
                 return self._fallback(trace)
             self._embeds_this_tick += 1
@@ -151,7 +151,7 @@ class AzureClusterIndex:
                     self._iat.pop(cid, None)
                     self._last_seen.pop(cid, None)
                 self._since_purge = 0
-            vec = self._cache.get(trace.signature)
+            vec = cache_get_trace(self._cache, trace)
             near = self._recent_nearest(trace.agent_id, vec)
             if near is None or near[1] < self.tau:
                 store_near = self._store.nearest(vec, agent_id=trace.agent_id)

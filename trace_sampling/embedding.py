@@ -99,5 +99,32 @@ class EmbeddingCache:
             self._cache.popitem(last=False)
         return vec
 
+    def contains_trace(self, trace) -> bool:
+        return trace.signature in self
+
+    def peek_trace(self, trace):
+        return self._cache.get(trace.signature)
+
+    def get_trace(self, trace) -> np.ndarray:
+        return self.get(trace.signature)
+
     def __contains__(self, signature) -> bool:
         return signature in self._cache
+
+
+def cache_contains_trace(cache, trace) -> bool:
+    method = getattr(cache, "contains_trace", None)
+    return method(trace) if method is not None else trace.signature in cache
+
+
+def cache_get_trace(cache, trace) -> np.ndarray:
+    method = getattr(cache, "get_trace", None)
+    return method(trace) if method is not None else cache.get(trace.signature)
+
+
+def cache_peek_trace(cache, trace):
+    method = getattr(cache, "peek_trace", None)
+    if method is not None:
+        record = method(trace)
+        return None if record is None else getattr(record, "vector", record)
+    return cache.get(trace.signature) if trace.signature in cache else None

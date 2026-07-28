@@ -29,6 +29,8 @@ def test_run_arm_produces_result_with_log_and_ledger():
     assert set(["embed_calls", "cache_hits", "cache_hit_rate", "search_queries",
                 "embed_latency_p50_ms", "embed_latency_p95_ms",
                 "added_latency_p50_ms", "added_latency_p95_ms", "est_cost_usd",
+                "embed_chunks", "embed_tokens", "embed_failures",
+                "embed_failed_chunks", "embed_failed_tokens",
                 "fallbacks", "kept"]).issubset(result.ledger)
     assert result.ledger["embed_calls"] == 0
     assert result.ledger["est_cost_usd"] == 0.0

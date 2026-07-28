@@ -54,8 +54,11 @@ lets the sampler score variety by either the exact-signature baseline
 (`ExactSignatureIndex`) or an embedding-cluster treatment
 (`AzureClusterIndex`, `trace_sampling/cluster_index.py`). The treatment:
 
-- **Embeds** each tool-call signature (Azure OpenAI `text-embedding-3-small`),
-  behind an LRU `EmbeddingCache` so repeated signatures cost nothing.
+- **Embeds** each tool-call signature by default (Azure OpenAI
+  `text-embedding-3-small`), behind an LRU `EmbeddingCache` so repeated
+  signatures cost nothing. Set `ENABLE_FULL_SESSION_EMBEDDINGS=TRUE` to embed
+  ordered user/assistant/tool session events instead, with token-aware chunking
+  and normalized token-weighted pooling for oversized sessions.
 - **Leader-clusters** embeddings with a cosine threshold `tau` over a vector
   store (Azure AI Search vector NN, with an in-process recent-centroid
   fast-path), joining an existing cluster or creating a new one.
@@ -105,6 +108,11 @@ RUN_AZURE_TESTS=1 python -m pytest -m azure -v
 # deterministic offline fallback that uses FakeEmbedder + InMemoryVectorStore)
 RUN_AZURE_TESTS=1 python -m jupyter nbconvert --to notebook --execute --inplace adaptive_trace_sampling.ipynb
 ```
+
+In `.env`, leave `ENABLE_FULL_SESSION_EMBEDDINGS=FALSE` (or omit it) for the
+original `search -> read -> edit` signature embeddings. Set it to `TRUE` to use
+full-session embeddings; the accompanying `SESSION_EMBEDDING_*` values select
+the model, immutable model version, tokenizer, and per-chunk token limit.
 
 On Windows PowerShell, set the variable with `$env:RUN_AZURE_TESTS=1` instead of
 the inline `RUN_AZURE_TESTS=1` prefix.
