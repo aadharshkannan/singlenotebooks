@@ -1,6 +1,32 @@
 # singlenotebooks
 Repo where I have single notebooks for one off analysis
 
+## Alternative Agent Evaluation Sampling
+
+`trace_sampling_alt/` is a separate, batch-oriented Agent 365 evaluation
+sampling prototype. It normalizes observed OTLP, ESP, and Kusto trace shapes,
+reconstructs Agent 365 sessions, and evaluates one completed UTC-aligned window
+per run. The default window is the previous completed 24 hours; one-hour or
+other positive durations are configurable. Cochran/FPC planning runs per agent
+over that window's eligible sessions.
+
+When enabled, MinHash diversity reserves 20% inside the total evaluation budget
+and uses tagged n-grams from user queries, assistant responses, and tool
+names/inputs/outputs. It is reported separately from the probability-valid
+headline. Long sessions become deterministic UTF-8-bounded evidence packets
+that preserve first-task, final-outcome, and latest-tool evidence while auditing
+omitted middle content.
+
+The included judge is a deterministic stub. The provider-neutral async/sync
+judge contract is the swap point for a future CAPI or Foundry resource. See
+[`trace_sampling_alt/README.md`](trace_sampling_alt/README.md) for architecture,
+usage, schema support, privacy boundaries, and current limitations.
+
+Run the end-to-end comparison in
+[`trace_sampling_alt_experiments.ipynb`](trace_sampling_alt_experiments.ipynb).
+The notebook includes an offline label-based experiment and an opt-in GPT-5
+Foundry run after probing the Maven CAPI-backed EvalHarness.
+
 ## Adaptive Trace Sampling (`adaptive_trace_sampling.ipynb`)
 
 **Problem:** When multiple AI agents produce OTel-style traces at high and
