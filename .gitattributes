@@ -1,0 +1,4 @@
+# Preserve hash-pinned synthetic inputs and reviewed V2 artifacts byte-for-byte.
+synthetic_data/** -text
+outputs_sampling_v2/v2/** -text
+sampling_v2_runbook.ipynb -text

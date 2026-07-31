@@ -88,7 +88,7 @@ The current point estimator is an unweighted session mean under proportionate wi
 
 ## Experiments
 
-`random_sampling_experiments.ipynb` loads the labeled 300-session synthetic Agent 365 OTLP dataset and compares deterministic random seeds against one reused census judge pass. The experiment persists only scoped IDs, predictions, aggregate metrics, judge descriptor, and prompt fingerprint; it excludes credentials, prompts, evidence JSON, and judge reasoning.
+`sampling_v2_runbook.ipynb` loads the retained labeled synthetic Agent 365 OTLP datasets and compares deterministic random seeds with the V2 census baseline. The runbook persists only scoped IDs, expected-label metrics, configuration, and artifact hashes; it excludes credentials and never calls an LLM judge by default.
 
 The fixture contains 100 agents, most with tiny populations. Product-faithful per-agent planning therefore censuses many agents and saves fewer calls than pooling all 300 sessions. Pooling would answer a different estimand.
 

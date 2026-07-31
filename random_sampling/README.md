@@ -2,7 +2,8 @@
 
 Production-shaped prototype for scheduled Agent 365 session evaluation using only deterministic stratified random sampling.
 
-The complete design is documented in [`docs/RANDOM_SAMPLING_DESIGN.md`](../docs/RANDOM_SAMPLING_DESIGN.md). The executable comparison is [`random_sampling_experiments.ipynb`](../random_sampling_experiments.ipynb), with sanitized results under `outputs_random_sampling/`.
+The complete design is documented in [`docs/RANDOM_SAMPLING_DESIGN.md`](../docs/RANDOM_SAMPLING_DESIGN.md).
+The retained cross-method experiment is [`sampling_v2_runbook.ipynb`](../sampling_v2_runbook.ipynb).
 
 ## Flow
 
@@ -42,7 +43,7 @@ The package also includes:
 
 - a Foundry/Azure OpenAI GPT-5 adapter using JSON output, `max_completion_tokens`, and no fixed temperature;
 - a hosted Maven EvalHarness/CAPI availability probe;
-- resumable sampled-vs-census experiments with strict judge-provenance validation.
+- the labeled synthetic dataset adapter used by the offline V2 validation harness.
 
 Direct Python-to-CAPI is not supported by the verified Maven implementation; CAPI is internal to Maven's hosted .NET service and first-party routing.
 

@@ -1,0 +1,37 @@
+{
+  "combined": {
+    "counts": {
+      "agents": 105,
+      "concepts": 480,
+      "labels": 2800,
+      "units": 2800
+    },
+    "label_pass_rate": 0.7117857142857142
+  },
+  "generated_at": "2026-07-30T21:33:40.749426Z",
+  "source_files": {
+    "dense_2500": {
+      "counts": {
+        "agents": 5,
+        "concepts": 180,
+        "labels": 2500,
+        "units": 2500
+      },
+      "label_pass_rate": 0.722,
+      "path": "synthetic_data/a365_dense_2500/corpus/a365.synthetic.strict.otlp.json",
+      "sha256": "76da6dc93ce0bb485117fb9927dbbf9f586e5678583eb4c81112617493f6e031"
+    },
+    "historical_300": {
+      "counts": {
+        "agents": 100,
+        "concepts": 300,
+        "labels": 300,
+        "units": 300
+      },
+      "label_pass_rate": 0.6266666666666667,
+      "path": "synthetic_data/a365_historical_300/synthetic_observability.a365-otel.json",
+      "sha256": "b1afbc395bfa022d6a5b08a0b94c417c748bff4363534f9a2434e33935a5e45d"
+    }
+  },
+  "version": "sampling-v2-corpus-audit-v1"
+}
