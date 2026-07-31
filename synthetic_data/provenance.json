@@ -1,0 +1,304 @@
+{
+  "datasets": {
+    "dense_2500": {
+      "agents": 5,
+      "corpus": "a365_dense_2500/corpus/a365.synthetic.strict.otlp.json",
+      "seed": 3652026,
+      "sessions": 2500
+    },
+    "historical_300": {
+      "agents": 100,
+      "corpus": "a365_historical_300/synthetic_observability.a365-otel.json",
+      "original_root": "C:\\Users\\stangoodwin\\eval-model-comparison",
+      "sessions": 300
+    }
+  },
+  "files": [
+    {
+      "bytes": 19161,
+      "path": "a365_dense_2500/corpus/a365.synthetic.strict.manifest.json",
+      "sha256": "52799dc1624fcfb1a93454c2324ea95ae2008cbeccf634b0707040db590204a1"
+    },
+    {
+      "bytes": 60871774,
+      "path": "a365_dense_2500/corpus/a365.synthetic.strict.otlp.json",
+      "sha256": "76da6dc93ce0bb485117fb9927dbbf9f586e5678583eb4c81112617493f6e031"
+    },
+    {
+      "bytes": 2111970,
+      "path": "a365_dense_2500/shards/finance-operations-agent/finance-operations-agent.sessions-0000-0099.otlp.json",
+      "sha256": "795b2e04b7ceab90906b2844536a5fd1be5044d9340781d332922937efbd15e3"
+    },
+    {
+      "bytes": 525,
+      "path": "a365_dense_2500/shards/finance-operations-agent/finance-operations-agent.sessions-0000-0099.otlp.manifest.json",
+      "sha256": "9655f93fbd9ff1efefcae840aebaab522b1ada4699c75a79f342288442e997ad"
+    },
+    {
+      "bytes": 2339280,
+      "path": "a365_dense_2500/shards/finance-operations-agent/finance-operations-agent.sessions-0100-0199.otlp.json",
+      "sha256": "f51f56e2914c068cf4206e3a89b9433206f7ddbefc55e56a3c7d4cb5153e5d18"
+    },
+    {
+      "bytes": 529,
+      "path": "a365_dense_2500/shards/finance-operations-agent/finance-operations-agent.sessions-0100-0199.otlp.manifest.json",
+      "sha256": "bf17cc9611766db2fcee5963c805cd63a855f9cdc36421e277eea20f094aeea1"
+    },
+    {
+      "bytes": 2104845,
+      "path": "a365_dense_2500/shards/finance-operations-agent/finance-operations-agent.sessions-0200-0299.otlp.json",
+      "sha256": "1f688f20d4ae54d097d7d46ec0f144685385c1616187a2508f90cc4fbb53f046"
+    },
+    {
+      "bytes": 528,
+      "path": "a365_dense_2500/shards/finance-operations-agent/finance-operations-agent.sessions-0200-0299.otlp.manifest.json",
+      "sha256": "4c89701d2be786f8d1155a4f3667a3e523618ba0f44145213860709e6a556934"
+    },
+    {
+      "bytes": 2063778,
+      "path": "a365_dense_2500/shards/finance-operations-agent/finance-operations-agent.sessions-0300-0399.otlp.json",
+      "sha256": "f3b9fa87c472a5acc326a625a93571da6197ff17207492cd4bad29768f737bbf"
+    },
+    {
+      "bytes": 528,
+      "path": "a365_dense_2500/shards/finance-operations-agent/finance-operations-agent.sessions-0300-0399.otlp.manifest.json",
+      "sha256": "016408825ceb8db139a8b862b5f09486d314c5f42b1762cb6ae6accdc973f181"
+    },
+    {
+      "bytes": 2236016,
+      "path": "a365_dense_2500/shards/finance-operations-agent/finance-operations-agent.sessions-0400-0499.otlp.json",
+      "sha256": "61e8c3c8add7b2270f4c3bb94da47a84a9898e2abe9c6ce332c7f376c4d01e64"
+    },
+    {
+      "bytes": 529,
+      "path": "a365_dense_2500/shards/finance-operations-agent/finance-operations-agent.sessions-0400-0499.otlp.manifest.json",
+      "sha256": "1a83b47c45ee832472264a0a7c2f10e4e6c67a0ddffdbb968665ce49696e8a9d"
+    },
+    {
+      "bytes": 2300453,
+      "path": "a365_dense_2500/shards/it-support-agent/it-support-agent.sessions-0000-0099.otlp.json",
+      "sha256": "cd5a23f9b364483ff3f8d0914301edbcbad32c241831c175ae78d45cd145dfcd"
+    },
+    {
+      "bytes": 518,
+      "path": "a365_dense_2500/shards/it-support-agent/it-support-agent.sessions-0000-0099.otlp.manifest.json",
+      "sha256": "4e4ac91ad7968d44de9105bc149b1a3e92720867f7d4cc1c88a419d127998892"
+    },
+    {
+      "bytes": 2537472,
+      "path": "a365_dense_2500/shards/it-support-agent/it-support-agent.sessions-0100-0199.otlp.json",
+      "sha256": "f612bcbb0a7dc1ad49e71719ddae5924250bcddc9c0271af09cb4065d148e3cf"
+    },
+    {
+      "bytes": 521,
+      "path": "a365_dense_2500/shards/it-support-agent/it-support-agent.sessions-0100-0199.otlp.manifest.json",
+      "sha256": "3fc6d35bdb2a285e12ab010b646fcea88dbddbc35046e1fddb6b61ba7d5ea9d0"
+    },
+    {
+      "bytes": 2764249,
+      "path": "a365_dense_2500/shards/it-support-agent/it-support-agent.sessions-0200-0299.otlp.json",
+      "sha256": "a15e01921cdf40ed96275f12c7505d750a2a6f646d446c48fdee49fe6e0efa5f"
+    },
+    {
+      "bytes": 522,
+      "path": "a365_dense_2500/shards/it-support-agent/it-support-agent.sessions-0200-0299.otlp.manifest.json",
+      "sha256": "ff7499e2c7780cca5c5d104eae4df9009bd03517be805ac11cc59ccf3fb53b6b"
+    },
+    {
+      "bytes": 2792837,
+      "path": "a365_dense_2500/shards/it-support-agent/it-support-agent.sessions-0300-0399.otlp.json",
+      "sha256": "c3b4e1b5626e7936b6be271b7dd47972adea2bc19349ad2f83446671ace2c5b4"
+    },
+    {
+      "bytes": 522,
+      "path": "a365_dense_2500/shards/it-support-agent/it-support-agent.sessions-0300-0399.otlp.manifest.json",
+      "sha256": "6a3fad929d5abfe7a895b9d2df308e83c8aefe73216fa37071b35e8268545556"
+    },
+    {
+      "bytes": 2557077,
+      "path": "a365_dense_2500/shards/it-support-agent/it-support-agent.sessions-0400-0499.otlp.json",
+      "sha256": "9617b22c8474dd851a8ee4f4a4e0e851f82bd823ba2e54fe8976df80efa46334"
+    },
+    {
+      "bytes": 522,
+      "path": "a365_dense_2500/shards/it-support-agent/it-support-agent.sessions-0400-0499.otlp.manifest.json",
+      "sha256": "e7047e3722ddd316e67cf1d631aa634b6f8af4a6bfee900331ab125756d77690"
+    },
+    {
+      "bytes": 2291554,
+      "path": "a365_dense_2500/shards/procurement-agent/procurement-agent.sessions-0000-0099.otlp.json",
+      "sha256": "373a62be16ead34ab17b50ce3d7604f39db034f05d59c2cd52169ff8e3ce1f42"
+    },
+    {
+      "bytes": 528,
+      "path": "a365_dense_2500/shards/procurement-agent/procurement-agent.sessions-0000-0099.otlp.manifest.json",
+      "sha256": "9eb90dddb261e2d2ef1a41a476e6ee6b64893f3da2ae9a0819d3061b7e4f66b9"
+    },
+    {
+      "bytes": 2348065,
+      "path": "a365_dense_2500/shards/procurement-agent/procurement-agent.sessions-0100-0199.otlp.json",
+      "sha256": "ae7a1ff75ffa9ba691b9c5bba1f369dcf6d4cfafc71bc18f51f7995c54c06d42"
+    },
+    {
+      "bytes": 531,
+      "path": "a365_dense_2500/shards/procurement-agent/procurement-agent.sessions-0100-0199.otlp.manifest.json",
+      "sha256": "17a54ee3fb982debf1c3497ee892dcf3a2c2d865032c98a3585397a9aafa7b0a"
+    },
+    {
+      "bytes": 2084924,
+      "path": "a365_dense_2500/shards/procurement-agent/procurement-agent.sessions-0200-0299.otlp.json",
+      "sha256": "c76483afb21745d1cd5924dbeb5f458286eaf80804a8d450e8edf02e11316028"
+    },
+    {
+      "bytes": 530,
+      "path": "a365_dense_2500/shards/procurement-agent/procurement-agent.sessions-0200-0299.otlp.manifest.json",
+      "sha256": "fb242cebd87f5007519f621d8a942beb31686a1138cceb48ee22d2a3c0c769b7"
+    },
+    {
+      "bytes": 2134329,
+      "path": "a365_dense_2500/shards/procurement-agent/procurement-agent.sessions-0300-0399.otlp.json",
+      "sha256": "32c709f330b9ea55155e7f4396b54d5478dcfaea073239919fb1566bf89754d7"
+    },
+    {
+      "bytes": 530,
+      "path": "a365_dense_2500/shards/procurement-agent/procurement-agent.sessions-0300-0399.otlp.manifest.json",
+      "sha256": "357d4c410e07d40c0b386bbe296ce349218069e4a04f400937e0067a72cd9143"
+    },
+    {
+      "bytes": 2402508,
+      "path": "a365_dense_2500/shards/procurement-agent/procurement-agent.sessions-0400-0499.otlp.json",
+      "sha256": "3c1c3a034288907104d4dfeb016c952dd3f4fc36238ebcd1edc86f4c324d8cae"
+    },
+    {
+      "bytes": 531,
+      "path": "a365_dense_2500/shards/procurement-agent/procurement-agent.sessions-0400-0499.otlp.manifest.json",
+      "sha256": "1d395d447a7ac35e3f0722352b92d7a6003524c75c0d3b9e4240c1f85f8213ee"
+    },
+    {
+      "bytes": 2838111,
+      "path": "a365_dense_2500/shards/software-delivery-agent/software-delivery-agent.sessions-0000-0099.otlp.json",
+      "sha256": "eb3e038c9ae160cfb74dea7a70987b1cf5827b68e0c5b0ca39b13ce95368aa3d"
+    },
+    {
+      "bytes": 537,
+      "path": "a365_dense_2500/shards/software-delivery-agent/software-delivery-agent.sessions-0000-0099.otlp.manifest.json",
+      "sha256": "a974479c5b26c8f517b7f7dd3d3b3135ab5e283e1b655bce3413949c64d03665"
+    },
+    {
+      "bytes": 2741001,
+      "path": "a365_dense_2500/shards/software-delivery-agent/software-delivery-agent.sessions-0100-0199.otlp.json",
+      "sha256": "cb431a2720d0e0d19ea5b5a924815a9b4a17f631b4d2499c701fbf4777e2a5fc"
+    },
+    {
+      "bytes": 540,
+      "path": "a365_dense_2500/shards/software-delivery-agent/software-delivery-agent.sessions-0100-0199.otlp.manifest.json",
+      "sha256": "cb7262e58fbf87079140b46be3a6e550bc036d3710ecc107f117a864f596dbe3"
+    },
+    {
+      "bytes": 2847609,
+      "path": "a365_dense_2500/shards/software-delivery-agent/software-delivery-agent.sessions-0200-0299.otlp.json",
+      "sha256": "b180144086839ab6bb412a9cda385b44a7a5a7a91bf3b7a24de2ba16263ebf1c"
+    },
+    {
+      "bytes": 539,
+      "path": "a365_dense_2500/shards/software-delivery-agent/software-delivery-agent.sessions-0200-0299.otlp.manifest.json",
+      "sha256": "7a122330672644ea9b1966e21b2630fb871171865f779ef86d3b6d552bea832d"
+    },
+    {
+      "bytes": 2274217,
+      "path": "a365_dense_2500/shards/software-delivery-agent/software-delivery-agent.sessions-0300-0399.otlp.json",
+      "sha256": "c1c9b4c1bb97339847176cd15c742c7bb9fb093099979c95d66a2019d5291cf0"
+    },
+    {
+      "bytes": 539,
+      "path": "a365_dense_2500/shards/software-delivery-agent/software-delivery-agent.sessions-0300-0399.otlp.manifest.json",
+      "sha256": "1d6aee1066e46ceec5052a7984b17fe88894469295ac54e820280915e2aac2f2"
+    },
+    {
+      "bytes": 2782281,
+      "path": "a365_dense_2500/shards/software-delivery-agent/software-delivery-agent.sessions-0400-0499.otlp.json",
+      "sha256": "0266ea7a9b2f5dc521f88b2427d10b66a931065d2db6527e3793458da3f9bfef"
+    },
+    {
+      "bytes": 540,
+      "path": "a365_dense_2500/shards/software-delivery-agent/software-delivery-agent.sessions-0400-0499.otlp.manifest.json",
+      "sha256": "544c747bff9398a96db0e1362b2d9cb34efc3bcb368663a41f0f365b9431eb4e"
+    },
+    {
+      "bytes": 2410795,
+      "path": "a365_dense_2500/shards/travel-coordinator-agent/travel-coordinator-agent.sessions-0000-0099.otlp.json",
+      "sha256": "3073b801763d32a8ea1677af51de4f8f5eeed83a72580d4a77ff2f003e1ca6ca"
+    },
+    {
+      "bytes": 537,
+      "path": "a365_dense_2500/shards/travel-coordinator-agent/travel-coordinator-agent.sessions-0000-0099.otlp.manifest.json",
+      "sha256": "8baabb344ffe837c515973117ef11600c3ef44ff7b527279ae2b932a29313e01"
+    },
+    {
+      "bytes": 2649210,
+      "path": "a365_dense_2500/shards/travel-coordinator-agent/travel-coordinator-agent.sessions-0100-0199.otlp.json",
+      "sha256": "0de97f676ffeb4c296da50a6678cb66e3200f739a09f7352e4b44744e5f3d4e4"
+    },
+    {
+      "bytes": 541,
+      "path": "a365_dense_2500/shards/travel-coordinator-agent/travel-coordinator-agent.sessions-0100-0199.otlp.manifest.json",
+      "sha256": "6b1ed68c4f2f50cd89b041ca18cd6a568f90cdcdedd945f2386345a24c682a54"
+    },
+    {
+      "bytes": 2408385,
+      "path": "a365_dense_2500/shards/travel-coordinator-agent/travel-coordinator-agent.sessions-0200-0299.otlp.json",
+      "sha256": "1c292f682f7bcc7f6e658103ef84f9d87fd43e3b139ccb76480de591c1cf6874"
+    },
+    {
+      "bytes": 541,
+      "path": "a365_dense_2500/shards/travel-coordinator-agent/travel-coordinator-agent.sessions-0200-0299.otlp.manifest.json",
+      "sha256": "2c53d834c2c3d4a7169957e829f0fbe91b93f8781c47cc4bfefb2ca6a510a15d"
+    },
+    {
+      "bytes": 2345538,
+      "path": "a365_dense_2500/shards/travel-coordinator-agent/travel-coordinator-agent.sessions-0300-0399.otlp.json",
+      "sha256": "345d28005cd4d2ba2a23c48357a9ac1f94f4d4ea528768bb8e7c9d0d3407421c"
+    },
+    {
+      "bytes": 540,
+      "path": "a365_dense_2500/shards/travel-coordinator-agent/travel-coordinator-agent.sessions-0300-0399.otlp.manifest.json",
+      "sha256": "a37cd63c51d52126bde6536f51d429cc4c22f2166507063f8e9bfd01c2df024f"
+    },
+    {
+      "bytes": 2505750,
+      "path": "a365_dense_2500/shards/travel-coordinator-agent/travel-coordinator-agent.sessions-0400-0499.otlp.json",
+      "sha256": "f5518a7de259ae662c39620fbf8c5c5e2594e78e78677a0846da23aa331a4069"
+    },
+    {
+      "bytes": 541,
+      "path": "a365_dense_2500/shards/travel-coordinator-agent/travel-coordinator-agent.sessions-0400-0499.otlp.manifest.json",
+      "sha256": "c90fe5bac4f12528233a66e8b5bbc588de940d90c1f042d939da3309ec4c3e31"
+    },
+    {
+      "bytes": 15061,
+      "path": "a365_historical_300/build_a365_otel.py",
+      "sha256": "12d3448cb8ab4d83f13e7502e9382104ff5215cbf2070642262c97a5f8f939eb"
+    },
+    {
+      "bytes": 7456411,
+      "path": "a365_historical_300/synthetic_observability.a365-otel.json",
+      "sha256": "b1afbc395bfa022d6a5b08a0b94c417c748bff4363534f9a2434e33935a5e45d"
+    },
+    {
+      "bytes": 590,
+      "path": "a365_historical_300/synthetic_observability.a365-otel.meta.json",
+      "sha256": "8846e49f15dead78ab011cb85dc4aab737ab2d3c6194932ba6018f25aaf18d40"
+    },
+    {
+      "bytes": 749035,
+      "path": "a365_historical_300/synthetic_observability.bps.json",
+      "sha256": "26a8f67941390557f24eb048f65e517a865f4b4f5aaa4d3950d8881092bc9250"
+    },
+    {
+      "bytes": 888,
+      "path": "README.md",
+      "sha256": "507b09dff88562a957c3e55e6ff9dcf232b8844454ebf2d83e4bbd5e8181240b"
+    }
+  ],
+  "version": "sampling-synthetic-data-v1"
+}

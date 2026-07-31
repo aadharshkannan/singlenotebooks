@@ -2,6 +2,23 @@ data/
 outputs/
 outputs_assertions/
 
+# Sampling V2 keeps one reviewed reference bundle. Ad-hoc reruns stay local.
+outputs_sampling_v2/runs/
+outputs_sampling_v2/v2/agent365-sampling-v2-report.runbook.html
+outputs_sampling_v2/v2/optional_judge_inputs/
+
+# Superseded sampling experiment output trees.
+outputs_a365_sampling_experiment/
+outputs_sampling_comparison/
+outputs_sampling_portfolio/
+outputs_sampling_quadrants/
+
+# Local recovery and test scratch.
+*.dis.txt
+*.out
+*.tmp
+v2_review_probe.txt
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

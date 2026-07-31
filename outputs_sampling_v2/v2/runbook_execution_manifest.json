@@ -1,0 +1,31 @@
+{
+  "active_artifact_dir": "outputs_sampling_v2\\v2",
+  "created_at_utc": "2026-07-31T11:31:24.610173Z",
+  "dependency_versions": {
+    "matplotlib": "3.11.0",
+    "numpy": "2.4.6",
+    "pandas": "3.0.3"
+  },
+  "expected_label_scoring": true,
+  "full_run": false,
+  "llm_judge_called": false,
+  "prototype_packages": [
+    "random_sampling",
+    "minhash_sampling",
+    "trace_sampling"
+  ],
+  "run_mode": "smoke",
+  "runbook_version": "sampling-v2-runbook-v1",
+  "seed": 13,
+  "snapshots_posted": false,
+  "synthetic_sources": {
+    "dense_2500": {
+      "path": "synthetic_data\\a365_dense_2500\\corpus\\a365.synthetic.strict.otlp.json",
+      "sha256": "76da6dc93ce0bb485117fb9927dbbf9f586e5678583eb4c81112617493f6e031"
+    },
+    "historical_300": {
+      "path": "synthetic_data\\a365_historical_300\\synthetic_observability.a365-otel.json",
+      "sha256": "b1afbc395bfa022d6a5b08a0b94c417c748bff4363534f9a2434e33935a5e45d"
+    }
+  }
+}

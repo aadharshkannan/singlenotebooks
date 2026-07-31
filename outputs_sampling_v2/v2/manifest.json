@@ -1,0 +1,109 @@
+{
+  "artifacts": {
+    "aggregate": {
+      "bytes": 1047783,
+      "path": "outputs_sampling_v2/v2/aggregate.json",
+      "sha256": "f08a95abf8cc7516e1c9edd32a80f9feca7fa07b2a585b163eea8edd083673ee"
+    },
+    "corpus_audit": {
+      "bytes": 1046,
+      "path": "outputs_sampling_v2/v2/corpus_audit.json",
+      "sha256": "4f9799da0f20417007821abd9c4d3fa27eb315729292783de3f9b9c502c6245d"
+    },
+    "external_eval_snapshots_manifest": {
+      "bytes": 337172,
+      "path": "outputs_sampling_v2/v2/external_eval_snapshots/manifest.json",
+      "sha256": "8fe20f26cfc9fae07edcce8fe2e91c7e88f02db88e1e3b37984b2fcd9e6ea800"
+    },
+    "production_storage_manifest": {
+      "bytes": 2608,
+      "path": "outputs_sampling_v2/v2/production_storage_manifest.json",
+      "sha256": "26a5d87cfaee3531f3ae495a6db5529ddedfec0d9accecdcee507a1e23e93b1d"
+    },
+    "quadrant": {
+      "bytes": 522143,
+      "path": "outputs_sampling_v2/v2/quadrant.json",
+      "sha256": "73ac3044562887371bf0c75a04171024a913bc5dd5f3b8327d3d255873b507eb"
+    },
+    "report_html": {
+      "bytes": 127782,
+      "path": "outputs_sampling_v2/v2/agent365-sampling-v2-report.html",
+      "sha256": "c41bf0e484c5ff77737c4abb1fd21102f2015883dfad860b35bca9d41de3574a"
+    },
+    "runbook_execution_manifest": {
+      "bytes": 973,
+      "path": "outputs_sampling_v2/v2/runbook_execution_manifest.json",
+      "sha256": "13992e2bfb881571b3ff81129b8c8e27173aee342ce77b7d3a6dbec183ab4140"
+    },
+    "runs_jsonl": {
+      "bytes": 176369,
+      "path": "outputs_sampling_v2/v2/runs.jsonl",
+      "sha256": "ba0231ec9ae78d9982912efd072089189782aee92b756aa54ee60c1eabb7bc87"
+    },
+    "selected_membership_20pct": {
+      "bytes": 187974,
+      "path": "outputs_sampling_v2/v2/selected_membership_20pct.json",
+      "sha256": "3ad5be149d23963c2644c4a5641a21ec010fab5d3fafe4df7fe370f3d9934064"
+    },
+    "throughput": {
+      "bytes": 150942,
+      "path": "outputs_sampling_v2/v2/throughput.json",
+      "sha256": "db31bb79ad4e93670854ff80b9b7c6c9bd429b7632421b4ad765525c57e8d2d5"
+    }
+  },
+  "definitions": {
+    "outcome_and_quadrant_timestamps": "paired-fixed-interval-1s-v1",
+    "throughput_interpretation": "selection admission under backpressure with anti-starvation override disabled",
+    "throughput_timestamps": "paired-order with arrival-rate replay override"
+  },
+  "external_eval_snapshots": {
+    "manifest_sha256": "8fe20f26cfc9fae07edcce8fe2e91c7e88f02db88e1e3b37984b2fcd9e6ea800",
+    "methods": {
+      "adaptive_embedding_fullsession": {
+        "line_count": 115,
+        "path": "outputs_sampling_v2\\v2\\external_eval_snapshots\\adaptive_embedding_fullsession.jsonl",
+        "sha256": "22a2497de03be0aa16922abbc9a7a783122724282c4b47df5c27f59cb5a3db45"
+      },
+      "adaptive_minhash_32x4": {
+        "line_count": 88,
+        "path": "outputs_sampling_v2\\v2\\external_eval_snapshots\\adaptive_minhash_32x4.jsonl",
+        "sha256": "3ce86105b1a3474b7e7642375d7607c9bd1c437ca142d188f90ad81c3e865838"
+      },
+      "census": {
+        "line_count": 145,
+        "path": "outputs_sampling_v2\\v2\\external_eval_snapshots\\census.jsonl",
+        "sha256": "7c21a8a15f7a104e19ca77e8e9a5c78cca4d014e6a363ac3759dd5d5abe427bc"
+      },
+      "random_sampling_stratified": {
+        "line_count": 57,
+        "path": "outputs_sampling_v2\\v2\\external_eval_snapshots\\random_sampling_stratified.jsonl",
+        "sha256": "37e1c68147a5fb227d83fe0131128dc245f6e632a1796ddf1284b774b50b3fe0"
+      }
+    }
+  },
+  "notes": [
+    "Expected labels are scoring-only; no LLM judging calls are made.",
+    "Embedding arm uses deterministic offline full-session embeddings.",
+    "MinHash arm uses 32 bands x 4 rows with 128 permutations.",
+    "Adaptive comparability policy disables anti-starvation keep-one override and sets agent_floor=0.0.",
+    "Arrival rate is controlled replay time; throughput config controls backpressure admission.",
+    "Zero-selection agent rate is measured for starvation diagnostics; starvation is not prevented by override.",
+    "Representation precompute is immutable and shared; each cell uses fresh adaptive index state.",
+    "Local run does not require Azure resources.",
+    "HTML and PPAPI outputs are intentionally not generated in this stage."
+  ],
+  "production_storage_manifest": {
+    "sha256": "26a5d87cfaee3531f3ae495a6db5529ddedfec0d9accecdcee507a1e23e93b1d"
+  },
+  "representation_runtime": {
+    "cache_builds": 2800,
+    "precompute_count": 2800,
+    "precompute_seconds": 168.11281769996276,
+    "profile_cache_version": "aeaa837783402557cef9feef1f456134ec5726c1bf3db076d434bc66f2ecb677",
+    "provider_builds": 2800,
+    "seed": 13,
+    "version": "sampling-v2-precompute-v1"
+  },
+  "synthetic_data_provenance": "synthetic_data/provenance.json",
+  "version": "sampling-v2-manifest-v2"
+}
