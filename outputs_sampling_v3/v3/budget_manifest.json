@@ -1,0 +1,1 @@
+{"outcome":{"eligible_token_mass":1318985,"legacy_outcome_tiers_pct":[5,10,20,30,50]},"quadrant":{"legacy_quadrant_tiers_pct":[15,30]},"throughput":{"arrival_rates_sessions_per_second":[0.25,1.0,4.0,16.0],"capacity_rates_sessions_per_second":[0.25,1.0,4.0,16.0]}}

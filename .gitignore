@@ -7,6 +7,13 @@ outputs_sampling_v2/runs/
 outputs_sampling_v2/v2/agent365-sampling-v2-report.runbook.html
 outputs_sampling_v2/v2/optional_judge_inputs/
 
+# Sampling V3 ad-hoc runs are local; retained reviewed bundle stays tracked.
+outputs_sampling_v3/runs/
+
+# Local study guides.
+/QA.md
+/QA.txt
+
 # Superseded sampling experiment output trees.
 outputs_a365_sampling_experiment/
 outputs_sampling_comparison/

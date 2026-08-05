@@ -6,6 +6,7 @@ import pytest
 from trace_sampling.full_session_prototype import FullSessionEmbeddingPrototype
 from trace_sampling.model import SessionEvent, Trace
 from trace_sampling.session_embedding import EmbeddingProfile, SessionEmbeddingCache
+from trace_sampling.vector_store import InMemoryVectorStore
 
 
 class _Tokenizer:
@@ -108,3 +109,59 @@ def test_judge_payload_defaults_to_compact_evidence_and_can_include_vector() -> 
     with_vector = proto.build_judge_payload(prepared, include_vector=True)
     assert with_vector["evidence"] == prepared.canonical_json
     assert len(with_vector["embedding_vector"]) == prepared.vector.shape[0]
+
+
+def test_shared_store_isolated_by_tenant_scope_for_prototypes() -> None:
+    cache = SessionEmbeddingCache(_Embedder(), _Tokenizer(), _profile())
+    shared_store = InMemoryVectorStore()
+    proto_a = FullSessionEmbeddingPrototype(
+        cache,
+        store=shared_store,
+        similarity_threshold=0.7,
+        tenant_id="tenant-a",
+        run_scope="run-1",
+    )
+    proto_b = FullSessionEmbeddingPrototype(
+        cache,
+        store=shared_store,
+        similarity_threshold=0.7,
+        tenant_id="tenant-b",
+        run_scope="run-1",
+    )
+
+    a1 = proto_a.observe(_trace(10, "shared words", agent="tenant|agent"))
+    b1 = proto_b.observe(_trace(11, "shared words", agent="tenant|agent"))
+    b2 = proto_b.observe(_trace(12, "shared words", agent="tenant|agent"))
+
+    assert a1.key.kind == "cluster"
+    assert b1.key.kind == "cluster"
+    assert b1.key != a1.key
+    assert b2.key == b1.key
+
+
+def test_shared_store_isolated_by_run_scope_for_prototypes() -> None:
+    cache = SessionEmbeddingCache(_Embedder(), _Tokenizer(), _profile())
+    shared_store = InMemoryVectorStore()
+    proto_a = FullSessionEmbeddingPrototype(
+        cache,
+        store=shared_store,
+        similarity_threshold=0.7,
+        tenant_id="tenant-a",
+        run_scope="run-1",
+    )
+    proto_b = FullSessionEmbeddingPrototype(
+        cache,
+        store=shared_store,
+        similarity_threshold=0.7,
+        tenant_id="tenant-a",
+        run_scope="run-2",
+    )
+
+    a1 = proto_a.observe(_trace(20, "shared words", agent="tenant|agent"))
+    b1 = proto_b.observe(_trace(21, "shared words", agent="tenant|agent"))
+    b2 = proto_b.observe(_trace(22, "shared words", agent="tenant|agent"))
+
+    assert a1.key.kind == "cluster"
+    assert b1.key.kind == "cluster"
+    assert b1.key != a1.key
+    assert b2.key == b1.key
