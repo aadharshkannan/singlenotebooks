@@ -37,6 +37,8 @@ class FullSessionEmbeddingPrototype:
         packet_builder: Optional[SessionEvidencePacketBuilder] = None,
         store: Optional[VectorStore] = None,
         similarity_threshold: float = 0.75,
+        tenant_id: Optional[str] = "legacy",
+        run_scope: Optional[str] = "legacy",
     ) -> None:
         self.cache = cache
         self.packet_builder = packet_builder or cache.packet_builder
@@ -48,6 +50,8 @@ class FullSessionEmbeddingPrototype:
             self.store,
             tau=similarity_threshold,
             semantic_scope=cache.profile.cache_version,
+            tenant_id=tenant_id,
+            run_scope=run_scope,
         )
 
     def prepare(self, trace: Trace) -> PreparedSession:

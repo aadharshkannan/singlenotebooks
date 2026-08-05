@@ -1,0 +1,1 @@
+{"embedding_calls":88,"embedding_content_hash_count":2800,"embedding_deployment_id":"text-embedding-3-small","embedding_embedder_class":"AzureOpenAIEmbedder","embedding_input_tokens":1318985,"embedding_inputs":2800,"embedding_latency_seconds":89.72997589997976,"embedding_model_id":"text-embedding-3-small","packet_builds":2800,"packet_cache_hits":0}

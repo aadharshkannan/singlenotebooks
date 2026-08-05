@@ -36,6 +36,7 @@ class TiktokenTokenizer:
     def __init__(self, model_name: str, encoding_name: Optional[str] = None):
         import tiktoken
 
+        self.model_name = model_name
         self.name = encoding_name or model_name
         self.version = getattr(tiktoken, "__version__", "unknown")
         self._encoding = (
@@ -43,6 +44,8 @@ class TiktokenTokenizer:
             if encoding_name
             else tiktoken.encoding_for_model(model_name)
         )
+        self.encoding_name = getattr(self._encoding, "name", self.name)
+        self.encoding_id = f"{self.encoding_name}:{self.version}"
 
     def count(self, text: str) -> int:
         return len(self._encoding.encode(text, disallowed_special=()))
