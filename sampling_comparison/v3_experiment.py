@@ -873,6 +873,16 @@ def _select_adaptive_with_fill(
     min_unselected = min((runtime.token_cost_by_unit_id[uid] for uid in unselected), default=None)
 
     fallbacks = getattr(getattr(sampler, "_variety", None), "n_fallbacks", 0)
+    if method == "adaptive_minhash_32x4_token":
+        index_telemetry = index.telemetry()
+        for key in (
+            "comparisons",
+            "candidate_lookups",
+            "candidate_clusters",
+            "full_scan_fallbacks",
+            "no_candidate_novel",
+        ):
+            store_telemetry[key] = int(index_telemetry.get(key, 0))
     if method == "adaptive_embedding_fullsession_token":
         _, deleted_after = store.delete_scope_settled(
             tenant_id,
@@ -1106,6 +1116,7 @@ def run_v3_outcome_comparison(
     seed: int = 13,
     llm_throughput: float = 1_000.0,
     vector_store_factory: Callable[[str, str], VectorStore] | None = None,
+    tenant_id: str = "sampling-v3-experiment",
     cleanup_max_attempts: int = 10,
     cleanup_settle_seconds: float = 0.0,
 ) -> dict[str, Any]:
@@ -1149,6 +1160,7 @@ def run_v3_outcome_comparison(
                     seed=seed + repetition,
                     llm_throughput=llm_throughput,
                     vector_store_factory=vector_store_factory,
+                    tenant_id=tenant_id,
                     run_scope=run_scope,
                     cleanup_max_attempts=cleanup_max_attempts,
                     cleanup_settle_seconds=cleanup_settle_seconds,

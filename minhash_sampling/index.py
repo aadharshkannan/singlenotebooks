@@ -41,10 +41,16 @@ class MinHashClusterIndex:
         self.n_purges = 0
         self.n_evictions = 0
         self.n_fallbacks = 0
+        self.n_fallback_build_errors = 0
+        self.n_fallback_runtime_errors = 0
         self.n_truncations = 0
 
-    def _fallback(self, trace: Trace) -> VarietyObservation:
+    def _fallback(self, trace: Trace, *, cause: str = "runtime") -> VarietyObservation:
         self.n_fallbacks += 1
+        if cause == "build":
+            self.n_fallback_build_errors += 1
+        else:
+            self.n_fallback_runtime_errors += 1
         obs = self._fallback_index.observe(trace)
         return VarietyObservation(
             key=VarietyKey("fallback-signature", trace.signature),
@@ -159,6 +165,8 @@ class MinHashClusterIndex:
             "purges": self.n_purges,
             "evictions": self.n_evictions,
             "fallbacks": self.n_fallbacks,
+            "fallback_build_errors": self.n_fallback_build_errors,
+            "fallback_runtime_errors": self.n_fallback_runtime_errors,
             "truncations": self.n_truncations,
             "live_clusters": sum(len(v) for v in self._agent_clusters.values()),
         }
@@ -181,9 +189,9 @@ class MinHashClusterIndex:
         except RepresentationError:
             raise
         except MinHashBuildError:
-            return self._fallback(trace)
+            return self._fallback(trace, cause="build")
         except Exception:
-            return self._fallback(trace)
+            return self._fallback(trace, cause="runtime")
 
         match_id, match_sim = self._best_match(trace, record)
         if match_id is not None and match_sim >= self.cfg.similarity_threshold:
@@ -229,6 +237,11 @@ class BandedMinHashLSHIndex(MinHashClusterIndex):
     This implementation keeps immutable leader signatures, bounded state (TTL + LRU),
     and falls back to exact-signature behavior on build/runtime errors. Candidate
     lookup is sublinear in the number of live leaders when band buckets are selective.
+
+    If an agent already has live leaders but a trace produces no valid LSH bucket
+    candidates, the trace is treated as novel and creates a new cluster. This
+    intentionally allows LSH false negatives to split clusters instead of forcing an
+    exhaustive leader scan.
     """
 
     def __init__(
@@ -240,7 +253,7 @@ class BandedMinHashLSHIndex(MinHashClusterIndex):
         self._band_buckets: dict[str, "OrderedDict[str, set[str]]"] = {}
         self.n_candidate_lookups = 0
         self.n_candidate_unions = 0
-        self.n_full_scan_fallbacks = 0
+        self.n_no_candidate_novel = 0
         self.n_last_candidates = 0
 
     def _band_map(self, agent_id: str) -> "OrderedDict[str, set[str]]":
@@ -324,9 +337,8 @@ class BandedMinHashLSHIndex(MinHashClusterIndex):
         self.n_last_candidates = len(valid)
         if valid:
             return tuple((cid, amap[cid]) for cid in valid)
-        self.n_full_scan_fallbacks += 1
-        self.n_last_candidates = len(amap)
-        return tuple(amap.items())
+        self.n_no_candidate_novel += 1
+        return ()
 
     def _best_match(self, trace: Trace, record: MinHashRecord) -> tuple[Optional[str], float]:
         candidates = self._iter_candidate_clusters(trace, record)
@@ -348,7 +360,8 @@ class BandedMinHashLSHIndex(MinHashClusterIndex):
             {
                 "candidate_lookups": self.n_candidate_lookups,
                 "candidate_unions": self.n_candidate_unions,
-                "full_scan_fallbacks": self.n_full_scan_fallbacks,
+                "full_scan_fallbacks": 0,
+                "no_candidate_novel": self.n_no_candidate_novel,
                 "last_candidates": self.n_last_candidates,
             }
         )
@@ -372,9 +385,9 @@ class BandedMinHashLSHIndex(MinHashClusterIndex):
         except RepresentationError:
             raise
         except MinHashBuildError:
-            return self._fallback(trace)
+            return self._fallback(trace, cause="build")
         except Exception:
-            return self._fallback(trace)
+            return self._fallback(trace, cause="runtime")
 
         match_id, match_sim = self._best_match(trace, record)
         if match_id is not None and match_sim >= self.cfg.similarity_threshold:

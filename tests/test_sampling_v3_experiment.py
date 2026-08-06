@@ -170,6 +170,10 @@ def test_adaptive_methods_fill_to_budget_and_report_native_fill_telemetry():
         assert row["telemetry"]["proposal_mode"] == "adaptive_native_then_fill"
         assert row["selected_tokens"] <= budget_tokens
         assert isinstance(row["native_proposed_ids"], list)
+        if method == "adaptive_minhash_32x4_token":
+            assert row["telemetry"]["no_candidate_novel"] > 0
+            assert row["telemetry"]["full_scan_fallbacks"] == 0
+            assert row["telemetry"]["candidate_lookups"] > 0
         if row["min_unselected_token_cost"] is not None:
             assert row["slack_tokens"] < row["min_unselected_token_cost"]
 
@@ -316,6 +320,39 @@ def test_outcome_shape_is_deterministic_and_token_first():
     ):
         assert key in sample
     assert "budget_pct" not in sample
+
+
+def test_outcome_forwards_tenant_scope_to_all_adaptive_cells(monkeypatch):
+    data = _slice(30)
+    runtime = build_v3_runtime(
+        data,
+        tokenizer=FakeTokenizer(),
+        embedder=Deterministic1536Embedder(seed=15),
+        embedding_model_id="text-embedding-3-small",
+        embedding_deployment_id="dep-a",
+    )
+    seen_tenants: list[str] = []
+
+    from sampling_comparison import v3_experiment as module
+
+    original = module.select_v3_membership
+
+    def _recording_select(*args, **kwargs):
+        seen_tenants.append(str(kwargs["tenant_id"]))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(module, "select_v3_membership", _recording_select)
+    run_v3_outcome_comparison(
+        data,
+        runtime=runtime,
+        methods=("random_sampling_token_priority", "adaptive_minhash_32x4_token"),
+        legacy_outcome_tiers_pct=(20,),
+        repetitions=1,
+        tenant_id="sampling-v4-experiment",
+        vector_store_factory=lambda _tenant, _scope: InMemoryVectorStore(),
+    )
+
+    assert seen_tenants == ["sampling-v4-experiment", "sampling-v4-experiment"]
 
 
 def test_quadrant_experiment_uses_exact_token_budgets_and_measured_runtime_fields():

@@ -37,6 +37,12 @@ LSH candidate index used by Sampling V2.
 
 If MinHash build fails with known build-time issues (for example empty evidence), the index falls back to a private `ExactSignatureIndex` and emits `key.kind="fallback-signature"`.
 
+For `BandedMinHashLSHIndex`, candidate matching is intentionally strict: if an
+agent has live clusters but LSH bucket lookup yields no valid candidate leaders,
+the trace is treated as completely novel and a new cluster is created. The index
+does not run an exhaustive leader scan in this case. This means LSH false
+negatives intentionally split clusters to preserve sublinear candidate lookup cost.
+
 `RepresentationError` from canonicalization is propagated and not swallowed.
 
 ## Complexity
