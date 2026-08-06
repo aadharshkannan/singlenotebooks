@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from minhash_sampling import BandedMinHashLSHIndex, MinHashConfig, MinHashClusterIndex
+from minhash_sampling.signature import MinHashBuildError, MinHashSignatureProvider
 from trace_sampling.model import SessionEvent, Trace
 
 
@@ -111,3 +112,70 @@ def test_lsh_uses_fewer_comparisons_than_exhaustive_fixture() -> None:
     lsh_cmp = lsh.telemetry()["comparisons"]
     ex_cmp = exhaustive.telemetry()["comparisons"]
     assert lsh_cmp < ex_cmp
+
+
+def test_populated_same_agent_no_bucket_hit_is_novel_without_scan() -> None:
+    idx = BandedMinHashLSHIndex(_cfg(similarity_threshold=1.0))
+    first = idx.observe(_trace(1, ts=1.0, text="reset account password", tool="search"))
+    before = idx.telemetry()
+    second = idx.observe(_trace(2, ts=2.0, text="deploy release workflow", tool="deploy"))
+    after = idx.telemetry()
+
+    assert first.key.kind == "cluster"
+    assert second.key.kind == "cluster"
+    assert second.key != first.key
+    assert second.novelty == 1.0
+    assert after["comparisons"] == before["comparisons"]
+    assert after["full_scan_fallbacks"] == 0
+    assert after["no_candidate_novel"] == before["no_candidate_novel"] + 1
+
+
+def test_candidate_hit_still_joins_and_reranks() -> None:
+    idx = BandedMinHashLSHIndex(_cfg(similarity_threshold=0.5))
+    first = idx.observe(_trace(10, ts=1.0, text="reset account password", tool="search"))
+    before = idx.telemetry()
+    second = idx.observe(_trace(11, ts=2.0, text="reset account password quickly", tool="search"))
+    after = idx.telemetry()
+
+    assert second.key == first.key
+    assert second.novelty == 0.0
+    assert after["comparisons"] > before["comparisons"]
+    assert after["last_candidates"] >= 1
+
+
+def test_stale_candidate_ids_filtered_to_none_count_as_novel() -> None:
+    idx = BandedMinHashLSHIndex(_cfg(similarity_threshold=1.0, ttl_s=90.0, purge_every=9999))
+    stale = idx.observe(_trace(20, ts=1.0, text="stale target text", tool="search"))
+    live = idx.observe(_trace(21, ts=2.0, text="other live leader text", tool="deploy"))
+    assert stale.key.kind == "cluster"
+    assert live.key.kind == "cluster"
+    assert stale.key != live.key
+
+    # Remove one cluster from live state but leave stale bucket membership behind.
+    idx._agent_clusters["agent-a"].pop(stale.key.value, None)
+    before = idx.telemetry()
+    second = idx.observe(_trace(22, ts=3.0, text="stale target text", tool="search"))
+    after = idx.telemetry()
+
+    assert second.key.kind == "cluster"
+    assert second.key != stale.key
+    assert second.novelty == 1.0
+    assert after["comparisons"] == before["comparisons"]
+    assert after["no_candidate_novel"] == before["no_candidate_novel"] + 1
+
+
+def test_build_error_uses_fallback_signature_not_no_candidate_novel() -> None:
+    class _BrokenProvider(MinHashSignatureProvider):
+        def build(self, trace: Trace):
+            raise MinHashBuildError("forced build failure")
+
+    idx = BandedMinHashLSHIndex(_cfg(), signature_provider=_BrokenProvider(_cfg()))
+    before = idx.telemetry()
+    obs = idx.observe(_trace(30, ts=1.0, text="anything"))
+    after = idx.telemetry()
+
+    assert obs.key.kind == "fallback-signature"
+    assert after["fallbacks"] == before["fallbacks"] + 1
+    assert after["fallback_build_errors"] == before["fallback_build_errors"] + 1
+    assert after["fallback_runtime_errors"] == before["fallback_runtime_errors"]
+    assert after["no_candidate_novel"] == before["no_candidate_novel"]

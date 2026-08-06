@@ -352,6 +352,7 @@ def run_v3_experiment_bundle(
         repetitions=outcome_repetitions,
         seed=seed,
         vector_store_factory=vector_store_factory,
+        tenant_id=tenant_id,
         cleanup_max_attempts=cleanup_max_attempts,
         cleanup_settle_seconds=cleanup_settle_seconds,
     )
