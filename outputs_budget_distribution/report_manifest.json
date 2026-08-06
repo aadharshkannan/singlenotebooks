@@ -1,0 +1,16 @@
+{
+  "generated_at": "2026-08-06T09:49:44.575756+00:00",
+  "seed": "report-seed",
+  "simulation_command": "py -3.11 scripts/build_budget_distribution_report.py",
+  "input_hash": "b89b9fca3dea6cc90fa4c5d4463d637649d02224542d545a0d35053411c6b85c",
+  "config_hash": "4165ec642c40c7341014f456173c8e973e2332c18a3c4087c4f7e26a78b8f90c",
+  "code_hash": "31de0e0002ec6d6fb6599a1f9714d3fc7e692156c3f244cf018487f2b11c76b1",
+  "artifacts": [
+    {
+      "path": "outputs_budget_distribution/random-sampling-batch-budget-report.html",
+      "kind": "html",
+      "description": "Standalone production-oriented budget distribution report"
+    }
+  ],
+  "pdf_generated": false
+}
