@@ -1,6 +1,41 @@
 # singlenotebooks
 Repo where I have single notebooks for one off analysis
 
+## Agent-Uniform Sampling (`agent_uniform_sampling_walkthrough.ipynb`)
+
+**Problem:** Token-constrained selection can bias reporting toward short
+sessions. This prototype separates **membership** from **execution pacing** so
+token cost cannot affect which sessions are included.
+
+**What it does:**
+
+- Performs deterministic simple random sampling without replacement inside each
+  tenant/agent stratum.
+- Persists per-stratum metadata in the queue (`N_a`, `n_a`, `p_a`, seed,
+  selected request IDs) plus per-item status transitions.
+- Applies rolling TPM pacing only after sampling membership is fixed.
+- Marks selected items that exceed TPM as `OVERSIZED` instead of replacing them.
+- Optionally drops pending items whose earliest budget-compliant start exceeds a
+  configured schedule-delay limit, while retaining their selected-sample record.
+- Reports per-agent selected vs completed counts, mean score, and a
+  finite-population-corrected normal-approximation 95% interval when enough
+  completed scores exist.
+
+**Run the focused test:**
+```bash
+python -m pytest tests/test_agent_uniform_sampling.py -q
+```
+
+**Run all tests:**
+```bash
+python -m pytest -q
+```
+
+**Notebook execution note:** In this environment, execute notebook code cells
+directly from notebook JSON/editor cell execution rather than in-place
+`nbconvert --execute --inplace`, which has previously produced empty notebook
+files.
+
 ## Adaptive Trace Sampling (`adaptive_trace_sampling.ipynb`)
 
 **Problem:** When multiple AI agents produce OTel-style traces at high and
