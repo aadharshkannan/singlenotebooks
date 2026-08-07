@@ -34,6 +34,16 @@ py -3.11 -m pytest -q
 sessions. This prototype separates **membership** from **execution pacing** so
 token cost cannot affect which sessions are included.
 
+For engineering handoff, start with
+[`agent_uniform_sampling/README.md`](agent_uniform_sampling/README.md), then read
+the language-neutral
+[`bounded-evidence design`](docs/AGENT_UNIFORM_BOUNDED_EVIDENCE_DESIGN.md) and
+the concrete
+[`BIC Evaluations Service implementation map`](docs/BIC_EVALUATIONS_SERVICE_HANDOFF.md).
+The standalone generated overview is available as
+[`HTML`](outputs_agent_uniform_sampling/agent-uniform-sampling-overview.html) and
+[`Markdown`](outputs_agent_uniform_sampling/agent-uniform-sampling-overview.md).
+
 **What it does:**
 
 - Performs deterministic simple random sampling without replacement inside each
@@ -42,11 +52,22 @@ token cost cannot affect which sessions are included.
   selected request IDs) plus per-item status transitions.
 - Applies rolling TPM pacing only after sampling membership is fixed.
 - Marks selected items that exceed TPM as `OVERSIZED` instead of replacing them.
+- Optionally materializes deterministic token-bounded evidence after membership
+  is fixed. Enable it with `BoundedEvidenceConfig(enabled=True)`, call
+  `materialize_bounded_evidence(...)`, then schedule using the persisted request
+  reservation instead of the raw session estimate. The default remains off.
 - Optionally drops pending items whose earliest budget-compliant start exceeds a
   configured schedule-delay limit, while retaining their selected-sample record.
 - Reports per-agent selected vs completed counts, mean score, and a
   finite-population-corrected normal-approximation 95% interval when enough
   completed scores exist.
+
+Bounded mode reuses the weighted full-session representation policy, retaining
+task goals, final outcomes, and tool results before lower-priority context. It
+uses `tiktoken` by default and records the tokenizer identity with the immutable
+packet hash. The queue JSON contains the bounded canonical session evidence so
+dispatch and retries can send exactly the same artifact; store that file under
+the same access and retention controls as source telemetry.
 
 **Run the focused test:**
 ```bash

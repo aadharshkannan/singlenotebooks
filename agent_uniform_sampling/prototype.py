@@ -14,7 +14,7 @@ from math import sqrt
 from pathlib import Path
 import os
 import tempfile
-from typing import Iterable
+from typing import Any, Iterable, Mapping, Protocol
 
 
 def _sha256(*parts: str) -> str:
@@ -147,6 +147,84 @@ class ExecutionStatus(str, Enum):
     COMPLETED = "COMPLETED"
     OVERSIZED = "OVERSIZED"
     DROPPED = "DROPPED"
+    NONRESPONSE = "NONRESPONSE"
+    UNSERVICEABLE = "UNSERVICEABLE"
+
+
+@dataclass(frozen=True)
+class BoundedEvidenceConfig:
+    enabled: bool = False
+    evidence_max_tokens: int = 2_048
+    context_window_tokens: int = 8_192
+    prompt_overhead_tokens: int = 256
+    completion_reserve_tokens: int = 512
+    tokenizer_model: str = "gpt-5"
+    tokenizer_encoding: str = "o200k_base"
+
+    def __post_init__(self) -> None:
+        if self.evidence_max_tokens <= 0:
+            raise ValueError("evidence_max_tokens must be positive")
+        if self.context_window_tokens <= 0:
+            raise ValueError("context_window_tokens must be positive")
+        if self.prompt_overhead_tokens < 0:
+            raise ValueError("prompt_overhead_tokens must be non-negative")
+        if self.completion_reserve_tokens < 0:
+            raise ValueError("completion_reserve_tokens must be non-negative")
+        if not self.tokenizer_model.strip():
+            raise ValueError("tokenizer_model must not be blank")
+        if not self.tokenizer_encoding.strip():
+            raise ValueError("tokenizer_encoding must not be blank")
+
+
+@dataclass(frozen=True)
+class MaterializedEvidence:
+    canonical_json: str
+    hash_sha256: str
+    policy: str
+    version: str
+    original_tokens: int
+    emitted_tokens: int
+    max_tokens: int
+    context_window_tokens: int
+    prompt_overhead_tokens: int
+    completion_reserve_tokens: int
+    reservation_tokens: int
+    tokenizer_name: str
+    tokenizer_version: str
+
+
+class EvidenceTokenizer(Protocol):
+    name: str
+    version: str
+
+    def count(self, text: str) -> int:
+        ...
+
+
+class _TiktokenTokenizer:
+    def __init__(self, *, model_name: str, encoding_name: str) -> None:
+        try:
+            import tiktoken
+        except ImportError as error:
+            raise ImportError(
+                "tiktoken is required when bounded evidence is enabled; install requirements-sampling.txt"
+            ) from error
+        self.model_name = model_name
+        self.name = encoding_name
+        self.version = getattr(tiktoken, "__version__", "unknown")
+        self._encoding = tiktoken.get_encoding(encoding_name)
+
+    def count(self, text: str) -> int:
+        return len(self._encoding.encode(text, disallowed_special=()))
+
+
+UNSERVICEABLE_REASON_MANDATORY_FLOOR = "MANDATORY_EVIDENCE_FLOOR_UNSERVICEABLE"
+UNSERVICEABLE_REASON_CANONICAL_STRUCTURE = "CANONICAL_STRUCTURE_UNSERVICEABLE"
+UNSERVICEABLE_REASON_CONTEXT_WINDOW = "RESERVATION_EXCEEDS_CONTEXT_WINDOW"
+UNSERVICEABLE_REASON_TPM = "RESERVATION_EXCEEDS_TPM"
+UNSERVICEABLE_REASON_EVIDENCE_ERROR = "EVIDENCE_MATERIALIZATION_ERROR"
+OVERSIZED_REASON_ESTIMATED = "ESTIMATED_TOKENS_EXCEEDS_TPM"
+PENDING_REASON_AWAITING_EVIDENCE = "AWAITING_BOUNDED_EVIDENCE"
 
 
 @dataclass(frozen=True)
@@ -157,6 +235,8 @@ class QueueItem:
     status: ExecutionStatus
     scheduled_at_seconds: float | None = None
     score: float | None = None
+    status_reason: str | None = None
+    bounded_evidence: MaterializedEvidence | None = None
 
 
 class ExecutionQueue:
@@ -168,6 +248,7 @@ class ExecutionQueue:
         *,
         tpm_limit: int = 20_000,
         max_schedule_delay_seconds: float | None = None,
+        bounded_evidence: BoundedEvidenceConfig | None = None,
     ):
         if tpm_limit <= 0:
             raise ValueError("tpm_limit must be positive")
@@ -176,12 +257,14 @@ class ExecutionQueue:
         self.path = Path(path)
         self.tpm_limit = tpm_limit
         self.max_schedule_delay_seconds = max_schedule_delay_seconds
+        self.bounded_evidence = bounded_evidence or BoundedEvidenceConfig()
         if not self.path.exists():
             self._write(
                 {
-                    "schema_version": "agent-uniform-v1",
+                    "schema_version": "agent-uniform-v2",
                     "tpm_limit": tpm_limit,
                     "max_schedule_delay_seconds": max_schedule_delay_seconds,
+                    "bounded_evidence": asdict(self.bounded_evidence),
                     "items": {},
                     "sampling_runs": {},
                 }
@@ -192,6 +275,8 @@ class ExecutionQueue:
             raise ValueError("queue tpm_limit does not match existing queue")
         if data["max_schedule_delay_seconds"] != max_schedule_delay_seconds:
             raise ValueError("queue max_schedule_delay_seconds does not match existing queue")
+        if data["bounded_evidence"] != asdict(self.bounded_evidence):
+            raise ValueError("queue bounded_evidence config does not match existing queue")
         self._write(data)
 
     def _read(self) -> dict:
@@ -201,8 +286,12 @@ class ExecutionQueue:
     def _normalize_data(data: dict) -> None:
         data.setdefault("schema_version", "agent-uniform-v1")
         data.setdefault("max_schedule_delay_seconds", None)
+        data.setdefault("bounded_evidence", asdict(BoundedEvidenceConfig()))
         data.setdefault("items", {})
         data.setdefault("sampling_runs", {})
+        for item in data["items"].values():
+            item.setdefault("status_reason", None)
+            item.setdefault("bounded_evidence", None)
 
     def _write(self, data: dict) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -257,27 +346,137 @@ class ExecutionQueue:
                         "status": ExecutionStatus.PENDING.value,
                         "scheduled_at_seconds": None,
                         "score": None,
+                        "status_reason": None,
+                        "bounded_evidence": None,
                     },
                 )
+        self._write(data)
+        return self.items()
+
+    def materialize_bounded_evidence(
+        self,
+        traces_by_request_id: Mapping[str, Any],
+        *,
+        tokenizer: EvidenceTokenizer | None = None,
+    ) -> tuple[QueueItem, ...]:
+        data = self._read()
+        self._normalize_data(data)
+        config = BoundedEvidenceConfig(**data["bounded_evidence"])
+        if not config.enabled:
+            self._write(data)
+            return self.items()
+
+        if tokenizer is None:
+            tokenizer = _TiktokenTokenizer(
+                model_name=config.tokenizer_model,
+                encoding_name=config.tokenizer_encoding,
+            )
+        tokenizer_name = str(getattr(tokenizer, "name", tokenizer.__class__.__name__))
+        tokenizer_version = str(getattr(tokenizer, "version", "unknown"))
+        from trace_sampling.token_representation import RepresentationError as TokenRepresentationError
+        from trace_sampling.token_representation import normalize_trace as normalize_trace_by_tokens
+
+        for request_id, trace in traces_by_request_id.items():
+            if request_id not in data["items"]:
+                raise KeyError(f"unknown request_id: {request_id}")
+            item = data["items"][request_id]
+            if item["status"] in (
+                ExecutionStatus.COMPLETED.value,
+                ExecutionStatus.DROPPED.value,
+                ExecutionStatus.NONRESPONSE.value,
+                ExecutionStatus.UNSERVICEABLE.value,
+            ):
+                continue
+
+            try:
+                representation = normalize_trace_by_tokens(
+                    trace,
+                    tokenizer=tokenizer,
+                    max_tokens=config.evidence_max_tokens,
+                )
+            except TokenRepresentationError as error:
+                reason = UNSERVICEABLE_REASON_EVIDENCE_ERROR
+                if "mandatory task-completion evidence" in str(error):
+                    reason = UNSERVICEABLE_REASON_MANDATORY_FLOOR
+                elif "non-content canonical structure" in str(error):
+                    reason = UNSERVICEABLE_REASON_CANONICAL_STRUCTURE
+                item["status"] = ExecutionStatus.UNSERVICEABLE.value
+                item["status_reason"] = reason
+                continue
+
+            reservation_tokens = (
+                int(representation.audit.emitted_tokens)
+                + config.prompt_overhead_tokens
+                + config.completion_reserve_tokens
+            )
+            if reservation_tokens > config.context_window_tokens:
+                item["status"] = ExecutionStatus.UNSERVICEABLE.value
+                item["status_reason"] = UNSERVICEABLE_REASON_CONTEXT_WINDOW
+                continue
+            if reservation_tokens > self.tpm_limit:
+                item["status"] = ExecutionStatus.UNSERVICEABLE.value
+                item["status_reason"] = UNSERVICEABLE_REASON_TPM
+                continue
+
+            evidence_record = {
+                "canonical_json": representation.canonical_json,
+                "hash_sha256": hashlib.sha256(representation.canonical_json.encode("utf-8")).hexdigest(),
+                "policy": representation.audit.policy,
+                "version": representation.audit.version,
+                "original_tokens": int(representation.audit.original_tokens),
+                "emitted_tokens": int(representation.audit.emitted_tokens),
+                "max_tokens": int(representation.audit.max_tokens),
+                "context_window_tokens": config.context_window_tokens,
+                "prompt_overhead_tokens": config.prompt_overhead_tokens,
+                "completion_reserve_tokens": config.completion_reserve_tokens,
+                "reservation_tokens": reservation_tokens,
+                "tokenizer_name": tokenizer_name,
+                "tokenizer_version": tokenizer_version,
+            }
+
+            existing_evidence = item.get("bounded_evidence")
+            if existing_evidence is None:
+                item["bounded_evidence"] = evidence_record
+            elif existing_evidence != evidence_record:
+                raise ValueError("immutable bounded evidence conflict for request")
+
+            item["status_reason"] = None
+            if item["status"] == ExecutionStatus.OVERSIZED.value:
+                item["status"] = ExecutionStatus.PENDING.value
+
         self._write(data)
         return self.items()
 
     def schedule_pending(self) -> tuple[QueueItem, ...]:
         data = self._read()
         self._normalize_data(data)
+        bounded_config = BoundedEvidenceConfig(**data["bounded_evidence"])
         events: list[tuple[float, int]] = []
         cursor = 0.0
         for item in data["items"].values():
             if item["status"] == ExecutionStatus.SCHEDULED.value:
-                events.append((float(item["scheduled_at_seconds"]), int(item["sampled"]["candidate"]["estimated_tokens"])))
+                estimate = int(item["sampled"]["candidate"]["estimated_tokens"])
+                if bounded_config.enabled and item.get("bounded_evidence") is not None:
+                    estimate = int(item["bounded_evidence"]["reservation_tokens"])
+                events.append((float(item["scheduled_at_seconds"]), estimate))
                 cursor = max(cursor, float(item["scheduled_at_seconds"]))
         for request_id in sorted(data["items"]):
             item = data["items"][request_id]
             if item["status"] != ExecutionStatus.PENDING.value:
                 continue
+            if bounded_config.enabled and item.get("bounded_evidence") is None:
+                item["status_reason"] = PENDING_REASON_AWAITING_EVIDENCE
+                continue
             estimate = int(item["sampled"]["candidate"]["estimated_tokens"])
+            if bounded_config.enabled and item.get("bounded_evidence") is not None:
+                estimate = int(item["bounded_evidence"]["reservation_tokens"])
             if estimate > self.tpm_limit:
-                item["status"] = ExecutionStatus.OVERSIZED.value
+                if bounded_config.enabled and item.get("bounded_evidence") is not None:
+                    item["status"] = ExecutionStatus.UNSERVICEABLE.value
+                    item["status_reason"] = UNSERVICEABLE_REASON_TPM
+                else:
+                    item["status"] = ExecutionStatus.OVERSIZED.value
+                    item["status_reason"] = OVERSIZED_REASON_ESTIMATED
                 continue
             scheduled_at = cursor
             while sum(tokens for timestamp, tokens in events if scheduled_at - 60 < timestamp <= scheduled_at) + estimate > self.tpm_limit:
@@ -285,10 +484,12 @@ class ExecutionQueue:
                 scheduled_at = active[0] + 60
             if self.max_schedule_delay_seconds is not None and scheduled_at > self.max_schedule_delay_seconds:
                 item["status"] = ExecutionStatus.DROPPED.value
+                item["status_reason"] = "MAX_SCHEDULE_DELAY_EXCEEDED"
                 continue
             events.append((scheduled_at, estimate))
             item["status"] = ExecutionStatus.SCHEDULED.value
             item["scheduled_at_seconds"] = scheduled_at
+            item["status_reason"] = None
             cursor = max(cursor, scheduled_at)
         self._write(data)
         return self.items()
@@ -328,6 +529,8 @@ class ExecutionQueue:
             status=ExecutionStatus(data["status"]),
             scheduled_at_seconds=data["scheduled_at_seconds"],
             score=data["score"],
+            status_reason=data.get("status_reason"),
+            bounded_evidence=(MaterializedEvidence(**data["bounded_evidence"]) if data.get("bounded_evidence") is not None else None),
         )
 
 
@@ -356,7 +559,7 @@ def summarize_agent_scores(items: Iterable[QueueItem]) -> tuple[AgentScoreSummar
         scores = [item.score for item in group if item.status == ExecutionStatus.COMPLETED and item.score is not None]
         mean = sum(scores) / len(scores) if scores else None
         interval: tuple[float, float] | None = None
-        if len(scores) >= 2 and mean is not None:
+        if len(scores) == len(group) and len(scores) >= 2 and mean is not None:
             variance = sum((score - mean) ** 2 for score in scores) / (len(scores) - 1)
             population_size = group[0].sampled.population_size
             finite_population_correction = sqrt((population_size - len(scores)) / (population_size - 1)) if population_size > 1 else 0.0
