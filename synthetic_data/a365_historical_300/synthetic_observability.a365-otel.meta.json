@@ -1,0 +1,10 @@
+{
+  "format": "otlp-json",
+  "profile": "unofficial-agent365-synthetic-evaluation",
+  "officialMicrosoftSemanticConventions": false,
+  "source": "data/eval-harness/synthetic_observability.bps.json",
+  "caseCount": 300,
+  "spanCount": 2496,
+  "generatedBy": "scripts/build_a365_otel.py",
+  "notes": "The trace document is a strict OTLP ExportTraceServiceRequest. Agent 365 resource and span attributes are unofficial synthetic conventions for this evaluation dataset. Trace/span IDs and non-native turn timestamps are deterministic; evaluation.expected preserves the BPS label."
+}

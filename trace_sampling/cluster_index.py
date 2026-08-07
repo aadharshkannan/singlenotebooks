@@ -58,7 +58,9 @@ class AzureClusterIndex:
                  ttl: float = 60.0, purge_every: int = 200,
                  embed_budget_per_tick: int = 8, recent_buffer_size: int = 64,
                  breaker=None, k: float = 16.0, iat_alpha: float = 0.3,
-                 semantic_scope: Optional[str] = None):
+                 semantic_scope: Optional[str] = None,
+                 tenant_id: Optional[str] = "legacy",
+                 run_scope: Optional[str] = "legacy"):
         if not k > 0:
             raise ValueError(f"k must be > 0, got {k}")
         if not (0.0 < iat_alpha <= 1.0):
@@ -85,10 +87,31 @@ class AzureClusterIndex:
         self.semantic_scope = semantic_scope or getattr(
             profile, "cache_version", "signature-embedding-v1"
         )
+        self.tenant_id = self._normalize_scope_value("tenant_id", tenant_id)
+        self.run_scope = self._normalize_scope_value("run_scope", run_scope)
+        scope_key = "|".join(
+            [
+                self.semantic_scope,
+                self.tenant_id,
+                self.run_scope,
+            ]
+        )
         self._cluster_prefix = hashlib.sha256(
-            self.semantic_scope.encode("utf-8")
+            scope_key.encode("utf-8")
         ).hexdigest()[:12]
         self.n_fallbacks = 0
+
+    @staticmethod
+    def _normalize_scope_value(name: str, value: Optional[str]) -> str:
+        # Preserve v2 behavior by treating omitted scope as legacy.
+        if value is None:
+            return "legacy"
+        if not isinstance(value, str):
+            raise ValueError(f"{name} must be a string or None")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError(f"{name} must be non-empty when supplied")
+        return normalized
 
     def _new_id(self) -> str:
         return f"{self._cluster_prefix}-c{next(self._ids)}"
@@ -106,19 +129,21 @@ class AzureClusterIndex:
             rarity=obs.rarity, novelty=obs.novelty)
 
     def _evict_recent(self, now: float):
-        self._recent = [e for e in self._recent if now - e[3] <= self.ttl]
+        self._recent = [e for e in self._recent if now - e[5] <= self.ttl]
 
     def _touch_recent(self, cluster_id: str, now: float):
-        for i, (cid, aid, v, _) in enumerate(self._recent):
+        for i, (cid, aid, tid, rs, v, _) in enumerate(self._recent):
             if cid == cluster_id:
                 self._recent.pop(i)
-                self._recent.append((cid, aid, v, now))
+                self._recent.append((cid, aid, tid, rs, v, now))
                 return
 
-    def _recent_nearest(self, agent_id, vec):
+    def _recent_nearest(self, agent_id, vec, tenant_id: str, run_scope: str):
         best = None
-        for cid, aid, v, _ in self._recent:
+        for cid, aid, tid, rs, v, _ in self._recent:
             if aid != agent_id:
+                continue
+            if tid != tenant_id or rs != run_scope:
                 continue
             s = _cos(vec, v)
             if best is None or s > best[1]:
@@ -158,17 +183,25 @@ class AzureClusterIndex:
             self._evict_recent(trace.timestamp)
             self._since_purge += 1
             if self._since_purge >= self.purge_every:
-                for cid in self._store.purge_stale(now=trace.timestamp, ttl=self.ttl):
+                for cid in self._store.purge_stale(
+                    now=trace.timestamp,
+                    ttl=self.ttl,
+                    semantic_scope=self.semantic_scope,
+                    tenant_id=self.tenant_id,
+                    run_scope=self.run_scope,
+                ):
                     self._iat.pop(cid, None)
                     self._last_seen.pop(cid, None)
                 self._since_purge = 0
             vec = cache_get_trace(self._cache, trace)
-            near = self._recent_nearest(trace.agent_id, vec)
+            near = self._recent_nearest(trace.agent_id, vec, self.tenant_id, self.run_scope)
             if near is None or near[1] < self.tau:
                 store_near = self._store.nearest(
                     vec,
                     agent_id=trace.agent_id,
                     semantic_scope=self.semantic_scope,
+                    tenant_id=self.tenant_id,
+                    run_scope=self.run_scope,
                 )
                 if store_near is not None and (near is None or store_near[1] > near[1]):
                     near = store_near
@@ -190,9 +223,20 @@ class AzureClusterIndex:
                         trace.agent_id,
                         trace.timestamp,
                         semantic_scope=self.semantic_scope,
+                        tenant_id=self.tenant_id,
+                        run_scope=self.run_scope,
                     )
                 )
-                self._recent.append((cluster_id, trace.agent_id, vec, trace.timestamp))
+                self._recent.append(
+                    (
+                        cluster_id,
+                        trace.agent_id,
+                        self.tenant_id,
+                        self.run_scope,
+                        vec,
+                        trace.timestamp,
+                    )
+                )
                 if len(self._recent) > self._recent_max:
                     self._recent.pop(0)
             if self._breaker:

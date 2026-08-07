@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent365 Sampling V4 Summary Report</title>
+<style>
+:root {
+  --bg-a: #f6f8f7;
+  --bg-b: #eef4f2;
+  --card: #ffffff;
+  --ink: #182027;
+  --muted: #4f5b63;
+  --line: #d3dde3;
+  --accent-a: #1f6d8c;
+  --accent-b: #2d7c6d;
+  --accent-c: #b04a36;
+  --radius: 8px;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  color: var(--ink);
+  background: linear-gradient(180deg, var(--bg-a) 0%, var(--bg-b) 100%);
+  font-family: Bahnschrift, Aptos, "Segoe UI", sans-serif;
+}
+.page { max-width: 1280px; margin: 0 auto; padding: 14px; }
+header {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: start;
+}
+h1 { margin: 0; font-size: 1.34rem; letter-spacing: 0.01em; }
+.header-tools { display: flex; gap: 8px; align-items: center; }
+.print-btn {
+  border: 1px solid #9fb4c1;
+  border-radius: 8px;
+  background: #eef5f9;
+  color: #0f3345;
+  padding: 7px 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.meta-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.meta { border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; background: #fbfdfd; }
+.meta b { display: block; font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.meta span { font-size: 0.92rem; }
+.tabs-wrap {
+  margin-top: 10px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbfb;
+}
+.tabs { display: flex; gap: 6px; padding: 7px; min-width: max-content; }
+.tab-button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbfc;
+  color: var(--ink);
+  padding: 7px 10px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tab-button[aria-selected="true"] { background: #e8f3f9; border-color: #9ec0d4; }
+.tab-panel {
+  margin-top: 10px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+.tab-panel h2 { margin: 0 0 8px; font-size: 1.08rem; }
+.tight { margin: 0.25rem 0 0.72rem; color: var(--muted); }
+.summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 8px 0; }
+.summary-panel { border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: #fafdfc; }
+.summary-panel h3 { margin: 0 0 6px; font-size: 0.95rem; }
+.summary-panel p { margin: 0; font-size: 0.9rem; }
+.method-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.method-panel { border: 1px solid var(--line); border-radius: 8px; padding: 9px; background: #fcfefe; }
+.method-panel h3 { margin: 0 0 6px; font-size: 0.96rem; }
+.method-panel ol { margin: 0 0 8px 1.2rem; padding: 0; }
+.method-panel li { margin-bottom: 3px; }
+.table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+thead th { position: sticky; top: 0; background: #f3f8fa; z-index: 1; }
+th, td { border-bottom: 1px solid var(--line); padding: 7px 8px; text-align: left; vertical-align: top; }
+.chart { margin: 10px 0; }
+.chart figcaption { font-weight: 700; margin-bottom: 6px; }
+.chart-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: #ffffff; }
+.chart svg { width: 980px; height: 360px; display: block; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 8px; color: var(--muted); font-size: 0.86rem; }
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.chart-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.axis { fill: #4f5b63; font-size: 11px; }
+.value-label { fill: #26343d; font-size: 9px; font-weight: 700; }
+.grid { stroke: #e4eaee; stroke-width: 1; }
+.grid-box { stroke: #d9e1e6; stroke-width: 1; }
+.footer { margin-top: 10px; color: var(--muted); font-size: 0.82rem; }
+@media (max-width: 1000px) {
+  .meta-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .method-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 700px) {
+  .page { padding: 10px; }
+  header { grid-template-columns: 1fr; }
+  .meta-row { grid-template-columns: 1fr; }
+  .summary-grid { grid-template-columns: 1fr; }
+}
+@media print {
+    @page { size: A4 landscape; margin: 10mm; }
+  body { background: #fff; }
+  .tabs-wrap { display: none; }
+  .tab-panel[hidden] { display: block !important; }
+  .print-btn { display: none; }
+  .page { max-width: 100%; padding: 0; }
+    header { border: none; padding: 0 0 8px; }
+    .tab-panel {
+        display: block !important;
+        break-inside: auto;
+        page-break-inside: auto;
+        border: none;
+        margin: 0;
+        padding: 8px 0 0;
+    }
+    .tab-panel + .tab-panel { break-before: page; page-break-before: always; }
+    .chart, .summary-panel, .method-panel, .print-keep {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+    .chart-scroll, .table-scroll { overflow: visible; border-color: #cbd3d8; }
+    .chart svg { width: 100%; max-width: 100%; height: auto; }
+    table { font-size: 8pt; }
+    th, td { padding: 4px 5px; }
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
+    .footer { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+<header>
+  <div>
+    <h1>Agent365 Sampling V4 Summary Report</h1>
+    <div class="meta-row" aria-label="topline status">
+      <div class="meta"><b>Status</b><span>Validated hash, schema, and selection-stage linkage</span></div>
+      <div class="meta"><b>Generated at</b><span>2026-08-05T13:52:26.307194Z</span></div>
+      <div class="meta"><b>Population</b><span>2,800 sessions</span></div>
+    <div class="meta"><b>Runtime</b><span>3h 11m 27s</span></div>
+    </div>
+  </div>
+  <div class="header-tools"><button type="button" class="print-btn" id="print-report">Print Report</button></div>
+</header>
+<div class="tabs-wrap"><nav class="tabs" role="tablist" aria-label="Report sections"><button class="tab-button" role="tab" id="tab-executive" aria-controls="panel-executive" aria-selected="true" tabindex="0">Executive Summary</button><button class="tab-button" role="tab" id="tab-outcomes" aria-controls="panel-outcomes" aria-selected="false" tabindex="-1">Outcomes</button><button class="tab-button" role="tab" id="tab-methods" aria-controls="panel-methods" aria-selected="false" tabindex="-1">Sampling Methods</button></nav></div>
+<section class="tab-panel" role="tabpanel" id="panel-executive" aria-labelledby="tab-executive" tabindex="0"><h2>Executive Summary</h2><p class="tight">This report answers one question: under fixed exact token budgets, which sampling method best approximates census outcome rates while preserving coverage. The current run covers 2,800 sessions and completed in 3h 11m 27s. Percent tier labels are provenance labels only; exact token budgets are the authoritative comparison axis.</p><div class="summary-grid"><div class="summary-panel"><h3>Experiment Design</h3><p>Three methods compared at matched exact budgets across 5 budget levels with persisted memberships and deterministic fills.</p></div><div class="summary-panel"><h3>Outcome Winner Pattern</h3><p>Random won 4 of 5 budgets; MinHash won 1 of 5 budgets. Exact values are in the Outcomes tab.</p></div><div class="summary-panel"><h3>IDW Verdict</h3><p>Embedding IDW improved 6 cells, regressed 9, tied 0.</p></div><div class="summary-panel"><h3>MinHash Verdict</h3><p>4,310 bucket misses were treated as novel; 0 exhaustive scans were used.</p></div></div><h3>Representative Exact-Budget Table</h3><p class="tight">Representative budget uses 20% legacy provenance when available; otherwise median exact budget.</p><div class="table-scroll"><table><thead><tr><th>Reported method</th><th>Exact token budget</th><th>Selected sessions mean</th><th>Reported MAE</th><th>Fraction saved</th><th>Concept coverage</th></tr></thead><tbody><tr><td>Random selected-only</td><td>263,797</td><td>566.00</td><td>0.0130</td><td>79.8%</td><td>48.3%</td></tr><tr><td>MinHash selected-only</td><td>263,797</td><td>508.33</td><td>0.0252</td><td>81.8%</td><td>50.5%</td></tr><tr><td>Full-session embedding + IDW</td><td>263,797</td><td>369.33</td><td>0.0402</td><td>86.8%</td><td>65.1%</td></tr></tbody></table></div><section class="print-keep"><h3>Metric Definitions</h3><ul><li>Selected-only absolute aggregate rate error = |selected pass rate - census|.</li><li>IDW aggregate error = |observed+imputed population mean - census|.</li><li>Fraction saved = 1 - (selected count / population count).</li><li>Concept coverage = covered concepts / total concepts in the run aggregate.</li><li>Deterministic expected labels are pseudo-judge outputs; adaptive methods are not design-unbiased estimators.</li></ul></section></section><section class="tab-panel" role="tabpanel" id="panel-outcomes" aria-labelledby="tab-outcomes" tabindex="0" hidden><h2>Outcomes</h2><p class="tight">Outcome comparisons keep exact budget parity. Random and MinHash report selected-only error; full-session embedding reports the observed-plus-IDW population estimate.</p><figure class="chart"><figcaption>Mean absolute error versus census by exact token budget</figcaption><div class="chart-legend"><span><i style="background:#8f5f2a"></i>Random selected-only</span><span><i style="background:#2d7c6d"></i>MinHash selected-only</span><span><i style="background:#b04a36"></i>Full-session embedding + IDW</span></div><div class="chart-scroll"><svg viewBox="0 0 980 360" role="img" aria-label="Mean absolute error versus census by exact token budget"><line x1="72" y1="272.00" x2="950" y2="272.00" class="grid" /><text x="64" y="276.00" text-anchor="end" class="axis">0.000</text><line x1="72" y1="222.80" x2="950" y2="222.80" class="grid" /><text x="64" y="226.80" text-anchor="end" class="axis">0.013</text><line x1="72" y1="173.60" x2="950" y2="173.60" class="grid" /><text x="64" y="177.60" text-anchor="end" class="axis">0.025</text><line x1="72" y1="124.40" x2="950" y2="124.40" class="grid" /><text x="64" y="128.40" text-anchor="end" class="axis">0.038</text><line x1="72" y1="75.20" x2="950" y2="75.20" class="grid" /><text x="64" y="79.20" text-anchor="end" class="axis">0.051</text><line x1="72" y1="26.00" x2="950" y2="26.00" class="grid" /><text x="64" y="30.00" text-anchor="end" class="axis">0.063</text><rect x="84.27" y="198.69" width="34.00" height="73.31" fill="#8f5f2a" aria-label="budget 65949 Random selected-only mean absolute error 0.0189" /><text x="101.27" y="193.69" text-anchor="middle" class="value-label">0.019</text><rect x="142.80" y="159.50" width="34.00" height="112.50" fill="#2d7c6d" aria-label="budget 65949 MinHash selected-only mean absolute error 0.0290" /><text x="159.80" y="154.50" text-anchor="middle" class="value-label">0.029</text><rect x="201.33" y="26.00" width="34.00" height="246.00" fill="#b04a36" aria-label="budget 65949 Full-session embedding + IDW mean absolute error 0.0634" /><text x="218.33" y="37.00" text-anchor="middle" class="value-label">0.063</text><rect x="259.87" y="185.29" width="34.00" height="86.71" fill="#8f5f2a" aria-label="budget 131898 Random selected-only mean absolute error 0.0224" /><text x="276.87" y="180.29" text-anchor="middle" class="value-label">0.022</text><rect x="318.40" y="219.49" width="34.00" height="52.51" fill="#2d7c6d" aria-label="budget 131898 MinHash selected-only mean absolute error 0.0135" /><text x="335.40" y="214.49" text-anchor="middle" class="value-label">0.014</text><rect x="376.93" y="54.29" width="34.00" height="217.71" fill="#b04a36" aria-label="budget 131898 Full-session embedding + IDW mean absolute error 0.0561" /><text x="393.93" y="49.29" text-anchor="middle" class="value-label">0.056</text><rect x="435.47" y="221.45" width="34.00" height="50.55" fill="#8f5f2a" aria-label="budget 263797 Random selected-only mean absolute error 0.0130" /><text x="452.47" y="216.45" text-anchor="middle" class="value-label">0.013</text><rect x="494.00" y="174.41" width="34.00" height="97.59" fill="#2d7c6d" aria-label="budget 263797 MinHash selected-only mean absolute error 0.0252" /><text x="511.00" y="169.41" text-anchor="middle" class="value-label">0.025</text><rect x="552.53" y="116.05" width="34.00" height="155.95" fill="#b04a36" aria-label="budget 263797 Full-session embedding + IDW mean absolute error 0.0402" /><text x="569.53" y="111.05" text-anchor="middle" class="value-label">0.040</text><rect x="611.07" y="245.15" width="34.00" height="26.85" fill="#8f5f2a" aria-label="budget 395695 Random selected-only mean absolute error 0.0069" /><text x="628.07" y="240.15" text-anchor="middle" class="value-label">0.007</text><rect x="669.60" y="168.20" width="34.00" height="103.80" fill="#2d7c6d" aria-label="budget 395695 MinHash selected-only mean absolute error 0.0268" /><text x="686.60" y="163.20" text-anchor="middle" class="value-label">0.027</text><rect x="728.13" y="96.83" width="34.00" height="175.17" fill="#b04a36" aria-label="budget 395695 Full-session embedding + IDW mean absolute error 0.0452" /><text x="745.13" y="91.83" text-anchor="middle" class="value-label">0.045</text><rect x="786.67" y="265.32" width="34.00" height="6.68" fill="#8f5f2a" aria-label="budget 659492 Random selected-only mean absolute error 0.0017" /><text x="803.67" y="260.32" text-anchor="middle" class="value-label">0.002</text><rect x="845.20" y="159.33" width="34.00" height="112.67" fill="#2d7c6d" aria-label="budget 659492 MinHash selected-only mean absolute error 0.0290" /><text x="862.20" y="154.33" text-anchor="middle" class="value-label">0.029</text><rect x="903.73" y="167.12" width="34.00" height="104.88" fill="#b04a36" aria-label="budget 659492 Full-session embedding + IDW mean absolute error 0.0270" /><text x="920.73" y="162.12" text-anchor="middle" class="value-label">0.027</text><text x="159.80" y="326" text-anchor="middle" class="axis">65,949</text><text x="335.40" y="326" text-anchor="middle" class="axis">131,898</text><text x="511.00" y="326" text-anchor="middle" class="axis">263,797</text><text x="686.60" y="326" text-anchor="middle" class="axis">395,695</text><text x="862.20" y="326" text-anchor="middle" class="axis">659,492</text><text x="511.00" y="350" text-anchor="middle" class="axis">Exact token budget</text><text x="18" y="149.00" transform="rotate(-90 18 149.00)" class="axis">Absolute error</text></svg></div></figure><p class="tight">Interpretation: 65,949: Random selected-only lowest MAE 0.0189; 131,898: MinHash selected-only lowest MAE 0.0135; 263,797: Random selected-only lowest MAE 0.0130; 395,695: Random selected-only lowest MAE 0.0069; 659,492: Random selected-only lowest MAE 0.0017.</p><figure class="chart"><figcaption>Fraction saved by exact token budget</figcaption><div class="chart-legend"><span><i style="background:#8f5f2a"></i>Random selected-only</span><span><i style="background:#2d7c6d"></i>MinHash selected-only</span><span><i style="background:#1f6d8c"></i>Full-session embedding + IDW</span></div><div class="chart-scroll"><svg viewBox="0 0 980 360" role="img" aria-label="Fraction saved by exact token budget"><line x1="76" y1="270.00" x2="946" y2="270.00" class="grid" /><text x="68" y="274.00" text-anchor="end" class="axis">0</text><line x1="76" y1="209.50" x2="946" y2="209.50" class="grid" /><text x="68" y="213.50" text-anchor="end" class="axis">25</text><line x1="76" y1="149.00" x2="946" y2="149.00" class="grid" /><text x="68" y="153.00" text-anchor="end" class="axis">50</text><line x1="76" y1="88.50" x2="946" y2="88.50" class="grid" /><text x="68" y="92.50" text-anchor="end" class="axis">75</text><line x1="76" y1="28.00" x2="946" y2="28.00" class="grid" /><text x="68" y="32.00" text-anchor="end" class="axis">100</text><rect x="84.12" y="40.73" width="41.76" height="229.27" fill="#8f5f2a" aria-label="Random selected-only budget 65949 Fraction saved 94.7%" /><rect x="142.12" y="39.38" width="41.76" height="230.62" fill="#2d7c6d" aria-label="MinHash selected-only budget 65949 Fraction saved 95.3%" /><rect x="200.12" y="36.38" width="41.76" height="233.62" fill="#1f6d8c" aria-label="Full-session embedding + IDW budget 65949 Fraction saved 96.5%" /><rect x="258.12" y="52.81" width="41.76" height="217.19" fill="#8f5f2a" aria-label="Random selected-only budget 131898 Fraction saved 89.8%" /><rect x="316.12" y="51.19" width="41.76" height="218.81" fill="#2d7c6d" aria-label="MinHash selected-only budget 131898 Fraction saved 90.4%" /><rect x="374.12" y="43.24" width="41.76" height="226.76" fill="#1f6d8c" aria-label="Full-session embedding + IDW budget 131898 Fraction saved 93.7%" /><rect x="432.12" y="76.92" width="41.76" height="193.08" fill="#8f5f2a" aria-label="Random selected-only budget 263797 Fraction saved 79.8%" /><rect x="490.12" y="71.93" width="41.76" height="198.07" fill="#2d7c6d" aria-label="MinHash selected-only budget 263797 Fraction saved 81.8%" /><rect x="548.12" y="59.92" width="41.76" height="210.08" fill="#1f6d8c" aria-label="Full-session embedding + IDW budget 263797 Fraction saved 86.8%" /><rect x="606.12" y="100.92" width="41.76" height="169.08" fill="#8f5f2a" aria-label="Random selected-only budget 395695 Fraction saved 69.9%" /><rect x="664.12" y="91.84" width="41.76" height="178.16" fill="#2d7c6d" aria-label="MinHash selected-only budget 395695 Fraction saved 73.6%" /><rect x="722.12" y="86.51" width="41.76" height="183.49" fill="#1f6d8c" aria-label="Full-session embedding + IDW budget 395695 Fraction saved 75.8%" /><rect x="780.12" y="148.45" width="41.76" height="121.55" fill="#8f5f2a" aria-label="Random selected-only budget 659492 Fraction saved 50.2%" /><rect x="838.12" y="130.97" width="41.76" height="139.03" fill="#2d7c6d" aria-label="MinHash selected-only budget 659492 Fraction saved 57.5%" /><rect x="896.12" y="137.16" width="41.76" height="132.84" fill="#1f6d8c" aria-label="Full-session embedding + IDW budget 659492 Fraction saved 54.9%" /><text x="163.00" y="324" text-anchor="middle" class="axis">65,949</text><text x="337.00" y="324" text-anchor="middle" class="axis">131,898</text><text x="511.00" y="324" text-anchor="middle" class="axis">263,797</text><text x="685.00" y="324" text-anchor="middle" class="axis">395,695</text><text x="859.00" y="324" text-anchor="middle" class="axis">659,492</text><text x="511.00" y="350" text-anchor="middle" class="axis">Exact token budget</text><text x="18" y="149.00" transform="rotate(-90 18 149.00)" class="axis">Fraction saved (%)</text></svg></div></figure><p class="tight">Highest fraction saved: 65,949: Full-session embedding + IDW 96.5%; 131,898: Full-session embedding + IDW 93.7%; 263,797: Full-session embedding + IDW 86.8%; 395,695: Full-session embedding + IDW 75.8%; 659,492: MinHash selected-only 57.5%.</p><figure class="chart"><figcaption>Concept coverage by exact token budget</figcaption><div class="chart-legend"><span><i style="background:#8f5f2a"></i>Random selected-only</span><span><i style="background:#2d7c6d"></i>MinHash selected-only</span><span><i style="background:#1f6d8c"></i>Full-session embedding + IDW</span></div><div class="chart-scroll"><svg viewBox="0 0 980 360" role="img" aria-label="Concept coverage by exact token budget"><line x1="76" y1="270.00" x2="946" y2="270.00" class="grid" /><text x="68" y="274.00" text-anchor="end" class="axis">0</text><line x1="76" y1="209.50" x2="946" y2="209.50" class="grid" /><text x="68" y="213.50" text-anchor="end" class="axis">25</text><line x1="76" y1="149.00" x2="946" y2="149.00" class="grid" /><text x="68" y="153.00" text-anchor="end" class="axis">50</text><line x1="76" y1="88.50" x2="946" y2="88.50" class="grid" /><text x="68" y="92.50" text-anchor="end" class="axis">75</text><line x1="76" y1="28.00" x2="946" y2="28.00" class="grid" /><text x="68" y="32.00" text-anchor="end" class="axis">100</text><rect x="84.12" y="213.87" width="41.76" height="56.13" fill="#8f5f2a" aria-label="Random selected-only budget 65949 Concept coverage 23.2%" /><rect x="142.12" y="217.23" width="41.76" height="52.77" fill="#2d7c6d" aria-label="MinHash selected-only budget 65949 Concept coverage 21.8%" /><rect x="200.12" y="223.11" width="41.76" height="46.89" fill="#1f6d8c" aria-label="Full-session embedding + IDW budget 65949 Concept coverage 19.4%" /><rect x="258.12" y="184.29" width="41.76" height="85.71" fill="#8f5f2a" aria-label="Random selected-only budget 131898 Concept coverage 35.4%" /><rect x="316.12" y="183.12" width="41.76" height="86.88" fill="#2d7c6d" aria-label="MinHash selected-only budget 131898 Concept coverage 35.9%" /><rect x="374.12" y="185.80" width="41.76" height="84.20" fill="#1f6d8c" aria-label="Full-session embedding + IDW budget 131898 Concept coverage 34.8%" /><rect x="432.12" y="153.03" width="41.76" height="116.97" fill="#8f5f2a" aria-label="Random selected-only budget 263797 Concept coverage 48.3%" /><rect x="490.12" y="147.82" width="41.76" height="122.18" fill="#2d7c6d" aria-label="MinHash selected-only budget 263797 Concept coverage 50.5%" /><rect x="548.12" y="112.53" width="41.76" height="157.47" fill="#1f6d8c" aria-label="Full-session embedding + IDW budget 263797 Concept coverage 65.1%" /><rect x="606.12" y="135.89" width="41.76" height="134.11" fill="#8f5f2a" aria-label="Random selected-only budget 395695 Concept coverage 55.4%" /><rect x="664.12" y="126.98" width="41.76" height="143.02" fill="#2d7c6d" aria-label="MinHash selected-only budget 395695 Concept coverage 59.1%" /><rect x="722.12" y="79.59" width="41.76" height="190.41" fill="#1f6d8c" aria-label="Full-session embedding + IDW budget 395695 Concept coverage 78.7%" /><rect x="780.12" y="104.13" width="41.76" height="165.87" fill="#8f5f2a" aria-label="Random selected-only budget 659492 Concept coverage 68.5%" /><rect x="838.12" y="88.50" width="41.76" height="181.50" fill="#2d7c6d" aria-label="MinHash selected-only budget 659492 Concept coverage 75.0%" /><rect x="896.12" y="57.24" width="41.76" height="212.76" fill="#1f6d8c" aria-label="Full-session embedding + IDW budget 659492 Concept coverage 87.9%" /><text x="163.00" y="324" text-anchor="middle" class="axis">65,949</text><text x="337.00" y="324" text-anchor="middle" class="axis">131,898</text><text x="511.00" y="324" text-anchor="middle" class="axis">263,797</text><text x="685.00" y="324" text-anchor="middle" class="axis">395,695</text><text x="859.00" y="324" text-anchor="middle" class="axis">659,492</text><text x="511.00" y="350" text-anchor="middle" class="axis">Exact token budget</text><text x="18" y="149.00" transform="rotate(-90 18 149.00)" class="axis">Concept coverage (%)</text></svg></div></figure><p class="tight">Highest concept coverage: 65,949: Random selected-only 23.2%; 131,898: MinHash selected-only 35.9%; 263,797: Full-session embedding + IDW 65.1%; 395,695: Full-session embedding + IDW 78.7%; 659,492: Full-session embedding + IDW 87.9%.</p><h3>Dense Outcome Table</h3><div class="table-scroll"><table><thead><tr><th>Legacy provenance tier</th><th>Exact tokens</th><th>Reported method</th><th>Selected count mean</th><th>Reported MAE</th><th>Fraction saved</th><th>Concept coverage</th><th>Note</th></tr></thead><tbody><tr><td>5%</td><td>65,949</td><td>Random selected-only</td><td>147.33</td><td>0.0189</td><td>94.7%</td><td>23.2%</td><td>best reported MAE</td></tr><tr><td>5%</td><td>65,949</td><td>MinHash selected-only</td><td>131.67</td><td>0.0290</td><td>95.3%</td><td>21.8%</td><td></td></tr><tr><td>5%</td><td>65,949</td><td>Full-session embedding + IDW</td><td>97.00</td><td>0.0634</td><td>96.5%</td><td>19.4%</td><td></td></tr><tr><td>10%</td><td>131,898</td><td>Random selected-only</td><td>287.00</td><td>0.0224</td><td>89.8%</td><td>35.4%</td><td></td></tr><tr><td>10%</td><td>131,898</td><td>MinHash selected-only</td><td>268.33</td><td>0.0135</td><td>90.4%</td><td>35.9%</td><td>best reported MAE</td></tr><tr><td>10%</td><td>131,898</td><td>Full-session embedding + IDW</td><td>176.33</td><td>0.0561</td><td>93.7%</td><td>34.8%</td><td></td></tr><tr><td>20%</td><td>263,797</td><td>Random selected-only</td><td>566.00</td><td>0.0130</td><td>79.8%</td><td>48.3%</td><td>best reported MAE</td></tr><tr><td>20%</td><td>263,797</td><td>MinHash selected-only</td><td>508.33</td><td>0.0252</td><td>81.8%</td><td>50.5%</td><td></td></tr><tr><td>20%</td><td>263,797</td><td>Full-session embedding + IDW</td><td>369.33</td><td>0.0402</td><td>86.8%</td><td>65.1%</td><td></td></tr><tr><td>30%</td><td>395,695</td><td>Random selected-only</td><td>843.67</td><td>0.0069</td><td>69.9%</td><td>55.4%</td><td>best reported MAE</td></tr><tr><td>30%</td><td>395,695</td><td>MinHash selected-only</td><td>738.67</td><td>0.0268</td><td>73.6%</td><td>59.1%</td><td></td></tr><tr><td>30%</td><td>395,695</td><td>Full-session embedding + IDW</td><td>677.00</td><td>0.0452</td><td>75.8%</td><td>78.7%</td><td></td></tr><tr><td>50%</td><td>659,492</td><td>Random selected-only</td><td>1393.67</td><td>0.0017</td><td>50.2%</td><td>68.5%</td><td>best reported MAE</td></tr><tr><td>50%</td><td>659,492</td><td>MinHash selected-only</td><td>1191.33</td><td>0.0290</td><td>57.5%</td><td>75.0%</td><td></td></tr><tr><td>50%</td><td>659,492</td><td>Full-session embedding + IDW</td><td>1263.00</td><td>0.0270</td><td>54.9%</td><td>87.9%</td><td></td></tr></tbody></table></div></section><section class="tab-panel" role="tabpanel" id="panel-methods" aria-labelledby="tab-methods" tabindex="0" hidden><h2>Sampling Methods</h2><p class="tight">The complete sampling and estimation workflow is defined below.</p><div class="method-grid"><div class="method-panel"><h3>Random token-priority selection</h3><ol><li>Build an exact token budget from persisted budget manifests.</li><li>Rank sessions deterministically from the paired randomized replay order.</li><li>Pack maximal whole sessions without splitting.</li><li>Seal labels until membership is frozen.</li></ol><div class="table-scroll"><table><tbody><tr><td>Estimation mode</td><td>Selected-only</td></tr><tr><td>Budget rule</td><td>Exact token budget is authoritative</td></tr><tr><td>Fill behavior</td><td>No separate adaptive fill stage</td></tr></tbody></table></div></div><div class="method-panel"><h3>MinHash LSH 32x4 selection</h3><ol><li>Generate a 128-value MinHash signature split into 32 bands of 4 rows.</li><li>Propose sessions from candidate collisions under exact budget.</li><li>If no candidates collide, mark proposal as novel/no-candidate.</li><li>Do not execute exhaustive full-corpus fallback scans.</li></ol><div class="table-scroll"><table><tbody><tr><td>LSH shape</td><td>128 values; 32 bands x 4 rows</td></tr><tr><td>No-candidate handling</td><td>Novel proposal; no exhaustive scan</td></tr><tr><td>Estimation mode</td><td>Selected-only</td></tr></tbody></table></div></div><div class="method-panel"><h3>Embedding selection</h3><ol><li>Embed sessions under the same exact budget process.</li><li>Select native embedding proposals with deterministic budget fill.</li><li>Freeze membership before any outcome estimation.</li><li>Track observed coverage and unjudged units for IDW stage.</li></ol><div class="table-scroll"><table><tbody><tr><td>Estimation mode</td><td>Selected-only baseline + IDW extension</td></tr><tr><td>Label handling</td><td>Labels remain sealed until membership freeze</td></tr><tr><td>Budget packing</td><td>Maximal whole-session packing</td></tr></tbody></table></div></div><div class="method-panel"><h3>Same-agent IDW estimation</h3><ol><li>After membership freeze, impute only unjudged units.</li><li>Use same-agent donor neighborhoods with inverse-distance weighting.</li><li>Fallback to prior only when no donor is available.</li><li>Combine observed and imputed means into aggregate rate estimate.</li></ol><div class="table-scroll"><table><tbody><tr><td>k</td><td>8</td></tr><tr><td>power</td><td>2.000</td></tr><tr><td>distance epsilon</td><td>0.00000100</td></tr><tr><td>prior probability</td><td>0.500</td></tr></tbody></table></div></div></div></section>
+<p class="footer">Report version: agent365-sampling-v4-report-v2. Self-contained output with inline CSS, JS, and SVG only.</p>
+</div>
+<script>
+(() => {
+  const tabs = Array.from(document.querySelectorAll('.tab-button'));
+  const printButton = document.getElementById('print-report');
+  if (printButton) {
+    printButton.addEventListener('click', () => window.print());
+  }
+  function activate(tab) {
+    tabs.forEach((item) => {
+      const selected = item === tab;
+      item.setAttribute('aria-selected', selected ? 'true' : 'false');
+      item.tabIndex = selected ? 0 : -1;
+      const panel = document.getElementById(item.getAttribute('aria-controls'));
+      if (panel) panel.hidden = !selected;
+    });
+  }
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => activate(tab));
+    tab.addEventListener('keydown', (event) => {
+      let next = index;
+      if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+      if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+      if (event.key === 'Home') next = 0;
+      if (event.key === 'End') next = tabs.length - 1;
+      if (next !== index) {
+        event.preventDefault();
+        tabs[next].focus();
+        activate(tabs[next]);
+      }
+    });
+  });
+})();
+</script>
+</body>
+</html>

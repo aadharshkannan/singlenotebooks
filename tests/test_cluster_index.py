@@ -112,6 +112,105 @@ def test_session_cache_clusters_same_signature_by_full_session_content():
     assert first.key.value.startswith(index._cluster_prefix + "-")
 
 
+def test_cluster_prefix_changes_when_tenant_or_run_scope_changes():
+    from trace_sampling.concepts import SynonymMap
+
+    sm = SynonymMap([["search", "query", "find"]])
+    fe = FakeEmbedder(dim=64, synonym_map=sm, noise=0.005, seed=0)
+    cache = EmbeddingCache(fe)
+    shared_store = InMemoryVectorStore()
+
+    idx_a = AzureClusterIndex(
+        cache,
+        shared_store,
+        tau=0.9,
+        semantic_scope="scope-v1",
+        tenant_id="tenant-a",
+        run_scope="run-1",
+    )
+    idx_b = AzureClusterIndex(
+        cache,
+        shared_store,
+        tau=0.9,
+        semantic_scope="scope-v1",
+        tenant_id="tenant-b",
+        run_scope="run-1",
+    )
+    idx_c = AzureClusterIndex(
+        cache,
+        shared_store,
+        tau=0.9,
+        semantic_scope="scope-v1",
+        tenant_id="tenant-a",
+        run_scope="run-2",
+    )
+
+    assert idx_a._cluster_prefix != idx_b._cluster_prefix
+    assert idx_a._cluster_prefix != idx_c._cluster_prefix
+
+
+def test_shared_store_does_not_cross_tenant_scope_on_nearest_or_join():
+    from trace_sampling.concepts import SynonymMap
+
+    sm = SynonymMap([["search", "query", "find"]])
+    fe = FakeEmbedder(dim=64, synonym_map=sm, noise=0.005, seed=0)
+    cache = EmbeddingCache(fe)
+    shared_store = InMemoryVectorStore()
+    idx_a = AzureClusterIndex(
+        cache,
+        shared_store,
+        tau=0.9,
+        tenant_id="tenant-a",
+        run_scope="run-1",
+    )
+    idx_b = AzureClusterIndex(
+        cache,
+        shared_store,
+        tau=0.9,
+        tenant_id="tenant-b",
+        run_scope="run-1",
+    )
+
+    a1 = idx_a.observe(_t(("search",), agent="a", ts=0.0, cid=0))
+    b1 = idx_b.observe(_t(("search",), agent="a", ts=1.0, cid=0))
+    b2 = idx_b.observe(_t(("query",), agent="a", ts=2.0, cid=0))
+
+    assert b1.key != a1.key
+    assert b2.key == b1.key
+    assert b2.key != a1.key
+
+
+def test_shared_store_does_not_cross_run_scope_on_nearest_or_join():
+    from trace_sampling.concepts import SynonymMap
+
+    sm = SynonymMap([["search", "query", "find"]])
+    fe = FakeEmbedder(dim=64, synonym_map=sm, noise=0.005, seed=0)
+    cache = EmbeddingCache(fe)
+    shared_store = InMemoryVectorStore()
+    idx_a = AzureClusterIndex(
+        cache,
+        shared_store,
+        tau=0.9,
+        tenant_id="tenant-a",
+        run_scope="run-1",
+    )
+    idx_b = AzureClusterIndex(
+        cache,
+        shared_store,
+        tau=0.9,
+        tenant_id="tenant-a",
+        run_scope="run-2",
+    )
+
+    a1 = idx_a.observe(_t(("search",), agent="a", ts=0.0, cid=0))
+    b1 = idx_b.observe(_t(("search",), agent="a", ts=1.0, cid=0))
+    b2 = idx_b.observe(_t(("query",), agent="a", ts=2.0, cid=0))
+
+    assert b1.key != a1.key
+    assert b2.key == b1.key
+    assert b2.key != a1.key
+
+
 def test_representation_failure_bypasses_breaker_and_signature_fallback():
     class InvalidRepresentationCache:
         def contains_trace(self, trace):

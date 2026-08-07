@@ -86,6 +86,16 @@ def test_adaptive_sets_last_observation():
     assert s.last_observation is not None
     assert s.last_observation.key.kind == "signature"
 
+def test_admission_veto_overrides_keep_one_proposal_without_recording_keep() -> None:
+    from trace_sampling.model import Trace
+
+    sampler = AdaptiveSampler(SamplerConfig(enforce_keep_one_floor=True), seed=13)
+    trace = Trace(1, "tenant|agent", 1.0, ("tool",), 1, 1.0, "ok")
+
+    assert sampler.decide(trace, admit_keep=False) is False
+    assert sampler.last_proposed_keep is True
+    assert sampler.last_admitted_keep is False
+    assert trace.agent_id not in sampler._last_kept_ts
 
 def test_adaptive_default_variety_matches_prior_behavior():
     stream = _stream()

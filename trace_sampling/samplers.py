@@ -26,6 +26,7 @@ class SamplerConfig:
     queue_low_factor: float = 0.5
     reservoir_size: int = 8
     min_multiplier: float = 0.01
+    enforce_keep_one_floor: bool = True
 
 
 class BaselineSampler:
@@ -71,6 +72,8 @@ class AdaptiveSampler:
         self._variety = variety_index or ExactSignatureIndex(max_signatures_per_agent=config.max_signatures_per_agent)
         self._use_novelty = use_novelty
         self.last_observation = None
+        self.last_proposed_keep: bool | None = None
+        self.last_admitted_keep: bool | None = None
 
     def _stats_for(self, agent_id: str) -> AgentStats:
         if agent_id not in self._stats:
@@ -96,7 +99,7 @@ class AdaptiveSampler:
         w = self.cfg.active_window
         return sum(1 for ts in self._last_seen_ts.values() if now - ts <= w) or 1
 
-    def decide(self, trace: Trace) -> bool:
+    def decide(self, trace: Trace, admit_keep: bool | None = None) -> bool:
         cfg = self.cfg
         self._bp.tick(trace.timestamp)
         stats = self._stats_for(trace.agent_id)
@@ -129,17 +132,21 @@ class AdaptiveSampler:
         last_kept = self._last_kept_ts.get(trace.agent_id)
         stale = last_kept is None or (trace.timestamp - last_kept) >= cfg.active_window
 
-        if stale:
-            keep = True
+        if stale and cfg.enforce_keep_one_floor:
+            proposed_keep = True
         else:
             boost = cfg.coldstart_boost if stats.is_coldstart() else 1.0
             prob = diversity * boost * self._bp.multiplier
             prob = max(prob, floor_prob)   # probabilistic budget-share floor
             prob = min(prob, 1.0)
-            keep = bool(self._rng.random() < prob)
+            proposed_keep = bool(self._rng.random() < prob)
 
-        if keep:
+        admitted_keep = proposed_keep and (True if admit_keep is None else bool(admit_keep))
+        self.last_proposed_keep = proposed_keep
+        self.last_admitted_keep = admitted_keep
+
+        if admitted_keep:
             reservoir.offer(item=trace.trace_id, weight=max(diversity, 1e-6))
             self._last_kept_ts[trace.agent_id] = trace.timestamp
             self._bp.on_kept()
-        return keep
+        return admitted_keep
