@@ -1,0 +1,54 @@
+{
+  "entry_point": "agent_uniform_sampling/README.md",
+  "files": [
+    {
+      "bytes": 4195,
+      "path": "agent_uniform_sampling/README.md",
+      "sha256": "14f8a4459dfb042c8b4fb82b93dc5d85863c2049858e7ce5afbb49ad311877c2"
+    },
+    {
+      "bytes": 24547,
+      "path": "agent_uniform_sampling/prototype.py",
+      "sha256": "0771d8caefc0689a00a4483f7d26b55e9f7ac49e2c9ae363349d6feec7f50ec0"
+    },
+    {
+      "bytes": 17439,
+      "path": "agent_uniform_sampling_walkthrough.ipynb",
+      "sha256": "5123ea45ba7b738183a782422bf06d675c80ccad26a23806c0016b7f557664e1"
+    },
+    {
+      "bytes": 9771,
+      "path": "docs/AGENT_UNIFORM_BOUNDED_EVIDENCE_DESIGN.md",
+      "sha256": "f48061921a6f1c83c0e7f0dfed7d223af846c315af396b0dffc4b1d60a0c4584"
+    },
+    {
+      "bytes": 11396,
+      "path": "docs/BIC_EVALUATIONS_SERVICE_HANDOFF.md",
+      "sha256": "90c5babb5f2c2626e9efc2315a9ed5575c9239f28ebe73e23e0d00ad3e6662b8"
+    },
+    {
+      "bytes": 17061,
+      "path": "tests/test_agent_uniform_sampling.py",
+      "sha256": "743e1d264f4a3f089dd6fae1a43ada2440649a126d2d66d01bc787b9b501db79"
+    },
+    {
+      "bytes": 5241,
+      "path": "tests/test_token_representation.py",
+      "sha256": "6dd75d6cd169e9d4768f619fef5ece1021fd2e06f4372f99a57511539391a93d"
+    },
+    {
+      "bytes": 2883,
+      "path": "outputs_agent_uniform_sampling/agent-uniform-sampling-overview.md",
+      "sha256": "542698409ab23bc392f9ac49ade7ccc7dd4245df3d3517caf3099bb0c548b097"
+    },
+    {
+      "bytes": 6964,
+      "path": "outputs_agent_uniform_sampling/agent-uniform-sampling-overview.html",
+      "sha256": "9fb7ec16272d936ecac2b3b6049a8fdb1dd56e4a01336c9a8dc1f7d96959130a"
+    }
+  ],
+  "purpose": "Python reference handoff for BIC Evaluations Service",
+  "schema_version": "agent-uniform-handoff-v1",
+  "target_repository": "C:\\Users\\stangoodwin\\BIC-Evaluations-Service",
+  "validation_command": "py -3.11 -m pytest tests/test_agent_uniform_sampling.py tests/test_token_representation.py -q"
+}
