@@ -518,6 +518,11 @@ def test_v4_report_renders_redesign_tabs_and_required_sections(tmp_path: Path) -
     assert "Selected-only absolute aggregate rate error = |selected pass rate - census|" in html
     assert "IDW aggregate error = |observed+imputed population mean - census|" in html
     assert "Deterministic expected labels are pseudo-judge outputs" in html
+    assert "Practical Recommendation" in html
+    assert "Random selected-only is the accuracy default for this run" in html
+    assert "MinHash won" in html
+    assert "Embedding led concept coverage in" in html
+    assert "should remain diagnostic or budget-specific" in html
     assert '<section class="print-keep"><h3>Metric Definitions</h3>' in html
     assert ".method-panel, .print-keep" in html
 
@@ -549,6 +554,16 @@ def test_v4_report_renders_redesign_tabs_and_required_sections(tmp_path: Path) -
     assert "Token and Embedding Ledger" in html
     assert "Selection-stage manifest" in html
 
+    assert html.count('<figure class="diagram"><figcaption>') >= 5
+    assert "Overall selection and estimation flow" in html
+    assert "Random token-priority explainer" in html
+    assert "MinHash LSH explainer (128 values, 32x4)" in html
+    assert "Embedding selection explainer" in html
+    assert "Post-freeze same-agent IDW explainer" in html
+    assert "role=\"img\" aria-label=\"Overall flow from persisted source bundle through selection parity to method-specific estimation\"" in html
+    assert "<b>What this shows:</b>" in html
+    assert "<b>How to interpret it:</b>" in html
+
     forbidden = [
         "consult V2",
         "consult V3",
@@ -560,6 +575,9 @@ def test_v4_report_renders_redesign_tabs_and_required_sections(tmp_path: Path) -
 
     assert "Print Report" in html
     assert "@media print" in html
+    assert "@page { size: A4 portrait; margin: 10mm; }" in html
+    assert ".diagram svg" in html
+    assert "overflow-wrap: anywhere;" in html
     assert "http://" not in html
     assert "https://" not in html
     assert "cdn" not in html.lower()
@@ -583,24 +601,36 @@ def test_v4_report_writes_sidecar_manifest_and_validates_integrity(tmp_path: Pat
     validate_report_manifest(report_path=out, manifest_path=out.with_name("report_manifest.json"))
 
 
-def test_v4_summary_report_contains_only_requested_sections(tmp_path: Path) -> None:
+def test_v4_summary_report_contains_expanded_requested_sections(tmp_path: Path) -> None:
     inputs = _build_fixture_bundle(tmp_path)
     out = tmp_path / "summary.html"
     written = write_v4_html_report(
         output_path=out,
         inputs=inputs,
-        section_ids=("executive", "outcomes", "methods"),
+        section_ids=(
+            "executive",
+            "outcomes",
+            "methods",
+            "quadrant",
+            "throughput",
+            "embedding",
+            "lineage",
+            "repro",
+        ),
         report_title="Agent365 Sampling V4 Summary Report",
         manifest_name="summary_report_manifest.json",
     )
 
     html = written.read_text(encoding="utf-8")
-    assert html.count('class="tab-button"') == 3
+    assert html.count('class="tab-button"') == 8
     assert "Executive Summary" in html
     assert "Outcomes" in html
     assert "Sampling Methods" in html
-    assert "Quadrant Behavior" not in html
-    assert "Embedding Diagnostics" not in html
+    assert "Quadrant Behavior" in html
+    assert "Throughput" in html
+    assert "Embedding Diagnostics" in html
+    assert "Lineage &amp; Integrity" in html
+    assert "Reproducibility &amp; Caveats" in html
     validate_report_manifest(
         report_path=written,
         manifest_path=written.with_name("summary_report_manifest.json"),
