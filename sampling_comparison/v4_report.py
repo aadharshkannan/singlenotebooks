@@ -978,6 +978,29 @@ def _render_executive_summary(
         for label, count in sorted(winner_counts.items(), key=lambda item: (-item[1], item[0]))
     )
 
+    winner_label, winner_total = max(
+        winner_counts.items(),
+        key=lambda item: (item[1], item[0]),
+        default=("No method", 0),
+    )
+    minhash_wins = winner_counts.get(_method_label(MINHASH_METHOD), 0)
+    medium_high_budgets = budgets[len(budgets) // 2 :]
+    embedding_coverage_wins = 0
+    for budget in medium_high_budgets:
+        coverage_rows = [
+            (float(summary.get((method, budget), {}).get("concept_coverage", 0.0)), method)
+            for method in (RANDOM_METHOD, MINHASH_METHOD, EMBEDDING_METHOD)
+        ]
+        if max(coverage_rows, default=(0.0, ""))[1] == EMBEDDING_METHOD:
+            embedding_coverage_wins += 1
+
+    practical_lines = [
+        f"{winner_label} is the accuracy default for this run ({winner_total}/{len(budgets)} budget cells won by MAE).",
+        f"MinHash won {minhash_wins}/{len(budgets)} budget cells and provides bounded collision lookup; misses are explicit novel/no-candidate events.",
+        f"Embedding led concept coverage in {embedding_coverage_wins}/{len(medium_high_budgets)} medium/high budget cells in this run but adds throughput decision latency pressure.",
+        f"Post-freeze same-agent IDW is mixed ({idw_improved} improved, {idw_regressed} regressed, {idw_tied} tied) and should remain diagnostic or budget-specific.",
+    ]
+
     if 20 in {int(r.get("legacy_tier_pct") or 0) for r in artifacts.runs_jsonl}:
         rep_budget = min(
             int(r.get("budget_tokens") or 0)
@@ -1018,6 +1041,9 @@ def _render_executive_summary(
         "<div class=\"summary-panel\"><h3>MinHash Verdict</h3>"
         f"<p>{no_candidate_novel:,} bucket misses were treated as novel; {full_scan_fallbacks:,} exhaustive scans were used.</p></div>"
         "</div>"
+        "<section class=\"print-keep\"><h3>Practical Recommendation</h3><ul>"
+        + "".join(f"<li>{escape(line)}</li>" for line in practical_lines)
+        + "</ul></section>"
         "<h3>Representative Exact-Budget Table</h3>"
         "<p class=\"tight\">Representative budget uses 20% legacy provenance when available; otherwise median exact budget.</p>"
         "<div class=\"table-scroll\"><table><thead><tr>"
@@ -1128,13 +1154,13 @@ def _render_outcomes(
         coverage_interpretation.append(f"{budget:,}: {best_cov[1]} {_pct(best_cov[0],1)}")
 
     return (
-        "<p class=\"tight\">Outcome comparisons keep exact budget parity. Random and MinHash report selected-only error; full-session embedding reports the observed-plus-IDW population estimate.</p>"
+        "<p class=\"tight\"><b>What this shows:</b> matched exact-budget outcome accuracy and efficiency tradeoffs. Random and MinHash report selected-only error; full-session embedding reports observed-plus-IDW population estimates.</p>"
         + chart1
-        + f"<p class=\"tight\">Interpretation: {escape('; '.join(interp1))}.</p>"
+        + f"<p class=\"tight\"><b>How to interpret it:</b> compare methods at the same budget only. {escape('; '.join(interp1))}.</p>"
         + chart2
-        + f"<p class=\"tight\">Highest fraction saved: {escape('; '.join(saved_interpretation))}.</p>"
+        + f"<p class=\"tight\"><b>How to interpret it:</b> higher means fewer sessions judged. Highest fraction saved: {escape('; '.join(saved_interpretation))}.</p>"
         + chart3
-        + f"<p class=\"tight\">Highest concept coverage: {escape('; '.join(coverage_interpretation))}.</p>"
+        + f"<p class=\"tight\"><b>How to interpret it:</b> higher means broader concept surface retained by the sample. Highest concept coverage: {escape('; '.join(coverage_interpretation))}.</p>"
         + "<h3>Dense Outcome Table</h3>"
         + "<div class=\"table-scroll\"><table><thead><tr>"
         + "<th>Legacy provenance tier</th><th>Exact tokens</th><th>Reported method</th><th>Selected count mean</th><th>Reported MAE</th><th>Fraction saved</th><th>Concept coverage</th><th>Note</th>"
@@ -1152,6 +1178,58 @@ def _render_method_panel(title: str, steps: list[str], facts: list[tuple[str, st
     return (
         f"<div class=\"method-panel\"><h3>{escape(title)}</h3><ol>{step_rows}</ol>"
         f"<div class=\"table-scroll\"><table><tbody>{fact_rows}</tbody></table></div></div>"
+    )
+
+
+def _render_vertical_flow_diagram(
+    *,
+    title: str,
+    aria_label: str,
+    nodes: list[str],
+    note: str,
+    accent: str,
+) -> str:
+    node_count = max(1, len(nodes))
+    width = 700
+    step_h = 86
+    top_pad = 24
+    box_h = 52
+    box_w = 560
+    height = top_pad * 2 + node_count * step_h
+    x = (width - box_w) / 2.0
+    text_x = width / 2.0
+    marker_id = "arrow-" + "-".join(
+        part for part in "".join(char if char.isalnum() else " " for char in title.lower()).split()[:4]
+    )
+
+    shapes: list[str] = []
+    for idx, label in enumerate(nodes):
+        y = top_pad + idx * step_h
+        shapes.append(
+            f'<rect x="{x:.2f}" y="{y:.2f}" width="{box_w:.2f}" height="{box_h:.2f}" '
+            f'rx="8" ry="8" fill="#ffffff" stroke="{escape(accent)}" stroke-width="1.6" />'
+        )
+        shapes.append(
+            f'<text x="{text_x:.2f}" y="{y + 31:.2f}" text-anchor="middle" class="axis">{escape(label)}</text>'
+        )
+        if idx < node_count - 1:
+            y1 = y + box_h
+            y2 = y + step_h
+            shapes.append(
+                f'<line x1="{text_x:.2f}" y1="{y1:.2f}" x2="{text_x:.2f}" y2="{y2:.2f}" '
+                f'stroke="{escape(accent)}" stroke-width="1.5" marker-end="url(#{escape(marker_id)})" />'
+            )
+
+    return (
+        f"<figure class=\"diagram\"><figcaption>{escape(title)}</figcaption>"
+        + f"<svg viewBox=\"0 0 {width} {height}\" role=\"img\" aria-label=\"{escape(aria_label)}\">"
+        + "<defs>"
+        + f'<marker id="{escape(marker_id)}" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">'
+        + f'<path d="M0,0 L8,4 L0,8 z" fill="{escape(accent)}" /></marker>'
+        + "</defs>"
+        + "".join(shapes)
+        + "</svg>"
+        + f"<p class=\"tight\"><b>How to interpret it:</b> {escape(note)}</p></figure>"
     )
 
 
@@ -1222,8 +1300,72 @@ def _render_sampling_methods(artifacts: LoadedV4Artifacts) -> str:
         ),
     ]
 
+    diagrams = [
+        _render_vertical_flow_diagram(
+            title="Overall selection and estimation flow",
+            aria_label="Overall flow from persisted source bundle through selection parity to method-specific estimation",
+            nodes=[
+                "Load persisted V3 selection artifacts and verify hashes",
+                "Compare methods at matched exact token budgets",
+                "Freeze selected membership before any estimator runs",
+                "Report selected-only outcomes for Random and MinHash",
+                "Run same-agent IDW on embedding unjudged units only",
+            ],
+            note="Top-to-bottom order is execution order. Selection and estimation are intentionally separated to prevent estimator leakage into membership.",
+            accent="#1f6d8c",
+        ),
+        _render_vertical_flow_diagram(
+            title="Random token-priority explainer",
+            aria_label="Random token-priority selection flow",
+            nodes=[
+                "Deterministic replay order for paired run",
+                "Accumulate full sessions until exact budget cap",
+                "Emit selected-only rate from frozen membership",
+            ],
+            note="Random is the simplest accuracy baseline here because it has no adaptive neighbor lookup or post-selection fill policy.",
+            accent="#8f5f2a",
+        ),
+        _render_vertical_flow_diagram(
+            title="MinHash LSH explainer (128 values, 32x4)",
+            aria_label="MinHash LSH candidate lookup flow",
+            nodes=[
+                "Compute 128-value signature and partition into 32 bands x 4 rows",
+                "Look up collision candidates and pack under exact budget",
+                "If no collision candidates, mark as novel",
+                "No exhaustive miss fallback scan",
+            ],
+            note="Bounded collision lookup controls lookup cost. Misses indicate novelty, not a hidden full-corpus rescue path.",
+            accent="#2d7c6d",
+        ),
+        _render_vertical_flow_diagram(
+            title="Embedding selection explainer",
+            aria_label="Embedding selection flow under exact budget",
+            nodes=[
+                "Compute embedding proposals from persisted inventory",
+                "Pack full sessions at exact budget parity",
+                "Freeze selection and expose observed versus unjudged units",
+            ],
+            note="This diagram covers selection only. Estimation choices are shown separately in IDW.",
+            accent="#1f6d8c",
+        ),
+        _render_vertical_flow_diagram(
+            title="Post-freeze same-agent IDW explainer",
+            aria_label="Post-freeze same-agent inverse-distance weighting estimation flow",
+            nodes=[
+                "For each unjudged unit, query same-agent nearest donors",
+                "Apply inverse-distance weights with epsilon stabilization",
+                "Use prior fallback only when donor neighborhoods are empty",
+                "Combine observed and imputed units into reported aggregate",
+            ],
+            note="IDW runs only after selection freeze, so it changes estimation not membership. Treat it as a diagnostic extension, not a selection policy.",
+            accent="#b04a36",
+        ),
+    ]
+
     return (
-        "<p class=\"tight\">The complete sampling and estimation workflow is defined below.</p>"
+        "<p class=\"tight\"><b>Selection versus estimation:</b> Random, MinHash, and embedding are selection methods under matched exact budgets. Same-agent IDW is a post-freeze estimator applied only to embedding unjudged units.</p>"
+        + "".join(diagrams)
+        + "<p class=\"tight\"><b>What this shows:</b> each method explainer is an inline architecture view of persisted operations; none rely on external assets.</p>"
         + "<div class=\"method-grid\">"
         + "".join(panels)
         + "</div>"
@@ -1398,12 +1540,12 @@ def _render_quadrant_behavior(artifacts: LoadedV4Artifacts) -> str:
         )
 
     return (
-        "<p class=\"tight\">Quadrant behavior tests the variety/velocity mechanism under fixed exact budgets.</p>"
+        "<p class=\"tight\"><b>What this shows:</b> behavior by quadrant under exact-budget parity. Quadrant axes are session variety (low/high) and velocity (low/high). Zero-selection agents are agents with no admitted sessions in a cell.</p>"
         + population_table
         + rep_chart
-        + f"<p class=\"tight\">Interpretation: {escape(rep_text)} across persisted quadrants and methods.</p>"
+        + f"<p class=\"tight\"><b>How to interpret it:</b> {escape(rep_text)} across persisted quadrants and methods.</p>"
         + zero_chart
-        + f"<p class=\"tight\">Interpretation: {escape(zero_text)}; high zero-selection pockets indicate admission sparsity rather than judge latency.</p>"
+        + f"<p class=\"tight\"><b>How to interpret it:</b> {escape(zero_text)}; high zero-selection pockets indicate admission sparsity rather than judge latency.</p>"
         + "<h3>Exact Quadrant Results</h3>"
         + _render_table(
             detail_rows,
@@ -1545,7 +1687,7 @@ def _render_throughput(artifacts: LoadedV4Artifacts) -> str:
     )
 
     return (
-        "<p class=\"tight\">Throughput varies arrival rate against evaluation capacity under queue capacity policy. Metrics describe admission mechanics, not LLM generation latency.</p>"
+        "<p class=\"tight\"><b>What this shows:</b> throughput stress against queue capacity under exact budgets. Token pressure and decision runtime are selection-decision mechanics, not model generation latency.</p>"
         + _render_table(
             rows,
             [
@@ -1556,9 +1698,9 @@ def _render_throughput(artifacts: LoadedV4Artifacts) -> str:
             ],
         )
         + pressure_chart
-        + "<p class=\"tight\">Interpretation: pressure ratios near 1.0 indicate sustained budget saturation for embedding under this budget.</p>"
+        + "<p class=\"tight\"><b>How to interpret it:</b> token pressure near 1.0 means sustained budget saturation where arrivals are close to or above effective capacity.</p>"
         + latency_chart
-        + "<p class=\"tight\">Interpretation: p95 latency peaks align with capacity-constrained cells; this is queueing pressure, not model response time.</p>"
+        + "<p class=\"tight\"><b>How to interpret it:</b> p95 decision latency peaks align with capacity-constrained cells; this is queueing pressure, not model response time.</p>"
     )
 
 
@@ -1754,7 +1896,7 @@ def _render_embedding_diagnostics(
     ]
 
     return (
-        "<p class=\"tight\">Representative embedding run selection is deterministic: highest legacy tier, then lowest repetition, then lowest exact budget, then lexical order hash.</p>"
+        "<p class=\"tight\"><b>What this shows:</b> reliability, distance/error behavior, per-agent fit, and provenance composition for a deterministic representative embedding run.</p>"
         + _render_table(
             counts_row,
             [
@@ -1776,8 +1918,13 @@ def _render_embedding_diagnostics(
             ],
         )
         + _plot_reliability(calibration_bins)
+        + "<p class=\"tight\"><b>How to interpret it:</b> reliability points near the diagonal are better calibrated; large off-diagonal gaps flag over/under-confidence.</p>"
         + _plot_distance_error(distance_bins)
+        + "<p class=\"tight\"><b>How to interpret it:</b> rising error with larger nearest distance indicates weaker donor similarity for imputed units.</p>"
         + _plot_agent_scatter(per_agent)
+        + "<p class=\"tight\"><b>How to interpret it:</b> per-agent dots near the diagonal indicate accurate agent-level reconstruction; outliers identify agent-specific donor sparsity.</p>"
+        + _plot_provenance_stacked(budgets=sorted({int(row.get("budget_tokens") or 0) for row in artifacts.runs_jsonl}), summary=summary)
+        + "<p class=\"tight\"><b>How to interpret it:</b> observed/imputed/fallback shares summarize provenance mix in reported embedding rates; larger fallback share signals lower donor support.</p>"
         + "<h3>Token and Embedding Ledger</h3>"
         + _render_table(ledger_rows, ["Metric", "Value"])
     )
@@ -2011,6 +2158,9 @@ th, td {{ border-bottom: 1px solid var(--line); padding: 7px 8px; text-align: le
 .chart figcaption {{ font-weight: 700; margin-bottom: 6px; }}
 .chart-scroll {{ overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: #ffffff; }}
 .chart svg {{ width: 980px; height: 360px; display: block; }}
+.diagram {{ margin: 10px 0; }}
+.diagram figcaption {{ font-weight: 700; margin-bottom: 6px; }}
+.diagram svg {{ width: 100%; max-width: 700px; height: auto; display: block; border: 1px solid var(--line); border-radius: 8px; background: #fff; }}
 .chart-legend {{ display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 8px; color: var(--muted); font-size: 0.86rem; }}
 .chart-legend span {{ display: inline-flex; align-items: center; gap: 6px; }}
 .chart-legend i {{ width: 10px; height: 10px; border-radius: 2px; display: inline-block; }}
@@ -2031,7 +2181,7 @@ th, td {{ border-bottom: 1px solid var(--line); padding: 7px 8px; text-align: le
   .summary-grid {{ grid-template-columns: 1fr; }}
 }}
 @media print {{
-    @page {{ size: A4 landscape; margin: 10mm; }}
+    @page {{ size: A4 portrait; margin: 10mm; }}
   body {{ background: #fff; }}
   .tabs-wrap {{ display: none; }}
   .tab-panel[hidden] {{ display: block !important; }}
@@ -2051,10 +2201,14 @@ th, td {{ border-bottom: 1px solid var(--line); padding: 7px 8px; text-align: le
         break-inside: avoid;
         page-break-inside: avoid;
     }}
+    .diagram {{ break-inside: avoid; page-break-inside: avoid; }}
     .chart-scroll, .table-scroll {{ overflow: visible; border-color: #cbd3d8; }}
     .chart svg {{ width: 100%; max-width: 100%; height: auto; }}
+    .diagram svg {{ max-width: 100%; }}
     table {{ font-size: 8pt; }}
+    .table-scroll table {{ table-layout: fixed; width: 100%; }}
     th, td {{ padding: 4px 5px; }}
+    th, td {{ overflow-wrap: anywhere; }}
     thead {{ display: table-header-group; }}
     tr {{ break-inside: avoid; page-break-inside: avoid; }}
     .footer {{ display: none; }}
