@@ -369,6 +369,37 @@ def test_azure_delete_scope_settled_waits_for_late_document_after_initial_empty(
     assert fake.scope_scans >= 4
 
 
+def test_azure_delete_scope_settled_allows_final_two_quiet_verification_scans():
+    class _SettlesAtAttemptBoundaryClient(_FakeSearchClient):
+        def __init__(self):
+            super().__init__(pages=[])
+            self.scope_scans = 0
+
+        def search(self, **kwargs):
+            self.search_calls.append(kwargs)
+            if kwargs.get("vector_queries") is not None:
+                return iter([])
+            self.scope_scans += 1
+            if self.scope_scans <= 2:
+                return iter([{"cluster_id": "last-visible-doc"}])
+            return iter([])
+
+    fake = _SettlesAtAttemptBoundaryClient()
+    store = _build_azure_store(fake)
+
+    ids, count = store.delete_scope_settled(
+        "tenant-1",
+        "run-1",
+        semantic_scope="scope-1",
+        max_attempts=2,
+        settle_seconds=0.0,
+    )
+
+    assert ids == ["last-visible-doc"]
+    assert count == 1
+    assert fake.scope_scans >= 4
+
+
 def test_azure_delete_scope_settled_raises_when_not_settled_after_attempts():
     class _NeverSettlesClient(_FakeSearchClient):
         def search(self, **kwargs):

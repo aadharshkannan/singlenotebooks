@@ -3,6 +3,53 @@ from typing import List, Optional, Protocol, Tuple
 import numpy as np
 
 
+def _is_modern_foundry_endpoint(endpoint: str) -> bool:
+    if not endpoint:
+        return False
+    host = endpoint.lower().split("//", 1)[-1].split("/", 1)[0]
+    return host.endswith(".services.ai.azure.com") or host == "services.ai.azure.com"
+
+
+def _openai_base_url(endpoint: str) -> str:
+    return endpoint.rstrip("/") + "/openai/v1/"
+
+
+def build_openai_embedding_client(config, *, openai_cls=None, azure_openai_cls=None):
+    """Construct the correct OpenAI client for modern Foundry vs classic Azure endpoints."""
+    if openai_cls is None:
+        from openai import OpenAI as openai_cls
+    if azure_openai_cls is None:
+        from openai import AzureOpenAI as azure_openai_cls
+
+    endpoint = (config.openai_endpoint or "").rstrip("/")
+    if _is_modern_foundry_endpoint(config.openai_endpoint):
+        api_key = config.openai_api_key
+        if api_key:
+            return openai_cls(base_url=_openai_base_url(endpoint), api_key=api_key)
+        from .azure_config import get_openai_token
+
+        token = get_openai_token()
+        if not isinstance(token, str) or not token.strip():
+            raise RuntimeError(
+                "No usable OpenAI credential for Foundry endpoint. Set AZURE_OPENAI_API_KEY or ensure Entra token acquisition succeeds."
+            )
+        return openai_cls(base_url=_openai_base_url(endpoint), api_key=token)
+
+    if config.openai_api_key:
+        return azure_openai_cls(
+            azure_endpoint=endpoint,
+            api_version=config.openai_api_version,
+            api_key=config.openai_api_key,
+        )
+
+    from .azure_config import openai_token_provider
+    return azure_openai_cls(
+        azure_endpoint=endpoint,
+        api_version=config.openai_api_version,
+        azure_ad_token_provider=openai_token_provider(),
+    )
+
+
 def sequence_to_text(signature: Tuple[str, ...]) -> str:
     return " -> ".join(signature)
 
@@ -55,17 +102,11 @@ class FakeEmbedder:
 
 
 class AzureOpenAIEmbedder:
-    """Live Azure OpenAI embeddings via Entra ID (no keys)."""
+    """Live Azure OpenAI embeddings via API key or Entra tokens."""
 
     def __init__(self, config):
-        from openai import AzureOpenAI
-        from .azure_config import openai_token_provider
         self._deployment = config.embedding_deployment
-        self._client = AzureOpenAI(
-            azure_endpoint=config.openai_endpoint,
-            api_version=config.openai_api_version,
-            azure_ad_token_provider=openai_token_provider(),
-        )
+        self._client = build_openai_embedding_client(config)
 
     def embed(self, texts: List[str]) -> np.ndarray:
         resp = self._client.embeddings.create(model=self._deployment, input=texts)
