@@ -158,14 +158,15 @@ class InMemoryVectorStore:
 
 
 class AzureSearchVectorStore:
-    """Live Azure AI Search vector store (Entra-only). HNSW + cosine."""
+    """Live Azure AI Search vector store. Uses API key when supplied, otherwise Entra."""
 
     def __init__(self, config, dim: int = 1536, ensure_index: bool = False):
+        from azure.core.credentials import AzureKeyCredential
         from azure.search.documents import SearchClient
-        from .azure_config import get_credential
+        from azure.identity import DefaultAzureCredential
         self._index = config.search_index
         self._endpoint = config.search_endpoint
-        self._cred = get_credential()
+        self._cred = AzureKeyCredential(config.search_api_key) if config.search_api_key else DefaultAzureCredential()
         self._dim = dim
         self._nearest_k = 1
         self._nearest_top = 1
@@ -410,10 +411,15 @@ class AzureSearchVectorStore:
                 f"semantic_scope={semantic_scope!r}; remaining={len(remaining)}"
             )
         consecutive_empty += 1
-        if consecutive_empty < 2:
-            raise RuntimeError(
-                "delete_scope_settled did not observe a quiet verification window after "
-                f"{max_attempts} attempts for tenant_id={tenant_id}, run_scope={run_scope}, "
-                f"semantic_scope={semantic_scope!r}"
-            )
+        while consecutive_empty < 2:
+            if settle_seconds > 0.0:
+                time.sleep(settle_seconds)
+            remaining = self._search_ids(filter_expr=flt)
+            if remaining:
+                raise RuntimeError(
+                    "delete_scope_settled observed documents during the final quiet verification "
+                    f"for tenant_id={tenant_id}, run_scope={run_scope}, "
+                    f"semantic_scope={semantic_scope!r}; remaining={len(remaining)}"
+                )
+            consecutive_empty += 1
         return deleted_all, len(deleted_all)
