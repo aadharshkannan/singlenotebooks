@@ -16,6 +16,13 @@ outputs_sampling_v6/report-fixture/
 outputs_sampling_v6/concise-review/
 outputs_sampling_v6/concise-review-final/
 outputs_sampling_v6/report-review-pages/
+outputs_sampling_v6/7arm-canary-review/
+outputs_sampling_v6/qa_slides7_12/
+outputs_sampling_v6/sampling-applied-slide-05-session.png
+
+# Downloaded benchmark repositories and browser-test evidence stay local.
+/external_data/
+/test-results/
 
 # Keep only the reviewed V6 HTML/PDF deliverables; raw runs and checkpoints stay local.
 outputs_sampling_v6/runs/*
@@ -25,6 +32,10 @@ outputs_sampling_v6/runs/full-30-20260821/*
 !outputs_sampling_v6/runs/full-30-20260821/sampling-v6-report.pdf
 !outputs_sampling_v6/runs/full-30-20260821/sampling-v6-concise-report.html
 !outputs_sampling_v6/runs/full-30-20260821/sampling-v6-concise-report.pdf
+!outputs_sampling_v6/runs/full-30-7arm-20260827/
+outputs_sampling_v6/runs/full-30-7arm-20260827/*
+!outputs_sampling_v6/runs/full-30-7arm-20260827/sampling-v6-concise-report.html
+!outputs_sampling_v6/runs/full-30-7arm-20260827/sampling-v6-concise-report.pdf
 
 # Local study guides.
 /QA.md

@@ -7,6 +7,7 @@ import pytest
 
 from sampling_comparison.v6_experiment import (
     METHOD_IDS,
+    METHOD_ID_ORDER,
     SAMPLE_CAPS,
     TrialMetrics,
     _allocate_round_robin_counts,
@@ -18,10 +19,12 @@ from sampling_comparison.v6_experiment import (
     arm4_inclusion_probabilities,
     build_session_descriptors,
     compute_trial_metrics,
+    run_arm2_5_binary_from_arm2_result,
     run_arm2_idw,
     select_arm1,
     select_arm3,
     select_arm4,
+    select_arm6,
     validate_selection_exactness,
 )
 
@@ -289,3 +292,154 @@ def test_v6_arm5_reuses_exact_arm4_probabilities_and_ids():
     arm4_record_pi = {record.unit_id: record.inclusion_probability for record in arm4.records}
     arm5_record_pi = {record.unit_id: record.inclusion_probability for record in arm5.records}
     assert arm5_record_pi == arm4_record_pi
+
+
+def test_v6_method_id_order_includes_seven_arms():
+    assert METHOD_ID_ORDER == (
+        METHOD_IDS["arm1"],
+        METHOD_IDS["arm2"],
+        METHOD_IDS["arm2_5"],
+        METHOD_IDS["arm3"],
+        METHOD_IDS["arm4"],
+        METHOD_IDS["arm5"],
+        METHOD_IDS["arm6"],
+    )
+
+
+def test_v6_arm2_5_reuses_arm2_membership_and_thresholds_per_unit_at_point_five():
+    rows = [
+        {"unit_id": "u1", "agent_id": "a", "use_case_id": "uc", "concept_key": "c1", "label": False},
+        {"unit_id": "u2", "agent_id": "a", "use_case_id": "uc", "concept_key": "c2", "label": True},
+        {"unit_id": "u3", "agent_id": "b", "use_case_id": "uc", "concept_key": "c3", "label": False},
+        {"unit_id": "u4", "agent_id": "b", "use_case_id": "uc", "concept_key": "c4", "label": True},
+    ]
+    labels = {row["unit_id"]: bool(row["label"]) for row in rows}
+    descriptors = build_session_descriptors(rows)
+    agent_ids = {d.unit_id: d.agent_id for d in descriptors}
+    vector_by_unit = {
+        "u1": [1.0, 0.0],
+        "u2": [0.0, 1.0],
+        "u3": [1.0, 1.0],
+        "u4": [0.0, 0.0],
+    }
+    arm2 = run_arm2_idw(
+        eligible_ids=[d.unit_id for d in descriptors],
+        selected_ids=["u1", "u2"],
+        agent_id_by_unit=agent_ids,
+        vector_by_unit=vector_by_unit,
+        labels_by_unit=labels,
+        cell_id="arm2-identity",
+    )
+    rows_obj = arm2["estimated_population"].rows
+    assert len(rows_obj) == 4
+    object.__setattr__(rows_obj[0], "value", 0.49)
+    object.__setattr__(rows_obj[1], "value", 0.50)
+    object.__setattr__(rows_obj[2], "value", 0.50)
+    object.__setattr__(rows_obj[3], "value", 0.51)
+    arm2_5 = run_arm2_5_binary_from_arm2_result(arm2_result=arm2)
+    assert arm2_5["membership"] == arm2["membership"]
+    assert arm2_5["continuous_estimate"] == pytest.approx(float(arm2["estimate"]))
+    assert arm2_5["binary_estimate"] == pytest.approx(0.75)
+    assert arm2_5["binary_estimate"] != pytest.approx((0.49 + 0.50 + 0.50 + 0.51) / 4.0)
+
+
+def test_v6_arm4_arm5_arm6_membership_identity():
+    rows, labels = _make_fixture()
+    descriptors = build_session_descriptors(rows)
+    arm4 = select_arm4(descriptors=descriptors, cap=16, trial_seed=13, window_id="id")
+    from sampling_comparison.v6_experiment import select_arm5
+
+    arm5 = select_arm5(descriptors=descriptors, arm4_outcome=arm4, labels_by_unit=labels, trial_seed=13, window_id="id")
+    arm6 = select_arm6(descriptors=descriptors, arm4_outcome=arm4)
+    assert arm4.selected_ids == arm5.selected_ids == arm6.selected_ids
+
+
+def test_v6_arm6_joint_cell_weighting_expected_hajek_on_uneven_frame():
+    rows = [
+        {"unit_id": "a_u1", "agent_id": "a", "use_case_id": "x", "business_use_case_guid": "x", "concept_key": "c1", "label": True},
+        {"unit_id": "a_u2", "agent_id": "a", "use_case_id": "x", "business_use_case_guid": "x", "concept_key": "c2", "label": False},
+        {"unit_id": "a_u3", "agent_id": "a", "use_case_id": "y", "business_use_case_guid": "y", "concept_key": "c3", "label": True},
+        {"unit_id": "b_u1", "agent_id": "b", "use_case_id": "x", "business_use_case_guid": "x", "concept_key": "c4", "label": False},
+        {"unit_id": "b_u2", "agent_id": "b", "use_case_id": "x", "business_use_case_guid": "x", "concept_key": "c5", "label": True},
+        {"unit_id": "b_u3", "agent_id": "b", "use_case_id": "x", "business_use_case_guid": "x", "concept_key": "c6", "label": False},
+    ]
+    labels = {row["unit_id"]: bool(row["label"]) for row in rows}
+    descriptors = build_session_descriptors(rows)
+    arm4 = select_arm4(descriptors=descriptors, cap=4, trial_seed=13, window_id="tiny")
+    arm6 = select_arm6(descriptors=descriptors, arm4_outcome=arm4)
+
+    assert arm6.selected_ids == arm4.selected_ids
+    assert len(arm6.records) == len(arm6.selected_ids)
+    assert all("represented" in record.reason for record in arm6.records)
+
+    by_id = {d.unit_id: d for d in descriptors}
+    selected = set(arm6.selected_ids)
+    cell_pop = defaultdict(int)
+    cell_sel = defaultdict(int)
+    for descriptor in descriptors:
+        key = (descriptor.agent_id, descriptor.business_use_case_guid)
+        cell_pop[key] += 1
+    for unit_id in selected:
+        descriptor = by_id[unit_id]
+        key = (descriptor.agent_id, descriptor.business_use_case_guid)
+        cell_sel[key] += 1
+
+    for record in arm6.records:
+        descriptor = by_id[record.unit_id]
+        key = (descriptor.agent_id, descriptor.business_use_case_guid)
+        expected_pi = cell_sel[key] / cell_pop[key]
+        expected_weight = cell_pop[key] / cell_sel[key]
+        assert float(record.inclusion_probability or 0.0) == pytest.approx(expected_pi)
+        assert float(record.weight or 0.0) == pytest.approx(expected_weight)
+
+    expected_hajek = sum((1.0 if labels[uid] else 0.0) / arm6.inclusion_probability_by_unit[uid] for uid in arm6.selected_ids)
+    expected_hajek /= sum(1.0 / arm6.inclusion_probability_by_unit[uid] for uid in arm6.selected_ids)
+    metrics = compute_trial_metrics(
+        descriptors=descriptors,
+        selected_ids=arm6.selected_ids,
+        method_id=METHOD_IDS["arm6"],
+        trial_seed=13,
+        window_id="tiny",
+        nominal_budget=4,
+        labels_by_unit=labels,
+        selection_outcome=arm6,
+    )
+    assert metrics.estimate == pytest.approx(expected_hajek)
+
+
+def test_v6_arm6_zero_cell_diagnostics_and_census_and_label_invariance():
+    rows = [
+        {"unit_id": "a_x1", "agent_id": "a", "use_case_id": "x", "business_use_case_guid": "x", "concept_key": "c1", "label": True},
+        {"unit_id": "a_x2", "agent_id": "a", "use_case_id": "x", "business_use_case_guid": "x", "concept_key": "c2", "label": False},
+        {"unit_id": "a_y1", "agent_id": "a", "use_case_id": "y", "business_use_case_guid": "y", "concept_key": "c3", "label": True},
+        {"unit_id": "b_x1", "agent_id": "b", "use_case_id": "x", "business_use_case_guid": "x", "concept_key": "c4", "label": False},
+        {"unit_id": "b_y1", "agent_id": "b", "use_case_id": "y", "business_use_case_guid": "y", "concept_key": "c5", "label": True},
+    ]
+    descriptors = build_session_descriptors(rows)
+    labels = {row["unit_id"]: bool(row["label"]) for row in rows}
+
+    arm4 = select_arm4(descriptors=descriptors, cap=2, trial_seed=13, window_id="diag")
+    arm6 = select_arm6(descriptors=descriptors, arm4_outcome=arm4)
+    diagnostics = arm6.diagnostics
+    assert diagnostics["total_cell_count"] == 4
+    assert diagnostics["represented_cell_count"] <= diagnostics["total_cell_count"]
+    assert diagnostics["zero_sample_cell_count"] >= 1
+    assert diagnostics["population_count_in_zero_sample_cells"] >= 1
+    assert 0.0 <= diagnostics["represented_population_fraction"] <= 1.0
+    assert diagnostics["weight_sum"] >= 0.0
+    assert diagnostics["weight_ess"] >= 0.0
+    assert diagnostics["max_weight"] >= 0.0
+
+    arm4_census = select_arm4(descriptors=descriptors, cap=len(descriptors), trial_seed=99, window_id="diag-census")
+    arm6_census = select_arm6(descriptors=descriptors, arm4_outcome=arm4_census)
+    assert arm6_census.selected_ids == arm4_census.selected_ids
+    for unit_id in arm6_census.selected_ids:
+        assert arm6_census.inclusion_probability_by_unit[unit_id] == pytest.approx(1.0)
+
+    relabeled_rows = [{**row, "label": not bool(row["label"])} for row in rows]
+    relabeled_desc = build_session_descriptors(relabeled_rows)
+    arm4_relabeled = select_arm4(descriptors=relabeled_desc, cap=2, trial_seed=13, window_id="diag")
+    arm6_relabeled = select_arm6(descriptors=relabeled_desc, arm4_outcome=arm4_relabeled)
+    assert arm4_relabeled.selected_ids == arm4.selected_ids
+    assert arm6_relabeled.selected_ids == arm6.selected_ids
+    assert arm6_relabeled.inclusion_probability_by_unit == arm6.inclusion_probability_by_unit

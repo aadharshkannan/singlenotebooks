@@ -18,36 +18,48 @@ REPORT_VERSION = "sampling-v6-report-v3"
 DEFAULT_OUTPUT_NAME = "sampling-v6-report.html"
 DEFAULT_INPUT_DIR = Path("outputs_sampling_v6") / "runs"
 
-V6_BUNDLE_VERSION = "sampling-v6-bundle-v1"
-V6_MANIFEST_VERSION = "sampling-v6-manifest-v1"
+V6_BUNDLE_VERSION = "sampling-v6-bundle-v2"
+V6_MANIFEST_VERSION = "sampling-v6-manifest-v2"
+SUPPORTED_V6_BUNDLE_VERSIONS = ("sampling-v6-bundle-v1", "sampling-v6-bundle-v2")
+SUPPORTED_V6_MANIFEST_VERSIONS = ("sampling-v6-manifest-v1", "sampling-v6-manifest-v2")
 
 FULL_METHOD_IDS = (
     "arm1_global_random",
     "arm2_embedding_idw",
+    "arm2_5_embedding_idw_binary",
     "arm3_agent_round_robin_floor",
     "arm4_agent_round_robin",
     "arm5_hajek_weighted",
+    "arm6_agent_use_case_hajek",
 )
 SHORT_TO_FULL = {
     "arm1": "arm1_global_random",
     "arm2": "arm2_embedding_idw",
+    "arm2.5": "arm2_5_embedding_idw_binary",
+    "arm25": "arm2_5_embedding_idw_binary",
+    "arm2_5": "arm2_5_embedding_idw_binary",
     "arm3": "arm3_agent_round_robin_floor",
     "arm4": "arm4_agent_round_robin",
     "arm5": "arm5_hajek_weighted",
+    "arm6": "arm6_agent_use_case_hajek",
 }
 METHOD_DISPLAY = {
     "arm1_global_random": "ARM1 Global Random",
     "arm2_embedding_idw": "ARM2 Embedding IDW",
+    "arm2_5_embedding_idw_binary": "ARM2.5 Embedding IDW Binary",
     "arm3_agent_round_robin_floor": "ARM3 Agent Round Robin Floor",
     "arm4_agent_round_robin": "ARM4 Agent Round Robin",
     "arm5_hajek_weighted": "ARM5 Hajek Weighted",
+    "arm6_agent_use_case_hajek": "ARM6 Agent Use-Case Hajek",
 }
 METHOD_COLOR = {
     "arm1_global_random": "#8a5f3c",
     "arm2_embedding_idw": "#2c6f93",
+    "arm2_5_embedding_idw_binary": "#6d4fb3",
     "arm3_agent_round_robin_floor": "#2f8f66",
     "arm4_agent_round_robin": "#c5792b",
     "arm5_hajek_weighted": "#b24c3b",
+    "arm6_agent_use_case_hajek": "#b0487d",
 }
 
 METRIC_ALIASES = {
@@ -74,6 +86,7 @@ class V6ReportInputs:
     runs_jsonl: Path
     memberships: Path | None = None
     classifications: Path | None = None
+    agent_metrics: Path | None = None
     dataset_examples: Path | None = None
     methodology: Path | None = None
     manifest: Path | None = None
@@ -85,6 +98,7 @@ class LoadedV6Artifacts:
     runs: list[dict[str, Any]]
     memberships: list[dict[str, Any]]
     classifications: list[dict[str, Any]]
+    agent_metrics: list[dict[str, Any]]
     dataset_examples: dict[str, Any]
     methodology_text: str
     manifest: dict[str, Any]
@@ -96,6 +110,7 @@ def default_inputs(base_dir: Path) -> V6ReportInputs:
         runs_jsonl=base_dir / "runs.jsonl",
         memberships=base_dir / "memberships.jsonl",
         classifications=base_dir / "classifications.jsonl",
+        agent_metrics=base_dir / "agent_metrics.jsonl",
         dataset_examples=base_dir / "dataset_examples.json",
         methodology=base_dir / "methodology.md",
         manifest=base_dir / "manifest.json",
@@ -594,6 +609,34 @@ def _normalize_classifications(rows: list[dict[str, Any]]) -> list[dict[str, Any
     return normalized
 
 
+def _normalize_agent_metrics(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for row in rows:
+        method_id = _normalize_method_id(_first_present(row, "method_id", "method", "method_name"))
+        normalized.append(
+            {
+                "method_id": method_id,
+                "method_label": _method_label(method_id),
+                "color": _method_color(method_id),
+                "seed": _safe_int(_first_present(row, "seed", "trial_seed", "trial"), default=0),
+                "cap": _safe_int(_first_present(row, "cap", "sample_size", "sample_cap"), default=0),
+                "agent_id": str(_first_present(row, "agent_id", "agent") or "unknown"),
+                "N": _safe_int(_first_present(row, "N", "population_n", "population_count"), default=0),
+                "n": _safe_int(_first_present(row, "n", "selected_n", "selected_count"), default=0),
+                "estimate": _safe_float_or_none(_first_present(row, "estimate", "estimated_rate")),
+                "census_rate": _safe_float_or_none(_first_present(row, "census_rate", "census_pass_rate")),
+                "absolute_error": _safe_float_or_none(_first_present(row, "absolute_error", "mae")),
+                "concept_coverage": _safe_float_or_none(_first_present(row, "concept_coverage", "coverage")),
+                "use_case_coverage": _safe_float_or_none(_first_present(row, "use_case_coverage", "maven_coverage")),
+                "estimator": str(_first_present(row, "estimator") or "unknown"),
+                "represented_population_fraction": _safe_float_or_none(
+                    _first_present(row, "represented_population_fraction", "represented_fraction")
+                ),
+            }
+        )
+    return normalized
+
+
 def _normalize_dataset_examples(payload: dict[str, Any]) -> dict[str, Any]:
     examples = payload.get("examples") if isinstance(payload, dict) else []
     out_examples: list[dict[str, Any]] = []
@@ -639,6 +682,7 @@ def load_v6_artifacts(inputs: V6ReportInputs) -> LoadedV6Artifacts:
     runs = _read_jsonl(inputs.runs_jsonl)
     memberships = _load_optional_jsonl(inputs.memberships)
     classifications = _load_optional_jsonl(inputs.classifications)
+    agent_metrics = _load_optional_jsonl(inputs.agent_metrics)
     dataset_examples = _load_optional_json(inputs.dataset_examples) or {}
     methodology_text = _load_optional_text(inputs.methodology)
     manifest = _load_optional_json(inputs.manifest) or {}
@@ -658,6 +702,7 @@ def load_v6_artifacts(inputs: V6ReportInputs) -> LoadedV6Artifacts:
             ),
         ),
         classifications=_normalize_classifications(classifications),
+        agent_metrics=_normalize_agent_metrics(agent_metrics),
         dataset_examples=_normalize_dataset_examples(dataset_examples),
         methodology_text=methodology_text,
         manifest=manifest,
@@ -2541,7 +2586,7 @@ def _descriptive_stability_section(runs: list[dict[str, Any]]) -> str:
         "<div class='table-wrap screen-only'><table class='compact-table'><thead><tr><th>Comparison</th><th>Cap</th><th>MAE Delta Mean</th><th>Median</th><th>SD</th><th>p05–p95</th><th>MAE Win Rate</th><th>Use-Case Delta</th><th>Estimate Delta</th></tr></thead><tbody>" + ("".join(paired_rows) if paired_rows else "<tr><td colspan='9'>No paired comparisons available.</td></tr>") + "</tbody></table></div>"
         "<div class='table-wrap print-only'><table class='compact-table print-compact'><thead><tr><th>Comparison</th><th>Cap</th><th>MAE Delta</th><th>p05–p95</th><th>Win Rate</th><th>Estimate Delta</th></tr></thead><tbody>" + ("".join(
             "<tr>"
-            f"<td>{escape((str(item.get('label')) if item.get('label') else f'{_method_label(str(item.get('method_id') or 'unknown'))} vs ARM1'))}</td>"
+            f"<td>{escape(str(item.get('label') or (_method_label(str(item.get('method_id') or 'unknown')) + ' vs ARM1')))}</td>"
             f"<td>{item.get('cap', '')}</td><td>{_fmt_number(item['mae_delta'].get('mean'), 4)}</td>"
             f"<td>{_fmt_number(item['mae_delta'].get('p05'), 4)}–{_fmt_number(item['mae_delta'].get('p95'), 4)}</td>"
             f"<td>{_fmt_pct(item.get('mae_win_rate', 0.0), 1)}</td>"
@@ -3513,16 +3558,17 @@ ul {{ margin:6px 0; padding-left:18px; }}
 
 def validate_v6_artifacts(artifacts: LoadedV6Artifacts) -> None:
     aggregate = artifacts.aggregate
-    if str(aggregate.get("version") or "") != V6_BUNDLE_VERSION:
-        raise ValueError(f"aggregate version must be {V6_BUNDLE_VERSION}")
+    aggregate_version = str(aggregate.get("version") or "")
+    if aggregate_version not in SUPPORTED_V6_BUNDLE_VERSIONS:
+        raise ValueError(f"aggregate version must be one of {SUPPORTED_V6_BUNDLE_VERSIONS}")
     if not artifacts.runs:
         raise ValueError("runs.jsonl must contain at least one row")
     rows = aggregate.get("aggregate_rows")
     if not isinstance(rows, list) or not rows:
         raise ValueError("aggregate methods/rows must be non-empty")
     manifest_version = artifacts.manifest.get("version") if isinstance(artifacts.manifest, dict) else None
-    if manifest_version and str(manifest_version) != V6_MANIFEST_VERSION:
-        raise ValueError(f"manifest version must be {V6_MANIFEST_VERSION}")
+    if manifest_version and str(manifest_version) not in SUPPORTED_V6_MANIFEST_VERSIONS:
+        raise ValueError(f"manifest version must be one of {SUPPORTED_V6_MANIFEST_VERSIONS}")
 
 
 def render_v6_html_report(inputs: V6ReportInputs) -> str:

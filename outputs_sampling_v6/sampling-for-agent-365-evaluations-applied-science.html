@@ -1,0 +1,3567 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sampling for Agent 365 Evaluations - Applied Science</title>
+  <style>
+    :root {
+      --bg: #edf1f2;
+      --panel: rgba(255, 255, 255, 0.78);
+      --panel-strong: rgba(255, 255, 255, 0.9);
+      --line: rgba(24, 36, 44, 0.18);
+      --ink: #1a2a31;
+      --muted: #4d5f66;
+      --teal: #0a8f88;
+      --blue: #2a6fa8;
+      --amber: #c38813;
+      --coral: #cf5a42;
+      --good: #199156;
+      --bad: #b24735;
+      --shadow: 0 12px 28px rgba(10, 32, 40, 0.12);
+      --radius: 8px;
+      --mono: Consolas, Menlo, Monaco, "Courier New", monospace;
+      --sans: "Segoe UI", "Aptos", "Helvetica Neue", Arial, sans-serif;
+      --display: "Bahnschrift", "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--sans);
+      overflow: hidden;
+    }
+
+    body.hidden-overflow { overflow: hidden; }
+
+    .scene {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background: radial-gradient(circle at 68% 45%, rgba(255, 255, 255, 0.74) 0%, rgba(232, 240, 244, 0.75) 48%, rgba(225, 234, 239, 0.9) 100%);
+    }
+
+    body.scene-hidden .scene {
+      display: none;
+      pointer-events: none;
+    }
+
+    #webglCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      pointer-events: auto;
+    }
+
+    .fallback-scene {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+
+    .fallback-scene svg {
+      width: min(92vw, 1400px);
+      height: min(72vh, 780px);
+      opacity: 0.95;
+    }
+
+    .app {
+      position: relative;
+      z-index: 1;
+      width: 100vw;
+      height: 100vh;
+      perspective: 1200px;
+    }
+
+    .stage {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 1600px;
+      height: 900px;
+      transform-origin: center;
+      overflow: hidden;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      display: none;
+      padding: 46px 56px 70px;
+      background: linear-gradient(180deg, #f3f7f8 0%, #eef3f5 100%);
+      color: var(--ink);
+    }
+
+    .slide.active { display: block; }
+
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: none;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .slide.scene-slide {
+      background: transparent;
+    }
+
+    .slide.scene-slide::before {
+      background: linear-gradient(90deg, rgba(241, 247, 249, 0.96) 0%, rgba(241, 247, 249, 0.94) 31%, rgba(241, 247, 249, 0) 48%);
+    }
+
+    .slide.scene-slide.right-rail::before {
+      background:
+        linear-gradient(180deg, rgba(241, 247, 249, 0.94) 0%, rgba(241, 247, 249, 0.7) 13%, rgba(241, 247, 249, 0) 25%),
+        linear-gradient(270deg, rgba(241, 247, 249, 0.96) 0%, rgba(241, 247, 249, 0.94) 31%, rgba(241, 247, 249, 0) 48%);
+    }
+
+    .slide > * {
+      position: relative;
+      z-index: 2;
+    }
+
+    .slide::after {
+      content: attr(data-slide);
+      position: absolute;
+      right: 18px;
+      bottom: 12px;
+      font: 700 13px var(--mono);
+      letter-spacing: 0.06em;
+      color: rgba(20, 38, 48, 0.46);
+      z-index: 3;
+    }
+
+    .kicker {
+      margin: 0 0 10px;
+      font: 700 12px var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--teal);
+    }
+
+    h1, h2, h3, p { margin: 0; }
+    h1 {
+      font-family: var(--display);
+      font-size: 68px;
+      line-height: 1.02;
+      letter-spacing: 0.01em;
+      margin-bottom: 18px;
+      max-width: 1040px;
+    }
+
+    h2 {
+      font-family: var(--display);
+      font-size: 48px;
+      line-height: 1.08;
+      margin-bottom: 16px;
+      max-width: 1120px;
+    }
+
+    h3 {
+      font: 730 24px var(--display);
+      margin-bottom: 8px;
+    }
+
+    p {
+      font-size: 23px;
+      line-height: 1.35;
+      color: var(--ink);
+    }
+
+    .lead {
+      font-size: 30px;
+      line-height: 1.28;
+      max-width: 1160px;
+    }
+
+    .subtle {
+      font-size: 19px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .scene-layout {
+      display: grid;
+      grid-template-columns: minmax(360px, 420px) 1fr;
+      gap: 20px;
+      min-height: 748px;
+      align-items: start;
+      margin-top: 8px;
+    }
+
+    .scene-layout.right-rail {
+      grid-template-columns: 1fr minmax(360px, 420px);
+    }
+
+    .visual-zone {
+      min-height: 740px;
+      background: transparent;
+      pointer-events: none;
+    }
+
+    .rail {
+      background: var(--panel-strong);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 16px;
+      min-height: 560px;
+    }
+
+    .stage-indicator {
+      margin-top: 12px;
+      padding: 9px 10px;
+      border: 1px solid rgba(17, 52, 65, 0.18);
+      border-radius: 6px;
+      font: 700 13px var(--mono);
+      letter-spacing: 0.02em;
+      color: #173843;
+      background: rgba(246, 251, 253, 0.92);
+    }
+
+    .pipeline-stage-explanation {
+      min-height: 52px;
+      margin-top: 8px;
+      color: #36515c;
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .pipeline-legend {
+      min-height: 32px;
+      margin-top: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px 12px;
+      align-items: center;
+      font: 700 11px var(--mono);
+      color: #31505c;
+    }
+
+    .pipeline-key {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .pipeline-key i {
+      width: 11px;
+      height: 11px;
+      display: inline-block;
+      border-radius: 50%;
+      background: var(--key-color);
+      border: 2px solid var(--key-color);
+    }
+
+    .pipeline-key i.ring { background: white; }
+
+    .pipeline-key i.diamond {
+      border-radius: 2px;
+      transform: rotate(45deg) scale(.82);
+    }
+
+    .stage-track {
+      margin-top: 8px;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+    }
+
+    .stage-dot {
+      height: 34px;
+      border-radius: 5px;
+      background: rgba(48, 78, 90, 0.18);
+      border: 1px solid rgba(16, 48, 61, 0.16);
+      color: #375560;
+      font: 700 13px var(--mono);
+      cursor: pointer;
+    }
+
+    .stage-dot.completed {
+      background: rgba(10, 143, 136, 0.22);
+      border-color: rgba(8, 98, 92, 0.35);
+    }
+
+    .stage-dot.current {
+      background: var(--teal);
+      border-color: rgba(8, 98, 92, 0.62);
+      color: white;
+    }
+
+    .stage-dot:focus-visible,
+    .icon-btn:focus-visible {
+      outline: 2px solid var(--blue);
+      outline-offset: 2px;
+    }
+
+    .pipeline-step-controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .pipeline-step-controls .icon-btn {
+      margin-top: 0;
+    }
+
+    .icon-btn:disabled {
+      cursor: default;
+      opacity: 0.42;
+    }
+
+    .icon-btn {
+      margin-top: 12px;
+      width: 100%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      height: 36px;
+      border: 1px solid rgba(15, 49, 62, 0.22);
+      border-radius: 6px;
+      background: rgba(252, 254, 255, 0.95);
+      color: #13333f;
+      font: 700 13px var(--mono);
+      cursor: pointer;
+    }
+
+    .icon-btn svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .formula-line {
+      margin-top: 8px;
+      font: 700 18px var(--mono);
+      color: #193d48;
+      background: rgba(245, 250, 252, 0.88);
+      border: 1px solid rgba(23, 51, 66, 0.14);
+      border-radius: 6px;
+      padding: 8px 10px;
+    }
+
+    .mini-swatch {
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: repeat(12, 18px);
+      gap: 4px;
+    }
+
+    .mini-swatch span {
+      width: 18px;
+      height: 18px;
+      border-radius: 3px;
+      border: 1px solid rgba(18, 48, 61, 0.2);
+      background: rgba(255, 255, 255, 0.88);
+    }
+
+    .mini-swatch span.fill {
+      background: var(--teal);
+      border-color: rgba(12, 87, 82, 0.7);
+    }
+
+    .sampling-methods {
+      display: grid;
+      grid-template-columns: 0.9fr 1.1fr;
+      gap: 16px;
+      height: 650px;
+      margin-top: 10px;
+    }
+
+    .sampling-method {
+      position: relative;
+      overflow: hidden;
+      padding: 16px 18px;
+      background: rgba(255, 255, 255, 0.94);
+      border: 1px solid var(--line);
+      border-top: 6px solid var(--method-color);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .sampling-method.random { --method-color: var(--blue); }
+    .sampling-method.minhash { --method-color: var(--amber); }
+
+    .method-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 5px;
+    }
+
+    .method-heading h3 {
+      margin: 0;
+      color: var(--method-color);
+      font-size: 28px;
+    }
+
+    .method-heading span {
+      font: 700 11px var(--mono);
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .method-summary {
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.3;
+    }
+
+    .method-svg {
+      width: 100%;
+      height: 430px;
+      display: block;
+    }
+
+    .method-footer {
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font: 700 11px var(--mono);
+    }
+
+    .print-3d-fallback {
+      display: none;
+      margin-top: 12px;
+      border: 1px solid rgba(23, 59, 73, 0.18);
+      border-radius: 8px;
+      background: rgba(251, 254, 255, 0.95);
+      padding: 8px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px 18px;
+      backdrop-filter: blur(5px);
+    }
+
+    .panel.strong { background: var(--panel-strong); }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 10px;
+      font: 650 12px var(--mono);
+      color: #1e3a43;
+      background: rgba(255, 255, 255, 0.78);
+    }
+
+    .chip i {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      display: inline-block;
+      background: currentColor;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: 1.2fr 48px 1.2fr 48px 1fr 48px 1fr;
+      gap: 8px;
+      align-items: center;
+      margin-top: 18px;
+    }
+
+    .flow .node {
+      min-height: 132px;
+      display: grid;
+      align-content: center;
+      gap: 8px;
+      text-align: center;
+      font-size: 18px;
+      line-height: 1.28;
+    }
+
+    .flow .node strong {
+      display: block;
+      font: 760 22px var(--display);
+      letter-spacing: 0.01em;
+      color: #17343d;
+    }
+
+    .flow .arrow {
+      text-align: center;
+      font-size: 34px;
+      color: #2f5869;
+      font-weight: 800;
+    }
+
+    .formula {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(17, 51, 64, 0.14);
+      background: rgba(245, 250, 252, 0.86);
+      font: 600 18px var(--mono);
+      color: #15313c;
+    }
+
+    .caption {
+      margin-top: 12px;
+      font: 600 14px var(--mono);
+      color: #35505b;
+    }
+
+    .stats {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+
+    .stat {
+      background: rgba(255, 255, 255, 0.84);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 9px 12px;
+      min-height: 88px;
+    }
+
+    .stat .v {
+      font: 760 30px var(--display);
+      color: #173843;
+      line-height: 1;
+      margin-bottom: 5px;
+    }
+
+    .stat .l {
+      font: 620 13px var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #42606a;
+    }
+
+    .session-example-grid {
+      display: grid;
+      grid-template-columns: 1.18fr 0.82fr;
+      gap: 14px;
+      height: 488px;
+      margin-top: 13px;
+    }
+
+    .session-example-grid > .panel {
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .example-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 10px;
+    }
+
+    .example-heading h3 { margin-bottom: 3px; }
+
+    .source-badge {
+      flex: 0 0 auto;
+      padding: 5px 8px;
+      border: 1px solid rgba(42, 111, 168, 0.28);
+      border-radius: 4px;
+      background: rgba(42, 111, 168, 0.08);
+      color: #24597e;
+      font: 700 11px var(--mono);
+    }
+
+    .trace-tree {
+      position: relative;
+      display: grid;
+      gap: 8px;
+      padding-left: 24px;
+    }
+
+    .trace-tree::before {
+      content: "";
+      position: absolute;
+      left: 9px;
+      top: 23px;
+      bottom: 23px;
+      width: 2px;
+      background: #a9bec8;
+    }
+
+    .trace-span {
+      position: relative;
+      display: grid;
+      grid-template-columns: 108px 1fr;
+      gap: 11px;
+      min-height: 78px;
+      padding: 10px 12px;
+      border: 1px solid rgba(31, 71, 87, 0.16);
+      border-left: 5px solid var(--span-color);
+      border-radius: 5px;
+      background: rgba(250, 253, 254, 0.92);
+    }
+
+    .trace-span::before {
+      content: "";
+      position: absolute;
+      left: -25px;
+      top: 50%;
+      width: 20px;
+      height: 2px;
+      background: #a9bec8;
+    }
+
+    .trace-span.parent { --span-color: var(--blue); }
+    .trace-span.chat { --span-color: var(--teal); }
+    .trace-span.tool { --span-color: var(--amber); }
+
+    .span-kind {
+      font: 700 12px var(--mono);
+      color: var(--span-color);
+    }
+
+    .span-copy {
+      color: #24414d;
+      font-size: 14px;
+      line-height: 1.28;
+    }
+
+    .span-copy strong { color: #172f39; }
+
+    .metadata-groups {
+      display: grid;
+      gap: 10px;
+    }
+
+    .metadata-group {
+      padding-top: 9px;
+      border-top: 1px solid rgba(28, 64, 78, 0.14);
+    }
+
+    .metadata-group:first-child { padding-top: 0; border-top: 0; }
+
+    .metadata-group-title {
+      margin-bottom: 7px;
+      color: #47616b;
+      font: 700 11px var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .metadata-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .metadata-tag {
+      display: inline-flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 126px;
+      max-width: 100%;
+      padding: 6px 8px;
+      border: 1px solid rgba(26, 66, 82, 0.15);
+      border-radius: 4px;
+      background: rgba(241, 247, 249, 0.84);
+    }
+
+    .metadata-tag .key {
+      color: #60767e;
+      font: 700 9px var(--mono);
+      text-transform: uppercase;
+    }
+
+    .metadata-tag .value {
+      overflow-wrap: anywhere;
+      color: #193943;
+      font: 700 12px/1.2 var(--mono);
+    }
+
+    .expected-label {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      margin-top: 10px;
+      padding: 10px 12px;
+      border: 1px solid rgba(25, 145, 86, 0.3);
+      border-radius: 5px;
+      background: rgba(25, 145, 86, 0.08);
+    }
+
+    .expected-label strong { color: var(--good); font: 800 18px var(--display); }
+
+    .metric-visual-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      height: 610px;
+      margin-top: 10px;
+    }
+
+    .metric-story {
+      position: relative;
+      min-width: 0;
+      overflow: hidden;
+      padding: 18px 20px;
+      background: rgba(255, 255, 255, 0.94);
+      border: 1px solid var(--line);
+      border-top: 6px solid var(--metric-color);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .metric-story.mae { --metric-color: var(--blue); }
+    .metric-story.coverage { --metric-color: var(--teal); }
+
+    .metric-story h3 {
+      margin: 0 0 4px;
+      color: var(--metric-color);
+      font-size: 29px;
+    }
+
+    .metric-question {
+      min-height: 52px;
+      color: #405a65;
+      font-size: 17px;
+      line-height: 1.35;
+    }
+
+    .metric-visual {
+      width: 100%;
+      height: 390px;
+      display: block;
+    }
+
+    .metric-takeaway {
+      position: absolute;
+      left: 20px;
+      right: 20px;
+      bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(25, 61, 75, 0.14);
+      color: #415c66;
+      font: 700 12px var(--mono);
+    }
+
+    .direction-badge {
+      flex: 0 0 auto;
+      padding: 5px 8px;
+      border-radius: 4px;
+      background: color-mix(in srgb, var(--metric-color) 13%, white);
+      color: var(--metric-color);
+      font-weight: 800;
+    }
+
+    .span-strip {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 3px;
+      margin-bottom: 9px;
+    }
+
+    .span-strip span {
+      display: grid;
+      place-items: center;
+      min-width: 0;
+      height: 28px;
+      border-radius: 3px;
+      background: rgba(10, 143, 136, 0.12);
+      color: #28635f;
+      font: 700 9px var(--mono);
+    }
+
+    .span-strip span.parent { background: rgba(42, 111, 168, 0.14); color: #285c82; }
+    .span-strip span.tool-error { background: rgba(220, 146, 28, 0.18); color: #8a5c10; }
+    .span-strip span.tool-ok { background: rgba(25, 145, 86, 0.15); color: #19673f; }
+
+    .transcript {
+      display: grid;
+      gap: 6px;
+    }
+
+    .transcript-row {
+      display: grid;
+      grid-template-columns: 96px 1fr;
+      gap: 9px;
+      align-items: start;
+      padding: 7px 9px;
+      border-left: 4px solid var(--event-color);
+      background: rgba(248, 251, 252, 0.94);
+    }
+
+    .transcript-row.user { --event-color: var(--blue); }
+    .transcript-row.assistant { --event-color: var(--teal); }
+    .transcript-row.tool-call { --event-color: var(--amber); }
+    .transcript-row.tool-error { --event-color: #dc921c; background: rgba(255, 247, 231, 0.94); }
+    .transcript-row.tool-result { --event-color: var(--good); background: rgba(239, 249, 244, 0.94); }
+
+    .transcript-role {
+      color: var(--event-color);
+      font: 800 10px/1.25 var(--mono);
+      text-transform: uppercase;
+    }
+
+    .transcript-message {
+      color: #203d48;
+      font-size: 12px;
+      line-height: 1.27;
+    }
+
+    .transcript-message code {
+      color: #284b58;
+      font: 700 10px var(--mono);
+    }
+
+    .collapsed-steps {
+      text-align: center;
+      color: #5e737b;
+      font: 700 10px var(--mono);
+    }
+
+    .coverage-table {
+      margin-top: 12px;
+      width: 100%;
+      border-collapse: collapse;
+      background: rgba(255, 255, 255, 0.86);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+      font-size: 16px;
+    }
+
+    .coverage-table th,
+    .coverage-table td {
+      border-bottom: 1px solid rgba(15, 42, 54, 0.1);
+      padding: 7px 10px;
+      text-align: right;
+      font-feature-settings: "tnum" 1;
+    }
+
+    .coverage-table tr:last-child td { border-bottom: none; }
+    .coverage-table th:first-child,
+    .coverage-table td:first-child { text-align: left; font-weight: 680; }
+
+    .coverage-table thead th {
+      font: 700 12px var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #2f4c57;
+      background: rgba(241, 247, 250, 0.92);
+    }
+
+    .callout {
+      margin-top: 10px;
+      padding: 11px 13px;
+      border-left: 4px solid var(--teal);
+      background: rgba(255, 255, 255, 0.86);
+      border-top: 1px solid var(--line);
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      border-radius: 0 6px 6px 0;
+      font-size: 18px;
+      line-height: 1.34;
+    }
+
+    .tiny {
+      font-size: 13px;
+      color: #42565d;
+      line-height: 1.35;
+    }
+
+    .footer-note {
+      position: absolute;
+      left: 56px;
+      right: 56px;
+      bottom: 74px;
+      font: 600 12px var(--mono);
+      color: rgba(24, 44, 53, 0.72);
+      z-index: 3;
+    }
+
+    .chart-panel {
+      margin-top: 8px;
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: var(--shadow);
+      padding: 10px;
+    }
+
+    .conclusion-question {
+      margin-top: 2px;
+      font: 700 18px var(--mono);
+      color: #32525e;
+      letter-spacing: 0.01em;
+    }
+
+    .conclusion-layout {
+      margin-top: 10px;
+      min-height: 652px;
+    }
+
+    .decision-split {
+      display: grid;
+      grid-template-columns: 1.68fr 0.72fr;
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .decision-chart {
+      width: 100%;
+      height: 586px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: var(--shadow);
+      display: block;
+    }
+
+    .decision-column {
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: var(--shadow);
+      padding: 16px 16px 14px;
+      display: grid;
+      align-content: start;
+      gap: 12px;
+    }
+
+    .delta-big {
+      font: 800 62px/0.98 var(--display);
+      color: var(--teal);
+      letter-spacing: 0.01em;
+    }
+
+    .decision-ribbon {
+      border-radius: 6px;
+      border: 1px solid rgba(15, 54, 67, 0.16);
+      background: #f4fafb;
+      padding: 10px 11px;
+      font: 700 14px/1.35 var(--mono);
+      color: #173944;
+    }
+
+    .decision-ribbon b { color: #0f555f; }
+
+    .three-lanes {
+      margin-top: 8px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: var(--shadow);
+      padding: 12px;
+    }
+
+    .scope-badge {
+      display: inline-block;
+      margin-top: 9px;
+      border: 1px solid rgba(10, 143, 136, 0.25);
+      border-radius: 999px;
+      padding: 5px 10px;
+      font: 700 12px var(--mono);
+      color: #1a4f55;
+      background: rgba(10, 143, 136, 0.1);
+    }
+
+    .semantic-stage-wrap {
+      margin-top: 10px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.93);
+      box-shadow: var(--shadow);
+      padding: 12px;
+    }
+
+    .semantic-stage-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .semantic-stage-btn {
+      height: 33px;
+      border-radius: 6px;
+      border: 1px solid rgba(20, 52, 64, 0.24);
+      background: rgba(250, 253, 255, 0.95);
+      color: #193943;
+      font: 700 12px var(--mono);
+      padding: 0 11px;
+      cursor: pointer;
+    }
+
+    .semantic-stage-btn.active {
+      color: white;
+      background: #0a8f88;
+      border-color: rgba(8, 92, 88, 0.65);
+    }
+
+    .semantic-map {
+      width: 100%;
+      height: 500px;
+      display: block;
+    }
+
+    #semanticStage .cluster-label,
+    #semanticStage .selected-fill,
+    #semanticStage .selected-fail,
+    #semanticStage .estimate,
+    #semanticStage .donor-edge,
+    #semanticStage .donor-node {
+      transition: opacity 800ms ease, transform 800ms ease;
+      transform-origin: center;
+    }
+
+    #semanticStage .selected-ring,
+    #semanticStage .selected-fill,
+    #semanticStage .selected-fail,
+    #semanticStage .estimate,
+    #semanticStage .donor-edge,
+    #semanticStage .donor-node {
+      opacity: 0;
+    }
+
+    #semanticStage[data-sem-stage="1"] .selected-ring {
+      opacity: 1;
+    }
+
+    #semanticStage[data-sem-stage="2"] .selected-fill,
+    #semanticStage[data-sem-stage="2"] .selected-fail {
+      opacity: 1;
+    }
+
+    #semanticStage[data-sem-stage="3"] .selected-fill,
+    #semanticStage[data-sem-stage="3"] .selected-fail,
+    #semanticStage[data-sem-stage="3"] .estimate,
+    #semanticStage[data-sem-stage="3"] .donor-edge,
+    #semanticStage[data-sem-stage="3"] .donor-node {
+      opacity: 1;
+    }
+
+    #semanticStage[data-sem-stage="1"] .cluster-label,
+    #semanticStage[data-sem-stage="2"] .cluster-label,
+    #semanticStage[data-sem-stage="3"] .cluster-label {
+      opacity: 1;
+    }
+
+    .semantic-legend {
+      margin-top: 9px;
+      min-height: 20px;
+      font: 700 12px var(--mono);
+      color: #2d4f5b;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 14px;
+      align-items: center;
+    }
+
+    .semantic-legend .item {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .semantic-legend i {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      display: inline-block;
+      border: 2px solid var(--key-color);
+      background: var(--fill-color, var(--key-color));
+    }
+
+    .semantic-legend i.diamond {
+      border-radius: 2px;
+      transform: rotate(45deg) scale(0.82);
+    }
+
+    .semantic-legend i.hollow { background: white; }
+
+    .contract-line {
+      margin-top: 8px;
+      font: 700 13px var(--mono);
+      color: #2c4d59;
+    }
+
+    .stage-takeaway {
+      margin-top: 8px;
+      font-size: 17px;
+      line-height: 1.32;
+      color: #1d3f4b;
+    }
+
+    .research-badge {
+      display: inline-block;
+      margin-top: 7px;
+      border-radius: 999px;
+      border: 1px solid rgba(207, 90, 66, 0.3);
+      color: #82433a;
+      background: rgba(207, 90, 66, 0.08);
+      padding: 4px 10px;
+      font: 700 12px var(--mono);
+    }
+
+    .qualify-wrap {
+      margin-top: 12px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.93);
+      box-shadow: var(--shadow);
+      padding: 14px 18px 12px;
+    }
+
+    .support-constant {
+      min-height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      border-bottom: 1px solid #d8e4ea;
+      font-family: var(--mono);
+      color: #284852;
+    }
+
+    .support-constant .constant-label {
+      color: var(--teal);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .support-constant strong { font-size: 18px; }
+
+    .support-constant .changed-variable {
+      color: #6a777c;
+      font-size: 13px;
+    }
+
+    .support-comparison {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+    }
+
+    .support-case {
+      min-width: 0;
+      padding: 14px 40px 10px;
+    }
+
+    .support-case + .support-case { border-left: 1px solid #d8e4ea; }
+
+    .support-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      font-family: var(--mono);
+    }
+
+    .support-heading strong {
+      font-size: 16px;
+      color: #173b48;
+    }
+
+    .support-heading span {
+      font-size: 13px;
+      color: #687980;
+    }
+
+    .support-geometry {
+      display: block;
+      width: 100%;
+      height: 145px;
+      margin-top: 2px;
+    }
+
+    .allowance-line {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-top: -2px;
+      font-family: var(--mono);
+      color: #52666e;
+    }
+
+    .allowance-line span { font-size: 12px; }
+
+    .allowance-line strong {
+      border-radius: 4px;
+      padding: 5px 9px;
+      font-size: 15px;
+      color: #123b4a;
+      background: #edf5f7;
+    }
+
+    .range-axis {
+      position: relative;
+      height: 68px;
+      margin-top: 9px;
+      border-top: 2px solid #9bb0ba;
+    }
+
+    .range-axis::before,
+    .range-axis::after {
+      content: "";
+      position: absolute;
+      top: -5px;
+      width: 1px;
+      height: 9px;
+      background: #8299a3;
+    }
+
+    .range-axis::before { left: 0; }
+    .range-axis::after { right: 0; }
+
+    .axis-label {
+      position: absolute;
+      top: 6px;
+      font: 700 11px var(--mono);
+      color: #71838a;
+    }
+
+    .axis-label.start { left: 0; }
+    .axis-label.mid { left: 50%; transform: translateX(-50%); }
+    .axis-label.end { right: 0; }
+
+    .conditional-range {
+      position: absolute;
+      top: 32px;
+      height: 16px;
+      border-radius: 2px;
+    }
+
+    .support-case.near .conditional-range {
+      left: 60%;
+      width: 10%;
+      background: #54ad7d;
+    }
+
+    .support-case.far .conditional-range {
+      left: 45%;
+      width: 40%;
+      background: #e4a23b;
+    }
+
+    .estimate-marker {
+      position: absolute;
+      top: 25px;
+      left: 65%;
+      width: 2px;
+      height: 30px;
+      background: #2a6fa8;
+      transform: translateX(-1px);
+      z-index: 1;
+    }
+
+    .range-endpoint {
+      position: absolute;
+      top: 51px;
+      transform: translateX(-50%);
+      font: 800 12px var(--mono);
+      color: #244650;
+    }
+
+    .range-result {
+      margin-top: 0;
+      text-align: center;
+      font: 800 17px var(--mono);
+      color: #173b48;
+    }
+
+    .qualify-explanation {
+      display: grid;
+      grid-template-columns: 0.9fr 1fr 1.65fr;
+      gap: 10px;
+      align-items: center;
+      margin-top: 7px;
+      padding-top: 9px;
+      border-top: 1px solid #d8e4ea;
+      font-family: var(--mono);
+    }
+
+    .qualify-explanation strong {
+      font-size: 14px;
+      color: #173b48;
+    }
+
+    .qualify-explanation span {
+      font-size: 12px;
+      color: #52636a;
+    }
+
+    .qualify-explanation .not-ci {
+      justify-self: end;
+      border-left: 3px solid #cf5a42;
+      padding-left: 10px;
+      color: #77483e;
+    }
+
+    .qualify-footer {
+      margin-top: 6px;
+      text-align: right;
+      font: 700 11px var(--mono);
+      color: #66777d;
+    }
+
+    .horizontal-pipeline {
+      margin-top: 10px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: var(--shadow);
+      padding: 12px;
+    }
+
+    .study-note {
+      margin-top: 9px;
+      font: 700 12px var(--mono);
+      color: #3c535d;
+    }
+
+    .unlock-facts {
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .unlock-fact {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: var(--shadow);
+      padding: 12px;
+      min-height: 112px;
+    }
+
+    .unlock-fact .v {
+      font: 800 48px/0.96 var(--display);
+      color: #143740;
+      margin-bottom: 7px;
+    }
+
+    .unlock-fact .l {
+      font: 700 12px var(--mono);
+      color: #37525d;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .unlock-bars {
+      margin-top: 10px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: var(--shadow);
+      padding: 12px;
+    }
+
+    .unlock-path {
+      margin-top: 8px;
+      display: grid;
+      grid-template-columns: 0.85fr 36px 1.55fr 36px 1fr;
+      align-items: stretch;
+      gap: 8px;
+    }
+
+    .unlock-step {
+      min-width: 0;
+      padding: 10px 12px;
+      border: 1px solid rgba(18, 50, 62, 0.17);
+      border-top: 5px solid var(--step-color);
+      border-radius: 6px;
+      background: rgba(247, 252, 253, 0.94);
+    }
+
+    .unlock-step .step-label {
+      margin-bottom: 4px;
+      color: var(--step-color);
+      font: 800 11px var(--mono);
+      letter-spacing: .06em;
+    }
+
+    .unlock-step .step-copy {
+      color: #1f424d;
+      font: 700 11px/1.34 var(--mono);
+    }
+
+    .unlock-path-arrow {
+      display: grid;
+      place-items: center;
+      color: #50707c;
+      font-size: 26px;
+      font-weight: 800;
+    }
+
+    .unlock-qualifier {
+      margin-top: 7px;
+      font: 700 12px var(--mono);
+      color: #495b62;
+    }
+
+    .notes { display: none; }
+
+    .controls {
+      position: fixed;
+      left: 50%;
+      bottom: 12px;
+      transform: translateX(-50%);
+      z-index: 6;
+      display: flex;
+      gap: 7px;
+      background: rgba(18, 36, 45, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.38);
+      backdrop-filter: blur(10px);
+      border-radius: 999px;
+      padding: 8px;
+      align-items: center;
+    }
+
+    .control-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(252, 254, 255, 0.95);
+      color: #102a35;
+      font: 700 18px var(--mono);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      transition: transform 120ms ease, background 120ms ease;
+    }
+
+    .control-btn:hover,
+    .control-btn:focus-visible {
+      transform: translateY(-1px);
+      background: #ffffff;
+      outline: 2px solid rgba(11, 117, 142, 0.38);
+      outline-offset: 1px;
+    }
+
+    .counter {
+      min-width: 76px;
+      text-align: center;
+      font: 700 13px var(--mono);
+      color: #12323e;
+      letter-spacing: 0.05em;
+    }
+
+    .progress {
+      position: fixed;
+      left: 0;
+      bottom: 0;
+      height: 4px;
+      width: 0;
+      background: linear-gradient(90deg, var(--teal) 0%, var(--blue) 70%, var(--amber) 100%);
+      z-index: 7;
+      transition: width 220ms ease;
+    }
+
+    .notes-drawer {
+      position: fixed;
+      right: 18px;
+      bottom: 64px;
+      width: min(520px, calc(100vw - 36px));
+      max-height: min(46vh, 420px);
+      overflow: auto;
+      z-index: 7;
+      padding: 14px 16px;
+      border-radius: 8px;
+      border: 1px solid rgba(15, 39, 49, 0.2);
+      background: rgba(251, 254, 255, 0.96);
+      box-shadow: 0 10px 32px rgba(9, 28, 35, 0.2);
+      color: #122f3a;
+      font-size: 15px;
+      line-height: 1.4;
+    }
+
+    .notes-drawer[hidden] { display: none; }
+    .notes-drawer strong { color: #0f4f5a; }
+
+    .overview .stage {
+      position: relative;
+      left: auto;
+      top: auto;
+      transform: none !important;
+      margin: auto;
+      width: min(98vw, 1940px);
+      height: min(94vh, 1080px);
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      align-content: center;
+      justify-content: center;
+      padding: 10px;
+    }
+
+    .overview .slide {
+      display: block;
+      position: relative;
+      inset: auto;
+      width: 100%;
+      height: 245px;
+      cursor: pointer;
+      border: 2px solid transparent;
+      overflow: hidden;
+      border-radius: 8px;
+      background: rgba(241, 246, 248, 0.64);
+      box-shadow: 0 8px 20px rgba(14, 33, 41, 0.16);
+    }
+
+    .overview .slide.active { border-color: var(--teal); }
+    .overview .slide > * { transform: scale(0.24); transform-origin: top left; width: 1600px; }
+    .overview .slide::before { display: none; }
+    .overview .slide::after { font-size: 10px; right: 7px; bottom: 4px; }
+    .overview .controls,
+    .overview .progress,
+    .overview .notes-drawer,
+    .overview #resetView { display: none !important; }
+
+    #resetView {
+      position: fixed;
+      right: 18px;
+      top: 16px;
+      z-index: 6;
+      width: 34px;
+      height: 34px;
+      border: 1px solid rgba(12, 34, 45, 0.25);
+      border-radius: 50%;
+      background: rgba(250, 253, 255, 0.9);
+      color: #123340;
+      display: none;
+      place-items: center;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+    }
+
+    #resetView svg { width: 16px; height: 16px; }
+
+    @media (max-width: 760px) {
+      .controls { bottom: 8px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .control-btn { transition: none; }
+      .progress { transition: none; }
+      .reveal { transition: none !important; transform: none !important; opacity: 1 !important; }
+      #semanticStage .cluster-label,
+      #semanticStage .selected-fill,
+      #semanticStage .selected-fail,
+      #semanticStage .estimate,
+      #semanticStage .donor-edge,
+      #semanticStage .donor-node,
+      #semanticStage .selected-ring {
+        transition: none !important;
+      }
+    }
+
+    @media print {
+      @page { size: 1600px 900px; margin: 0; }
+      html, body { width: 1600px; height: 900px; overflow: visible; background: white; }
+      .scene { display: none !important; }
+      .app, .stage { position: static; width: 1600px; height: auto; }
+      .slide {
+        position: relative;
+        display: block !important;
+        width: 1600px;
+        height: 900px;
+        page-break-after: always;
+        break-after: page;
+      }
+      .slide:last-child { page-break-after: auto; break-after: auto; }
+      .slide.scene-slide { background: #f3f7f8 !important; }
+      .visual-zone { display: none !important; }
+      .print-3d-fallback { display: block !important; }
+      .controls, .progress, .notes-drawer, #resetView { display: none !important; }
+      #semanticStage .selected-fill,
+      #semanticStage .selected-fail,
+      #semanticStage .estimate,
+      #semanticStage .donor-edge,
+      #semanticStage .donor-node {
+        transition: none !important;
+        opacity: 1 !important;
+      }
+      #semanticStage .selected-ring { opacity: 0 !important; }
+    }
+  </style>
+</head>
+<body class="hidden-overflow scene-hidden">
+  <div class="scene" aria-label="Schematic 3D projection canvas">
+    <canvas id="webglCanvas" aria-label="Schematic 3D projection; similarity is computed in embedding space."></canvas>
+    <div class="fallback-scene" id="fallbackScene" aria-label="Schematic semantic projection fallback">
+      <svg viewBox="0 0 1400 800" role="img" aria-label="Schematic static projection of session embeddings">
+        <defs>
+          <radialGradient id="g1" cx="52%" cy="44%" r="64%">
+            <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
+            <stop offset="100%" stop-color="#d8e5eb" stop-opacity="0.82"/>
+          </radialGradient>
+        </defs>
+        <rect x="0" y="0" width="1400" height="800" fill="url(#g1)"/>
+        <g opacity="0.9" stroke="#7ea4b4" stroke-width="1.5" fill="none">
+          <ellipse cx="700" cy="410" rx="530" ry="240"/>
+          <ellipse cx="700" cy="410" rx="420" ry="190"/>
+          <ellipse cx="700" cy="410" rx="300" ry="130"/>
+        </g>
+        <g fill="#2f6f95" opacity="0.68">
+          <circle cx="420" cy="360" r="6"/><circle cx="486" cy="500" r="5"/><circle cx="600" cy="460" r="6"/><circle cx="800" cy="530" r="5"/>
+          <circle cx="940" cy="472" r="6"/><circle cx="1035" cy="365" r="6"/><circle cx="888" cy="320" r="5"/><circle cx="695" cy="294" r="6"/>
+          <circle cx="576" cy="312" r="5"/><circle cx="500" cy="415" r="5"/><circle cx="756" cy="425" r="6"/><circle cx="857" cy="390" r="5"/>
+        </g>
+        <g fill="#0b8f89" opacity="0.84">
+          <circle cx="702" cy="410" r="9"/>
+          <circle cx="722" cy="430" r="8"/>
+          <circle cx="674" cy="400" r="7"/>
+          <circle cx="742" cy="382" r="7"/>
+        </g>
+        <text x="700" y="744" text-anchor="middle" font-family="Consolas, monospace" font-size="20" fill="#294553">schematic projection fallback (WebGL unavailable)</text>
+      </svg>
+    </div>
+  </div>
+
+  <button id="resetView" type="button" aria-label="Reset 3D view" title="Reset 3D view">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+  </button>
+
+  <main class="app" id="app" aria-live="polite">
+    <section class="stage" id="stage">
+      <section class="slide active" data-slide="01 / 12" aria-label="Title slide">
+        <p class="kicker">Applied science view</p>
+        <h1>Sampling for Agent 365 Evaluations</h1>
+        <p class="lead">Applied science view: from capacity control to semantic inference</p>
+        <div class="panel strong" style="margin-top:28px; max-width:1080px;">
+          <p style="font-size:23px;">Aim: evaluate every agent and session as evaluator dimensions grow, without judging every session.</p>
+        </div>
+        <aside class="notes"><strong>Speaker notes.</strong> Open with the operating objective: scale evaluation breadth while bounded by judge throughput and spend. No 3D visual on this slide by design.</aside>
+      </section>
+
+      <section class="slide" data-slide="02 / 12" aria-label="Capacity multiplication business case">
+        <p class="kicker">Why sampling is mandatory</p>
+        <h2>The ambition multiplies faster than capacity</h2>
+        <div class="grid-2" style="margin-top:14px; grid-template-columns:1.15fr 1fr;">
+          <div class="panel strong">
+            <h3 style="color:var(--blue)">Evaluator set expansion</h3>
+            <p style="font-size:20px;">Task Completion today, then eight dimensions:</p>
+            <div class="chips" style="margin-top:10px;">
+              <span class="chip"><i style="color:var(--teal)"></i>Task Completion</span>
+              <span class="chip"><i style="color:var(--teal)"></i>Intent Resolution</span>
+              <span class="chip"><i style="color:var(--teal)"></i>Task Adherence</span>
+              <span class="chip"><i style="color:var(--teal)"></i>Tool Call Accuracy</span>
+              <span class="chip"><i style="color:var(--teal)"></i>Tool Call Success</span>
+              <span class="chip"><i style="color:var(--teal)"></i>Tool Input Accuracy</span>
+              <span class="chip"><i style="color:var(--teal)"></i>Tool Output Utilization</span>
+              <span class="chip"><i style="color:var(--teal)"></i>Tool Selection</span>
+            </div>
+          </div>
+          <div class="panel strong">
+            <h3 style="color:var(--coral)">Call volume funnel</h3>
+            <svg viewBox="0 0 520 280" width="100%" height="250" role="img" aria-label="Session volume times evaluator dimensions equals judge calls">
+              <rect x="16" y="20" width="140" height="240" rx="8" fill="rgba(42,111,168,0.16)" stroke="#2a6fa8"/>
+              <text x="86" y="54" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#224654">session volume</text>
+              <text x="86" y="145" text-anchor="middle" font-family="Consolas, monospace" font-size="28" fill="#183944">N</text>
+              <text x="201" y="148" font-family="Consolas, monospace" font-size="28" fill="#183944">×</text>
+              <rect x="234" y="20" width="140" height="240" rx="8" fill="rgba(10,143,136,0.16)" stroke="#0a8f88"/>
+              <text x="304" y="54" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#224654">evaluators</text>
+              <text x="304" y="145" text-anchor="middle" font-family="Consolas, monospace" font-size="28" fill="#183944">8</text>
+              <text x="402" y="148" font-family="Consolas, monospace" font-size="28" fill="#183944">=</text>
+              <rect x="430" y="50" width="76" height="180" rx="8" fill="rgba(195,136,19,0.18)" stroke="#c38813"/>
+              <text x="468" y="80" text-anchor="middle" font-family="Consolas, monospace" font-size="12" fill="#3a3320">judge calls</text>
+              <text x="468" y="156" text-anchor="middle" font-family="Consolas, monospace" font-size="24" fill="#183944">8N</text>
+            </svg>
+            <p class="tiny">Constraint pair: cost ceiling and judge throughput capacity.</p>
+          </div>
+        </div>
+        <aside class="notes"><strong>Speaker notes.</strong> Make the multiplication explicit: if evaluator dimensions grow and session volume grows, naive judging cost scales multiplicatively. This is the business reason for sampling.</aside>
+      </section>
+
+      <section class="slide" data-slide="03 / 12" aria-label="Random and MinHash comparison">
+        <p class="kicker">Selection designs</p>
+        <h2>Two simple ways to choose what gets judged</h2>
+        <div class="sampling-methods">
+          <article class="sampling-method random">
+            <div class="method-heading"><h3>Random Sampling</h3><span>probability design</span></div>
+            <p class="method-summary">Every session enters the same draw. A reproducible shuffle chooses the sample.</p>
+            <svg class="method-svg" viewBox="0 0 650 430" role="img" aria-label="Random sampling takes an eligible population, reproducibly shuffles it, and keeps a sample within budget">
+              <defs>
+                <marker id="random-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#42616e"/></marker>
+              </defs>
+              <g font-family="Consolas, monospace" text-anchor="middle">
+                <text x="108" y="48" font-size="13" font-weight="700" fill="#234b5a">ELIGIBLE POPULATION</text>
+                <g fill="#dfeef7" stroke="#75a5c8"><circle cx="62" cy="105" r="16"/><circle cx="106" cy="87" r="16"/><circle cx="150" cy="106" r="16"/><circle cx="83" cy="143" r="16"/><circle cx="128" cy="146" r="16"/><circle cx="172" cy="145" r="16"/><circle cx="45" cy="171" r="16"/><circle cx="106" cy="190" r="16"/><circle cx="167" cy="189" r="16"/></g>
+                <text x="108" y="228" font-size="12" fill="#52656d">all whole sessions</text>
+                <line x1="208" y1="137" x2="264" y2="137" stroke="#42616e" stroke-width="3" marker-end="url(#random-arrow)"/>
+                <text x="318" y="48" font-size="13" font-weight="700" fill="#234b5a">RANDOM ORDER</text>
+                <rect x="276" y="79" width="92" height="116" rx="46" fill="#e8f1f7" stroke="#2a6fa8" stroke-width="2"/>
+                <path d="M296 111 C324 84 342 130 354 103 M296 164 C323 190 340 143 354 171" fill="none" stroke="#2a6fa8" stroke-width="4" marker-end="url(#random-arrow)"/>
+                <text x="322" y="228" font-size="12" fill="#52656d">same seed, same shuffle</text>
+                <line x1="376" y1="137" x2="432" y2="137" stroke="#42616e" stroke-width="3" marker-end="url(#random-arrow)"/>
+                <text x="526" y="48" font-size="13" font-weight="700" fill="#234b5a">SAMPLED SUBSET</text>
+                <rect x="447" y="74" width="164" height="138" rx="8" fill="#eef5f9" stroke="#2a6fa8" stroke-width="2"/>
+                <g fill="#2a6fa8"><circle cx="482" cy="110" r="17"/><circle cx="529" cy="110" r="17"/><circle cx="576" cy="110" r="17"/><circle cx="505" cy="160" r="17"/><circle cx="553" cy="160" r="17"/></g>
+                <text x="529" y="228" font-size="12" fill="#52656d">stop at the budget</text>
+              </g>
+              <rect x="76" y="286" width="498" height="74" rx="6" fill="#e9f3f9" stroke="#8eb7d1"/>
+              <text x="325" y="316" text-anchor="middle" font-family="Consolas, monospace" font-size="15" font-weight="700" fill="#2a6fa8">Every session starts with equal random priority</text>
+              <text x="325" y="341" text-anchor="middle" font-family="Consolas, monospace" font-size="12" fill="#52656d">No labels or concepts influence the draw</text>
+            </svg>
+            <div class="method-footer"><span>simple</span><span>reproducible</span></div>
+          </article>
+
+          <article class="sampling-method minhash">
+            <div class="method-heading"><h3>MinHash LSH</h3><span>lexical novelty design</span></div>
+            <p class="method-summary">Similar wording produces similar fingerprints. An unmatched fingerprint is treated as novel.</p>
+            <svg class="method-svg" viewBox="0 0 760 430" role="img" aria-label="MinHash LSH turns session wording into compact fingerprints, groups similar fingerprints, and prioritizes an unmatched session as novel">
+              <defs>
+                <marker id="minhash-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#6d5a2d"/></marker>
+              </defs>
+              <g font-family="Consolas, monospace">
+                <text x="122" y="48" text-anchor="middle" font-size="13" font-weight="700" fill="#5d4b20">SESSION WORDING</text>
+                <rect x="24" y="72" width="196" height="58" rx="6" fill="#fff8e8" stroke="#d4ae5b"/><text x="122" y="96" text-anchor="middle" font-size="11" fill="#5d4b20">“reset my password”</text><text x="122" y="114" text-anchor="middle" font-size="10" fill="#765f2d">session A</text>
+                <rect x="24" y="143" width="196" height="58" rx="6" fill="#fff8e8" stroke="#d4ae5b"/><text x="122" y="167" text-anchor="middle" font-size="11" fill="#5d4b20">“reset my password”</text><text x="122" y="185" text-anchor="middle" font-size="10" fill="#765f2d">session B</text>
+                <rect x="24" y="214" width="196" height="58" rx="6" fill="#fff1ee" stroke="#cf5a42"/><text x="122" y="238" text-anchor="middle" font-size="11" fill="#7b3d33">“reconcile invoice”</text><text x="122" y="256" text-anchor="middle" font-size="10" fill="#7b4b43">session C</text>
+                <line x1="234" y1="170" x2="292" y2="170" stroke="#6d5a2d" stroke-width="3" marker-end="url(#minhash-arrow)"/>
+                <text x="374" y="48" text-anchor="middle" font-size="13" font-weight="700" fill="#5d4b20">FINGERPRINTS</text>
+                <g transform="translate(306 75)"><rect width="136" height="42" rx="5" fill="#fff8e8" stroke="#c38813"/><g fill="#c38813"><rect x="12" y="10" width="12" height="22"/><rect x="31" y="10" width="6" height="22"/><rect x="44" y="10" width="16" height="22"/><rect x="67" y="10" width="8" height="22"/><rect x="82" y="10" width="18" height="22"/><rect x="107" y="10" width="7" height="22"/></g></g>
+                <g transform="translate(306 146)"><rect width="136" height="42" rx="5" fill="#fff8e8" stroke="#c38813"/><g fill="#c38813"><rect x="12" y="10" width="12" height="22"/><rect x="31" y="10" width="6" height="22"/><rect x="44" y="10" width="16" height="22"/><rect x="67" y="10" width="8" height="22"/><rect x="82" y="10" width="18" height="22"/><rect x="111" y="10" width="5" height="22"/></g></g>
+                <g transform="translate(306 217)"><rect width="136" height="42" rx="5" fill="#fff1ee" stroke="#cf5a42"/><g fill="#cf5a42"><rect x="12" y="10" width="5" height="22"/><rect x="25" y="10" width="18" height="22"/><rect x="50" y="10" width="7" height="22"/><rect x="64" y="10" width="13" height="22"/><rect x="84" y="10" width="6" height="22"/><rect x="98" y="10" width="20" height="22"/></g></g>
+                <line x1="456" y1="170" x2="514" y2="170" stroke="#6d5a2d" stroke-width="3" marker-end="url(#minhash-arrow)"/>
+                <text x="623" y="48" text-anchor="middle" font-size="13" font-weight="700" fill="#5d4b20">NEIGHBORHOODS</text>
+                <rect x="528" y="80" width="190" height="102" rx="8" fill="#fff8e8" stroke="#c38813" stroke-width="2"/><text x="623" y="105" text-anchor="middle" font-size="12" font-weight="700" fill="#5d4b20">SIMILAR</text><circle cx="595" cy="140" r="17" fill="#c38813"/><circle cx="650" cy="140" r="17" fill="#c38813"/><text x="595" y="144" text-anchor="middle" font-size="11" fill="white">A</text><text x="650" y="144" text-anchor="middle" font-size="11" fill="white">B</text>
+                <rect x="528" y="202" width="190" height="102" rx="8" fill="#fff1ee" stroke="#cf5a42" stroke-width="2"/><text x="623" y="227" text-anchor="middle" font-size="12" font-weight="700" fill="#7b3d33">NO CLOSE MATCH</text><circle cx="590" cy="266" r="17" fill="#cf5a42"/><text x="590" y="270" text-anchor="middle" font-size="11" fill="white">C</text><rect x="620" y="249" width="80" height="34" rx="17" fill="#cf5a42"/><text x="660" y="270" text-anchor="middle" font-size="10" font-weight="700" fill="white">PRIORITIZE</text>
+              </g>
+              <rect x="101" y="330" width="558" height="70" rx="6" fill="#fff8e8" stroke="#dfc27f"/>
+              <text x="380" y="358" text-anchor="middle" font-family="Consolas, monospace" font-size="15" font-weight="700" fill="#8b6209">Similar words group together</text>
+              <text x="380" y="382" text-anchor="middle" font-family="Consolas, monospace" font-size="12" fill="#665b43">Unfamiliar wording gets priority</text>
+            </svg>
+            <div class="method-footer"><span>fast</span><span>lexical, not semantic</span></div>
+          </article>
+        </div>
+        <aside class="notes"><strong>Speaker notes.</strong> Random is the control: use a SHA-256 seeded random priority without replacement, then admit whole sessions under the exact token budget. Variable token costs mean equal random priority is the precise property; labels and concepts never affect membership. MinHash is an adaptive lexical-novelty design. It canonicalizes bounded session evidence, creates field-tagged token trigrams, builds a 128-value MinHash signature, and uses 32 bands of 4 rows for per-agent candidate lookup. A bucket collision creates candidates; a signature similarity of at least 0.55 joins the best cluster. A bucket miss creates a new cluster with novelty 1.0 instead of triggering an exhaustive scan. It is fast and bounded, but lexical rather than semantic.</aside>
+      </section>
+
+      <section class="slide scene-slide" data-slide="04 / 12" aria-label="Embedding pipeline" id="slide4">
+        <p class="kicker">Semantic pipeline</p>
+        <h2>Map meaning, sample broadly, estimate locally</h2>
+        <div class="scene-layout">
+          <div class="rail">
+            <p style="font-size:19px;">Schematic 3D projection; similarity and donor selection use normalized embedding vectors.</p>
+            <div class="stage-indicator" id="pipelineStageLabel">Stage A. session traces/lanes</div>
+            <div class="pipeline-stage-explanation" id="pipelineStageExplanation">The same 2,800 whole sessions enter as trace records.</div>
+            <div class="pipeline-legend" id="pipelineLegend"></div>
+            <div class="stage-track" id="pipelineStageTrack" role="group" aria-label="Pipeline stages">
+              <button class="stage-dot current" type="button" data-pipeline-stage="0" title="Stage A: session traces">A</button>
+              <button class="stage-dot" type="button" data-pipeline-stage="1" title="Stage B: full-session embeddings">B</button>
+              <button class="stage-dot" type="button" data-pipeline-stage="2" title="Stage C: coverage sample">C</button>
+              <button class="stage-dot" type="button" data-pipeline-stage="3" title="Stage D: observed labels">D</button>
+              <button class="stage-dot" type="button" data-pipeline-stage="4" title="Stage E: IDW estimate">E</button>
+            </div>
+            <p class="tiny" style="margin-top:7px;">Click a stage or step through manually. Manual selection pauses auto-play.</p>
+            <div class="pipeline-step-controls">
+              <button class="icon-btn" id="pipelinePrevStage" type="button" title="Previous pipeline stage" aria-label="Previous pipeline stage">← Previous</button>
+              <button class="icon-btn" id="pipelineNextStage" type="button" title="Next pipeline stage" aria-label="Next pipeline stage">Next →</button>
+            </div>
+            <button class="icon-btn" id="pipelineReplay" type="button" title="Replay pipeline animation" aria-label="Replay pipeline animation">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+              Auto-play stages A to E
+            </button>
+          </div>
+          <div class="visual-zone" aria-hidden="true"></div>
+        </div>
+        <div class="print-3d-fallback">
+          <svg viewBox="0 0 840 240" width="100%" height="190" role="img" aria-label="Static fallback for 3D pipeline slide">
+            <rect x="0" y="0" width="840" height="240" fill="#f5fafc"/>
+            <text x="24" y="30" font-family="Consolas, monospace" font-size="13" fill="#1a3a46">A traces -> B embeddings -> C broad sample -> D observed labels -> E IDW estimate</text>
+            <g fill="#2d6f96" opacity="0.65"><circle cx="530" cy="118" r="6"/><circle cx="574" cy="138" r="6"/><circle cx="610" cy="104" r="6"/><circle cx="650" cy="132" r="6"/></g>
+            <g fill="#0a8f88" opacity="0.9"><circle cx="616" cy="118" r="9"/><circle cx="640" cy="150" r="8"/><circle cx="664" cy="106" r="8"/></g>
+          </svg>
+        </div>
+        <aside class="notes"><strong>Speaker notes.</strong> Stage A shows whole-session trace records. Stage B maps the same identities into full-session embedding neighborhoods. Stage C freezes the 560-session coverage sample as teal hollow rings; labels remain hidden. Stage D keeps those exact points in place and fills them green for pass or orange for fail, making clear that observation follows selection. Stage E isolates one hollow blue unjudged target with exactly 8 same-agent judged donors; link thickness encodes normalized inverse-square weight. Each transition blends over 1.4 seconds. Use A-E or Previous/Next to hold a stage, and Auto-play to run the complete sequence once.</aside>
+      </section>
+
+      <section class="slide" data-slide="05 / 12" aria-label="Known answer experiment">
+        <p class="kicker">Controlled benchmark</p>
+        <h2>We tested against a known answer</h2>
+        <div class="stats">
+          <div class="stat"><div class="v">2,800</div><div class="l">sessions</div></div>
+          <div class="stat"><div class="v">105</div><div class="l">agents</div></div>
+          <div class="stat"><div class="v">480</div><div class="l">concepts</div></div>
+          <div class="stat"><div class="v">5</div><div class="l">matched budgets</div></div>
+        </div>
+        <div class="session-example-grid">
+          <div class="panel strong">
+            <div class="example-heading">
+              <div><h3>Example normalized session</h3><p class="tiny">contract-clause-checker · 16:49:00–16:49:06</p></div>
+              <span class="source-badge">historical_300 · synthetic conversion</span>
+            </div>
+            <div class="span-strip" style="grid-template-columns:repeat(5,1fr)" aria-label="All five OTLP spans in the normalized session">
+              <span class="parent" title="invoke_agent parent">invoke</span><span title="first chat turn">chat 1</span><span class="tool-ok" title="indemnification clause retrieval">tool 1</span><span class="tool-ok" title="liability clause retrieval">tool 2</span><span title="brief follow-up turn">chat 2</span>
+            </div>
+            <div class="transcript" aria-label="Complete logical conversation flow for the historical contract-review session">
+              <div class="transcript-row user"><div class="transcript-role">User query</div><div class="transcript-message">“Check MSA-809 and tell procurement whether indemnification exposure is capped.”</div></div>
+              <div class="transcript-row tool-call"><div class="transcript-role">Tool call 1</div><div class="transcript-message"><strong>GetClause</strong> <code>{ doc: MSA-809, clause: indemnification }</code></div></div>
+              <div class="transcript-row tool-result"><div class="transcript-role">Tool result</div><div class="transcript-message">No cap language in the indemnification clause. <code>has_liability_cap: false</code></div></div>
+              <div class="transcript-row tool-call"><div class="transcript-role">Tool call 2</div><div class="transcript-message"><strong>GetClause</strong> <code>{ doc: MSA-809, clause: limitation_of_liability }</code></div></div>
+              <div class="transcript-row tool-result"><div class="transcript-role">Tool result</div><div class="transcript-message">General liability is capped at 12 months of fees, with carve-outs. <code>has_liability_cap: true</code></div></div>
+              <div class="transcript-row assistant"><div class="transcript-role">LLM response</div><div class="transcript-message">Indemnification is uncapped on its face; the separate general cap may not cover indemnity. Counsel review recommended.</div></div>
+              <div class="transcript-row user"><div class="transcript-role">User follow-up</div><div class="transcript-message">“Keep it brief for procurement chat.”</div></div>
+              <div class="transcript-row assistant"><div class="transcript-role">Final response</div><div class="transcript-message">“Indemnification is uncapped; a general cap exists elsewhere with carve-outs; obtain legal review before acceptance.”</div></div>
+            </div>
+          </div>
+
+          <div class="panel strong">
+            <div class="example-heading"><div><h3>Metadata tags</h3><p class="tiny">Fields used for identity, analysis, and retrospective scoring</p></div></div>
+            <div class="metadata-groups">
+              <div class="metadata-group">
+                <div class="metadata-group-title">Identity</div>
+                <div class="metadata-tags">
+                  <span class="metadata-tag"><span class="key">agent</span><span class="value">contract-clause-checker</span></span>
+                  <span class="metadata-tag"><span class="key">channel</span><span class="value">m365-copilot-chat</span></span>
+                </div>
+              </div>
+              <div class="metadata-group">
+                <div class="metadata-group-title">Retrospective evaluation metadata</div>
+                <div class="metadata-tags">
+                  <span class="metadata-tag"><span class="key">corpus</span><span class="value">historical_300</span></span>
+                  <span class="metadata-tag"><span class="key">domain</span><span class="value">legal</span></span>
+                  <span class="metadata-tag"><span class="key">task</span><span class="value">compare indemnity + liability clauses</span></span>
+                  <span class="metadata-tag"><span class="key">difficulty</span><span class="value">borderline</span></span>
+                  <span class="metadata-tag"><span class="key">sessionization</span><span class="value">inactivity</span></span>
+                  <span class="metadata-tag"><span class="key">turns / tools</span><span class="value">2 / 2</span></span>
+                </div>
+              </div>
+              <div class="metadata-group">
+                <div class="metadata-group-title">Packet</div>
+                <div class="metadata-tags">
+                  <span class="metadata-tag"><span class="key">spans</span><span class="value">5</span></span>
+                  <span class="metadata-tag"><span class="key">duration</span><span class="value">6 s</span></span>
+                  <span class="metadata-tag"><span class="key">emitted tokens</span><span class="value">490</span></span>
+                  <span class="metadata-tag"><span class="key">truncated</span><span class="value">false</span></span>
+                </div>
+              </div>
+            </div>
+            <div class="expected-label">
+              <div><span class="metadata-group-title">Retrospective only · not selection input</span><br><span class="tiny">expected label = 1 · pass</span></div>
+              <strong>PASS</strong>
+            </div>
+          </div>
+        </div>
+        <aside class="notes"><strong>Speaker notes.</strong> This example comes from `historical_300`, which is still synthetic but was converted from a more natural BPS-style conversation corpus into Agent 365-style OTLP. The normalized inactivity session is conversation `82388098-316e-53d1-ba14-948c47f7dff3` for agent `contract-clause-checker`. It contains two user/assistant turns, two `GetClause` calls, and five OTLP spans over six seconds. The two tools retrieve the indemnification clause and the separate limitation-of-liability clause; their Boolean cap results differ, allowing the assistant to explain the drafting risk and then shorten the answer for procurement chat. The persisted evidence packet is 490 tokens and is not truncated. Domain `legal`, full task text, difficulty `borderline`, and expected pass are retrospective scoring metadata, not selection inputs. This corpus is not production telemetry.</aside>
+      </section>
+
+      <section class="slide" data-slide="06 / 12" aria-label="Metrics definitions">
+        <p class="kicker">Evaluation objectives</p>
+        <h2>Success means accuracy and breadth</h2>
+        <div class="metric-visual-grid">
+          <article class="metric-story mae">
+            <h3>Outcome-rate MAE</h3>
+            <p class="metric-question">How far is the sample’s overall pass-rate estimate from the known population answer?</p>
+            <svg class="metric-visual" viewBox="0 0 700 390" role="img" aria-label="A shared number line shows a sample estimate of 69 percent and known population rate of 72 percent separated by a three percentage-point error">
+              <text x="350" y="45" text-anchor="middle" font-family="Consolas, monospace" font-size="13" font-weight="700" fill="#48636e">COMPARE ONE POPULATION-LEVEL NUMBER</text>
+              <line x1="80" y1="205" x2="620" y2="205" stroke="#c8d6dc" stroke-width="8" stroke-linecap="round"/>
+              <g stroke="#78909a" stroke-width="2" font-family="Consolas, monospace" font-size="14" fill="#526871" text-anchor="middle">
+                <line x1="80" y1="190" x2="80" y2="220"/><text x="80" y="242">60%</text>
+                <line x1="215" y1="195" x2="215" y2="215"/><text x="215" y="242">65%</text>
+                <line x1="350" y1="190" x2="350" y2="220"/><text x="350" y="242">70%</text>
+                <line x1="485" y1="195" x2="485" y2="215"/><text x="485" y="242">75%</text>
+                <line x1="620" y1="190" x2="620" y2="220"/><text x="620" y="242">80%</text>
+              </g>
+              <line x1="323" y1="205" x2="404" y2="205" stroke="#cf5a42" stroke-width="11" stroke-linecap="round"/>
+              <circle cx="323" cy="205" r="17" fill="#2a6fa8" stroke="white" stroke-width="4"/>
+              <circle cx="404" cy="205" r="17" fill="#17242b" stroke="white" stroke-width="4"/>
+              <path d="M323 177 V136 H270" fill="none" stroke="#2a6fa8" stroke-width="2"/>
+              <text x="262" y="122" text-anchor="end" font-family="Consolas, monospace" font-size="13" font-weight="700" fill="#2a6fa8">SAMPLE ESTIMATE</text>
+              <text x="262" y="151" text-anchor="end" font-family="Bahnschrift, Segoe UI, sans-serif" font-size="36" font-weight="800" fill="#2a6fa8">69%</text>
+              <path d="M404 177 V105 H459" fill="none" stroke="#17242b" stroke-width="2"/>
+              <text x="468" y="92" font-family="Consolas, monospace" font-size="13" font-weight="700" fill="#17242b">KNOWN POPULATION</text>
+              <text x="468" y="121" font-family="Bahnschrift, Segoe UI, sans-serif" font-size="36" font-weight="800" fill="#17242b">72%</text>
+              <path d="M323 276 V292 H404 V276" fill="none" stroke="#cf5a42" stroke-width="3"/>
+              <text x="364" y="326" text-anchor="middle" font-family="Bahnschrift, Segoe UI, sans-serif" font-size="30" font-weight="800" fill="#b64e3a">3 points</text>
+              <text x="364" y="349" text-anchor="middle" font-family="Consolas, monospace" font-size="14" fill="#6a504b">|69% − 72%|</text>
+            </svg>
+            <div class="metric-takeaway"><span>Accuracy of the headline rate</span><span class="direction-badge">LOWER IS BETTER</span></div>
+          </article>
+
+          <article class="metric-story coverage">
+            <h3>Concept coverage</h3>
+            <p class="metric-question">How much of the population’s behavioral variety did the selected sessions touch?</p>
+            <svg class="metric-visual" viewBox="0 0 700 390" role="img" aria-label="Twelve behavior-region islands represent the population; selected sessions touch three islands, illustrating 25 percent concept coverage or 120 of 480 concepts">
+              <text x="350" y="32" text-anchor="middle" font-family="Consolas, monospace" font-size="13" font-weight="700" fill="#48636e">COUNT DISTINCT BEHAVIOR REGIONS TOUCHED</text>
+              <text x="350" y="53" text-anchor="middle" font-family="Consolas, monospace" font-size="11" fill="#60727a">concept key = corpus | domain | task | difficulty</text>
+              <g fill="#e2e9eb" stroke="#aebdc2" stroke-width="2">
+                <path d="M48 92 C63 66 105 67 121 91 C136 115 114 139 83 137 C52 135 35 116 48 92Z"/>
+                <path d="M187 83 C211 63 249 72 257 100 C265 128 232 143 204 132 C177 121 167 100 187 83Z"/>
+                <path d="M325 91 C344 66 386 69 401 96 C414 120 392 143 359 139 C329 135 308 114 325 91Z"/>
+                <path d="M474 83 C499 66 534 75 542 103 C549 129 520 144 491 134 C462 124 453 97 474 83Z"/>
+                <path d="M574 92 C590 68 632 70 648 96 C662 121 639 143 609 139 C579 135 559 114 574 92Z"/>
+                <path d="M52 195 C72 170 112 176 123 202 C134 229 108 247 77 241 C48 235 35 216 52 195Z"/>
+                <path d="M188 190 C210 169 247 177 257 204 C266 231 236 247 207 239 C180 231 169 207 188 190Z"/>
+                <path d="M327 197 C344 173 386 174 401 202 C414 228 389 247 360 242 C330 237 310 218 327 197Z"/>
+                <path d="M469 190 C492 168 531 176 542 205 C551 232 519 248 491 238 C462 228 452 207 469 190Z"/>
+                <path d="M576 198 C592 173 632 173 648 201 C662 226 638 248 607 242 C578 237 560 218 576 198Z"/>
+                <path d="M192 272 C211 248 249 254 258 281 C266 308 236 324 207 315 C179 307 173 285 192 272Z"/>
+                <path d="M469 272 C490 249 529 253 541 281 C552 308 519 325 491 315 C463 305 451 287 469 272Z"/>
+              </g>
+              <g fill="#d9f1ec" stroke="#0a8f88" stroke-width="4">
+                <path d="M48 92 C63 66 105 67 121 91 C136 115 114 139 83 137 C52 135 35 116 48 92Z"/>
+                <path d="M325 91 C344 66 386 69 401 96 C414 120 392 143 359 139 C329 135 308 114 325 91Z"/>
+                <path d="M469 190 C492 168 531 176 542 205 C551 232 519 248 491 238 C462 228 452 207 469 190Z"/>
+              </g>
+              <g fill="#0a8f88" stroke="white" stroke-width="2">
+                <circle cx="70" cy="96" r="7"/><circle cx="87" cy="106" r="7"/><circle cx="99" cy="92" r="7"/>
+                <circle cx="350" cy="96" r="7"/><circle cx="369" cy="108" r="7"/>
+                <circle cx="488" cy="198" r="7"/><circle cx="506" cy="211" r="7"/>
+              </g>
+              <g font-family="Consolas, monospace" font-size="12" fill="#60727a" text-anchor="middle">
+                <text x="83" y="159">touched</text><text x="359" y="159">touched</text><text x="497" y="262">touched</text>
+              </g>
+              <rect x="197" y="335" width="306" height="45" rx="5" fill="#e5f3ef" stroke="#82bcb2"/>
+              <text x="350" y="354" text-anchor="middle" font-family="Bahnschrift, Segoe UI, sans-serif" font-size="23" font-weight="800" fill="#087b74">3 of 12 regions = 25%</text>
+              <text x="350" y="371" text-anchor="middle" font-family="Consolas, monospace" font-size="12" fill="#476760">analogous to 120 of 480 concepts</text>
+              <text x="350" y="329" text-anchor="middle" font-family="Consolas, monospace" font-size="11" fill="#476760">≥1 selected session → region counts once</text>
+            </svg>
+            <div class="metric-takeaway"><span>Breadth across behaviors</span><span class="direction-badge">HIGHER IS BETTER</span></div>
+          </article>
+        </div>
+        <aside class="notes"><strong>Speaker notes.</strong> These metrics answer different questions. Selected-only outcome-rate MAE compares the pass rate calculated from selected sessions with the known census pass rate over all eligible sessions: `abs(selected_rate - census_rate)`. In the illustration, 69% versus 72% produces a three-percentage-point error; lower is better. Concept coverage counts distinct retrospective concept keys represented by at least one selected session, divided by all population concept keys. The experiment key is `corpus | domain | task | difficulty`. The 12 islands are a scaled visual analogy: touching three regions means 25%, corresponding to 120 of 480 concepts. Coverage counts whether a concept is touched, not how many sessions were selected from it. A method can reproduce the overall pass rate while missing rare concepts, or cover many concepts while shifting the headline rate; slide 7 shows that tradeoff.</aside>
+      </section>
+
+      <section class="slide" data-slide="07 / 12" aria-label="Coverage and release decision">
+        <p class="kicker">DECIDE</p>
+        <h2>Semantics won coverage; simplicity won the first release</h2>
+        <p class="conclusion-question">Question: which approach should ship first at matched budgets?</p>
+        <div class="conclusion-layout decision-split">
+          <svg class="decision-chart" viewBox="0 0 980 586" role="img" aria-label="Coverage comparison at matched budgets using direct labels and a 0 to 100 scale">
+            <rect x="0" y="0" width="980" height="586" fill="#fbfeff"/>
+            <rect x="396" y="64" width="474" height="446" fill="rgba(10,143,136,0.09)"/>
+            <text x="633" y="94" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#236266">Semantic coverage separates</text>
+            <g stroke="#dbe6ea" stroke-width="1">
+              <line x1="88" y1="510" x2="914" y2="510"/>
+              <line x1="88" y1="64" x2="88" y2="510"/>
+              <line x1="88" y1="421" x2="914" y2="421"/>
+              <line x1="88" y1="332" x2="914" y2="332"/>
+              <line x1="88" y1="243" x2="914" y2="243"/>
+              <line x1="88" y1="154" x2="914" y2="154"/>
+              <line x1="88" y1="64" x2="914" y2="64"/>
+            </g>
+            <g font-family="Consolas, monospace" font-size="12" fill="#2a4b58">
+              <text x="78" y="514" text-anchor="end">0</text>
+              <text x="78" y="425" text-anchor="end">20</text>
+              <text x="78" y="336" text-anchor="end">40</text>
+              <text x="78" y="247" text-anchor="end">60</text>
+              <text x="78" y="158" text-anchor="end">80</text>
+              <text x="78" y="68" text-anchor="end">100</text>
+              <text x="88" y="532">5</text>
+              <text x="251" y="532">10</text>
+              <text x="414" y="532">20</text>
+              <text x="577" y="532">30</text>
+              <text x="740" y="532">50</text>
+              <text x="453" y="560">sample rate (%)</text>
+              <text transform="translate(32 294) rotate(-90)">concept coverage (%)</text>
+            </g>
+            <polyline fill="none" stroke="#2a6fa8" stroke-width="4" points="88,406.72 251,352.06 414,294.45 577,262.83 740,204.26"/>
+            <polyline fill="none" stroke="#c38813" stroke-width="4" points="88,412.88 251,349.91 414,284.74 577,246.49 740,175.50"/>
+            <polyline fill="none" stroke="#0a8f88" stroke-width="4" points="88,423.57 251,354.85 414,219.93 577,158.73 740,117.10"/>
+            <circle cx="740" cy="204.26" r="5.5" fill="#2a6fa8"/>
+            <circle cx="740" cy="175.50" r="5.5" fill="#c38813"/>
+            <circle cx="740" cy="117.10" r="5.5" fill="#0a8f88"/>
+            <g font-family="Consolas, monospace" font-size="13" font-weight="700">
+              <text x="754" y="208" fill="#2a6fa8">Random 68.5%</text>
+              <text x="754" y="179" fill="#8b5f0f">MinHash 75.0%</text>
+              <text x="754" y="121" fill="#087b74">Embedding 87.9%</text>
+            </g>
+          </svg>
+          <div class="decision-column">
+            <p class="tiny" style="font-size:13px; margin:0; text-transform:uppercase; letter-spacing:0.08em;">Gap at 50% budget</p>
+            <div class="delta-big">+19.4 pts</div>
+            <p style="font-size:20px; line-height:1.3;">Embedding coverage over Random at matched budget.</p>
+            <p style="font-size:19px; line-height:1.33;">But: Random had lower selected-only pass-rate error in 4 of 5 budgets.</p>
+            <div class="decision-ribbon"><b>NOW</b> Deterministic Random -> <b>NEXT</b> Semantic selection + IDW research</div>
+            <p class="tiny" style="font-size:12px;">IDW is separate from selection and v4 IDW results were mixed.</p>
+          </div>
+        </div>
+        <aside class="notes"><strong>Speaker notes.</strong> Coverage values are exact at 5, 10, 20, 30, and 50 percent budgets: Random 23.19, 35.42, 48.33, 55.42, 68.54; MinHash 21.81, 35.90, 50.49, 59.10, 75.00; Embedding 19.38, 34.79, 65.07, 78.68, 87.92. Lower-budget leaders vary, but from 20 to 50 percent semantic selection pulls away in coverage. The highlighted +19.4 points is Embedding minus Random at the exact same 50 percent token budget. For first release, deterministic Random won on operational simplicity and lower selected-only pass-rate MAE in four of five matched budgets. Keep the causal split explicit: selection lift and post-selection IDW are separate; v4 IDW results were mixed and remain research.</aside>
+      </section>
+
+      <section class="slide" data-slide="08 / 12" aria-label="Deterministic random architecture">
+        <p class="kicker">SHIP</p>
+        <h2>Each container recomputes the same decision</h2>
+        <p class="conclusion-question">Question: how do independent workers stay consistent without coordination state?</p>
+        <div class="three-lanes">
+          <svg viewBox="0 0 1460 510" width="100%" height="460" role="img" aria-label="Three parallel lanes produce the same include decision from the same session identity">
+            <defs>
+              <marker id="lane-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#365f6f"/></marker>
+            </defs>
+            <rect x="30" y="42" width="1400" height="330" rx="8" fill="#f9fcfd" stroke="#d2e0e6"/>
+            <g font-family="Consolas, monospace" fill="#193a46">
+              <text x="80" y="86" font-size="14" font-weight="700">Container A</text>
+              <text x="80" y="178" font-size="14" font-weight="700">Container B</text>
+              <text x="80" y="270" font-size="14" font-weight="700">Retry</text>
+            </g>
+
+            <g font-family="Consolas, monospace" font-size="12" fill="#244650">
+              <rect x="210" y="58" width="218" height="48" rx="5" fill="#eaf2f8" stroke="#7ea7c4"/>
+              <rect x="210" y="150" width="218" height="48" rx="5" fill="#eaf2f8" stroke="#7ea7c4"/>
+              <rect x="210" y="242" width="218" height="48" rx="5" fill="#eaf2f8" stroke="#7ea7c4"/>
+              <text x="319" y="83" text-anchor="middle">Agent ID + Session ID</text>
+              <text x="319" y="175" text-anchor="middle">Agent ID + Session ID</text>
+              <text x="319" y="267" text-anchor="middle">Agent ID + Session ID</text>
+
+              <line x1="429" y1="82" x2="497" y2="82" stroke="#365f6f" stroke-width="2.5" marker-end="url(#lane-arrow)"/>
+              <line x1="429" y1="174" x2="497" y2="174" stroke="#365f6f" stroke-width="2.5" marker-end="url(#lane-arrow)"/>
+              <line x1="429" y1="266" x2="497" y2="266" stroke="#365f6f" stroke-width="2.5" marker-end="url(#lane-arrow)"/>
+
+              <rect x="514" y="58" width="172" height="48" rx="5" fill="#e8f5f2" stroke="#62aaa5"/>
+              <rect x="514" y="150" width="172" height="48" rx="5" fill="#e8f5f2" stroke="#62aaa5"/>
+              <rect x="514" y="242" width="172" height="48" rx="5" fill="#e8f5f2" stroke="#62aaa5"/>
+              <text x="600" y="83" text-anchor="middle">SHA-256</text>
+              <text x="600" y="175" text-anchor="middle">SHA-256</text>
+              <text x="600" y="267" text-anchor="middle">SHA-256</text>
+
+              <line x1="687" y1="82" x2="755" y2="82" stroke="#365f6f" stroke-width="2.5" marker-end="url(#lane-arrow)"/>
+              <line x1="687" y1="174" x2="755" y2="174" stroke="#365f6f" stroke-width="2.5" marker-end="url(#lane-arrow)"/>
+              <line x1="687" y1="266" x2="755" y2="266" stroke="#365f6f" stroke-width="2.5" marker-end="url(#lane-arrow)"/>
+
+              <rect x="772" y="58" width="154" height="48" rx="5" fill="#fff3df" stroke="#d7aa56"/>
+              <rect x="772" y="150" width="154" height="48" rx="5" fill="#fff3df" stroke="#d7aa56"/>
+              <rect x="772" y="242" width="154" height="48" rx="5" fill="#fff3df" stroke="#d7aa56"/>
+              <text x="849" y="83" text-anchor="middle">bucket = 17</text>
+              <text x="849" y="175" text-anchor="middle">bucket = 17</text>
+              <text x="849" y="267" text-anchor="middle">bucket = 17</text>
+
+              <line x1="927" y1="82" x2="995" y2="82" stroke="#365f6f" stroke-width="2.5" marker-end="url(#lane-arrow)"/>
+              <line x1="927" y1="174" x2="995" y2="174" stroke="#365f6f" stroke-width="2.5" marker-end="url(#lane-arrow)"/>
+              <line x1="927" y1="266" x2="995" y2="266" stroke="#365f6f" stroke-width="2.5" marker-end="url(#lane-arrow)"/>
+
+              <rect x="1010" y="58" width="212" height="48" rx="5" fill="#eaf6ef" stroke="#73b390"/>
+              <rect x="1010" y="150" width="212" height="48" rx="5" fill="#eaf6ef" stroke="#73b390"/>
+              <rect x="1010" y="242" width="212" height="48" rx="5" fill="#eaf6ef" stroke="#73b390"/>
+              <text x="1116" y="83" text-anchor="middle">17 &lt; 20 -> INCLUDE</text>
+              <text x="1116" y="175" text-anchor="middle">17 &lt; 20 -> INCLUDE</text>
+              <text x="1116" y="267" text-anchor="middle">17 &lt; 20 -> INCLUDE</text>
+            </g>
+
+            <path d="M1228 82 C1276 82 1290 132 1290 176 C1290 220 1276 266 1228 266" fill="none" stroke="#5d7a87" stroke-width="2"/>
+            <text x="1320" y="178" text-anchor="middle" font-family="Consolas, monospace" font-size="14" fill="#1f3f4b">Same result everywhere</text>
+
+            <g font-family="Consolas, monospace" font-size="12" fill="#6b7980">
+              <text x="1012" y="342" text-decoration="line-through">shared memory</text>
+              <text x="1178" y="342" text-decoration="line-through">Redis coordination</text>
+            </g>
+          </svg>
+          <span class="scope-badge">Default External3p session-completion path</span>
+        </div>
+        <aside class="notes"><strong>Speaker notes.</strong> Determinism comes from normalized identity plus pure hash arithmetic, not shared mutable state. Normalize IDs with trim and uppercase before hashing. Compute bucket from the first 32 bits of SHA-256 as an unsigned integer, then mod 100. Inclusion uses bucket &lt; effective_rate where floors/caps are applied after deterministic computation. Positive TPM bypass remains an explicit operational route and is orthogonal to hash inclusion. This avoids legacy `HashCode.Combine` instability across runtime/process boundaries and keeps retries and reprocessing identical.</aside>
+      </section>
+
+      <section class="slide" data-slide="09 / 12" aria-label="Future semantic selection and IDW">
+        <p class="kicker">EXTEND</p>
+        <h2>Select broadly; estimate only after selection</h2>
+        <p class="conclusion-question">Question: what changes when labels are revealed only after membership freezes?</p>
+        <div class="semantic-stage-wrap" id="semanticStage" data-sem-stage="1">
+          <div class="semantic-stage-controls" role="group" aria-label="Semantic selection stages">
+            <button class="semantic-stage-btn active" type="button" data-sem-stage="1">1 Select</button>
+            <button class="semantic-stage-btn" type="button" data-sem-stage="2">2 Judge</button>
+            <button class="semantic-stage-btn" type="button" data-sem-stage="3">3 Estimate</button>
+            <button class="semantic-stage-btn" type="button" id="semanticReplay">Replay</button>
+          </div>
+          <svg class="semantic-map" viewBox="0 0 1460 500" role="img" aria-label="Semantic map with fixed clusters, staged selection, observed outcomes, and donor-based estimates">
+            <rect x="0" y="0" width="1460" height="500" fill="#fbfeff"/>
+            <g fill="#e8eef1" stroke="#c7d4da" stroke-width="1.6" opacity="0.95">
+              <ellipse cx="232" cy="156" rx="192" ry="82"/><ellipse cx="472" cy="314" rx="162" ry="88"/>
+              <ellipse cx="796" cy="170" rx="234" ry="98"/><ellipse cx="1118" cy="300" rx="196" ry="90"/>
+              <ellipse cx="1338" cy="122" rx="108" ry="56"/><ellipse cx="1240" cy="432" rx="98" ry="48"/>
+            </g>
+            <g class="cluster-label" font-family="Consolas, monospace" font-size="12" fill="#516770">
+              <text x="165" y="82">common behaviors</text>
+              <text x="716" y="78">specialized workflows</text>
+              <text x="1276" y="66">rare behaviors</text>
+            </g>
+            <g fill="#9ab4c0" opacity="0.6">
+              <circle cx="136" cy="154" r="6"/><circle cx="189" cy="132" r="6"/><circle cx="247" cy="168" r="6"/><circle cx="282" cy="129" r="6"/><circle cx="326" cy="154" r="6"/>
+              <circle cx="362" cy="326" r="6"/><circle cx="418" cy="284" r="6"/><circle cx="472" cy="329" r="6"/><circle cx="528" cy="282" r="6"/><circle cx="576" cy="319" r="6"/>
+              <circle cx="642" cy="168" r="6"/><circle cx="694" cy="136" r="6"/><circle cx="748" cy="186" r="6"/><circle cx="804" cy="149" r="6"/><circle cx="856" cy="188" r="6"/><circle cx="905" cy="156" r="6"/><circle cx="958" cy="189" r="6"/>
+              <circle cx="1012" cy="296" r="6"/><circle cx="1062" cy="272" r="6"/><circle cx="1113" cy="320" r="6"/><circle cx="1161" cy="286" r="6"/><circle cx="1212" cy="326" r="6"/>
+              <circle cx="1295" cy="112" r="6"/><circle cx="1344" cy="133" r="6"/><circle cx="1380" cy="108" r="6"/>
+              <circle cx="1201" cy="420" r="6"/><circle cx="1242" cy="438" r="6"/><circle cx="1282" cy="421" r="6"/>
+            </g>
+            <g class="selected-ring" fill="none" stroke="#0a8f88" stroke-width="4">
+              <circle cx="189" cy="132" r="12"/><circle cx="282" cy="129" r="12"/><circle cx="418" cy="284" r="12"/><circle cx="528" cy="282" r="12"/>
+              <circle cx="694" cy="136" r="12"/><circle cx="804" cy="149" r="12"/><circle cx="905" cy="156" r="12"/><circle cx="1062" cy="272" r="12"/>
+              <circle cx="1161" cy="286" r="12"/><circle cx="1295" cy="112" r="12"/><circle cx="1344" cy="133" r="12"/><circle cx="1242" cy="438" r="12"/>
+            </g>
+            <g class="selected-fill" fill="#199156" stroke="white" stroke-width="2">
+              <circle cx="189" cy="132" r="9"/><circle cx="282" cy="129" r="9"/><circle cx="418" cy="284" r="9"/><circle cx="694" cy="136" r="9"/>
+              <circle cx="804" cy="149" r="9"/><circle cx="905" cy="156" r="9"/><circle cx="1062" cy="272" r="9"/><circle cx="1161" cy="286" r="9"/>
+            </g>
+            <g class="selected-fail" fill="#dc921c" stroke="white" stroke-width="2">
+              <rect x="518" y="272" width="20" height="20" transform="rotate(45 528 282)" rx="3"/>
+              <rect x="1285" y="102" width="20" height="20" transform="rotate(45 1295 112)" rx="3"/>
+              <rect x="1334" y="123" width="20" height="20" transform="rotate(45 1344 133)" rx="3"/>
+              <rect x="1232" y="428" width="20" height="20" transform="rotate(45 1242 438)" rx="3"/>
+            </g>
+            <g class="donor-edge" stroke="#4f84ad" stroke-linecap="round" fill="none" opacity="0">
+              <line x1="418" y1="284" x2="846" y2="236" stroke-width="1.7"/><line x1="528" y1="282" x2="846" y2="236" stroke-width="2.0"/>
+              <line x1="694" y1="136" x2="846" y2="236" stroke-width="3.4"/><line x1="804" y1="149" x2="846" y2="236" stroke-width="4.2"/>
+              <line x1="905" y1="156" x2="846" y2="236" stroke-width="3.8"/><line x1="1062" y1="272" x2="846" y2="236" stroke-width="2.4"/>
+              <line x1="1161" y1="286" x2="846" y2="236" stroke-width="1.9"/><line x1="1295" y1="112" x2="846" y2="236" stroke-width="1.4"/>
+            </g>
+            <g class="estimate" fill="white" stroke="#2a6fa8" stroke-width="3">
+              <circle cx="232" cy="178" r="11"/><circle cx="464" cy="232" r="11"/><circle cx="742" cy="204" r="11"/><circle cx="846" cy="236" r="11"/><circle cx="1008" cy="220" r="11"/>
+            </g>
+            <g class="donor-node" fill="none" stroke="#0a8f88" stroke-width="3">
+              <circle cx="418" cy="284" r="14"/><circle cx="528" cy="282" r="14"/><circle cx="694" cy="136" r="14"/><circle cx="804" cy="149" r="14"/>
+              <circle cx="905" cy="156" r="14"/><circle cx="1062" cy="272" r="14"/><circle cx="1161" cy="286" r="14"/><circle cx="1295" cy="112" r="14"/>
+            </g>
+          </svg>
+          <div class="semantic-legend" id="semanticLegend"></div>
+          <div class="contract-line">Solid = judged · Hollow = estimated · Membership freezes before labels</div>
+          <p class="stage-takeaway">Rare regions receive evidence; unjudged sessions receive provenance-bearing estimates.</p>
+          <span class="research-badge">Research candidate · v4 IDW result was mixed</span>
+          <p class="tiny" style="margin-top:7px;">k = 8, power = 2, same-agent donor rule.</p>
+        </div>
+        <aside class="notes"><strong>Speaker notes.</strong> Stage 1 freezes membership only: selected sessions are hollow teal rings and no labels are shown. Stage 2 reveals judged outcomes on those exact positions: green pass circles and orange fail diamonds, proving labels arrive after selection. Stage 3 keeps that geometry fixed and adds hollow blue estimates. One representative estimate displays all eight same-agent judged donors: teal rings identify the donor points while link thickness indicates relative influence; the other hollow targets show that the same estimation layer can extend across the population. This is post-selection estimation, not the cause of the coverage gain. Research configuration: k=8, inverse-square power=2, same-agent provenance. Reduced-motion switches stages instantly; print shows the final estimate state.</aside>
+      </section>
+
+      <section class="slide" data-slide="10 / 12" aria-label="Lipschitz uncertainty">
+        <p class="kicker">QUALIFY</p>
+        <h2>Distance widens the range, not the estimate</h2>
+        <p class="conclusion-question">Both cases keep the 65% estimate and the same L. Only weighted donor angle changes.</p>
+        <div class="qualify-wrap">
+          <div class="support-constant">
+            <span class="constant-label">Held constant</span>
+            <strong>IDW estimate = 65% &nbsp;·&nbsp; same L</strong>
+            <span class="changed-variable">Changed: weighted donor angle</span>
+          </div>
+          <div class="support-comparison">
+            <article class="support-case near">
+              <div class="support-heading"><strong>NEAR DONORS</strong><span>small weighted angle</span></div>
+              <svg class="support-geometry" viewBox="0 0 580 150" role="img" aria-label="Eight judged donors close to a hollow estimated target">
+                <g stroke="#83abc4" stroke-width="2.5">
+                  <line x1="290" y1="77" x2="232" y2="48"/><line x1="290" y1="77" x2="277" y2="26"/><line x1="290" y1="77" x2="330" y2="35"/><line x1="290" y1="77" x2="355" y2="70"/>
+                  <line x1="290" y1="77" x2="344" y2="111"/><line x1="290" y1="77" x2="306" y2="129"/><line x1="290" y1="77" x2="249" y2="118"/><line x1="290" y1="77" x2="220" y2="87"/>
+                </g>
+                <g fill="#0a8f88" stroke="white" stroke-width="2">
+                  <circle cx="232" cy="48" r="8"/><circle cx="277" cy="26" r="8"/><circle cx="330" cy="35" r="8"/><circle cx="355" cy="70" r="8"/>
+                  <circle cx="344" cy="111" r="8"/><circle cx="306" cy="129" r="8"/><circle cx="249" cy="118" r="8"/><circle cx="220" cy="87" r="8"/>
+                </g>
+                <circle cx="290" cy="77" r="13" fill="white" stroke="#2a6fa8" stroke-width="4"/>
+              </svg>
+              <div class="allowance-line"><span>geometry contributes</span><strong>u_Lip = 5 pts</strong></div>
+              <div class="range-axis" aria-label="Conditional range from 60 to 70 percent on a zero to 100 percent scale">
+                <span class="axis-label start">0</span><span class="axis-label mid">50</span><span class="axis-label end">100%</span>
+                <span class="conditional-range"></span><span class="estimate-marker"></span>
+                <span class="range-endpoint" style="left:60%">60</span><span class="range-endpoint" style="left:70%">70</span>
+              </div>
+              <p class="range-result">65% ± 5 → 60–70%</p>
+            </article>
+            <article class="support-case far">
+              <div class="support-heading"><strong>FAR DONORS</strong><span>large weighted angle</span></div>
+              <svg class="support-geometry" viewBox="0 0 580 150" role="img" aria-label="Eight judged donors far from a hollow estimated target">
+                <g stroke="#83abc4" stroke-width="2.5">
+                  <line x1="290" y1="77" x2="137" y2="24"/><line x1="290" y1="77" x2="259" y2="8"/><line x1="290" y1="77" x2="404" y2="19"/><line x1="290" y1="77" x2="468" y2="61"/>
+                  <line x1="290" y1="77" x2="444" y2="133"/><line x1="290" y1="77" x2="327" y2="145"/><line x1="290" y1="77" x2="181" y2="137"/><line x1="290" y1="77" x2="111" y2="95"/>
+                </g>
+                <g fill="#0a8f88" stroke="white" stroke-width="2">
+                  <circle cx="137" cy="24" r="8"/><circle cx="259" cy="8" r="8"/><circle cx="404" cy="19" r="8"/><circle cx="468" cy="61" r="8"/>
+                  <circle cx="444" cy="133" r="8"/><circle cx="327" cy="145" r="8"/><circle cx="181" cy="137" r="8"/><circle cx="111" cy="95" r="8"/>
+                </g>
+                <circle cx="290" cy="77" r="13" fill="white" stroke="#2a6fa8" stroke-width="4"/>
+              </svg>
+              <div class="allowance-line"><span>geometry contributes</span><strong>u_Lip = 20 pts</strong></div>
+              <div class="range-axis" aria-label="Conditional range from 45 to 85 percent on a zero to 100 percent scale">
+                <span class="axis-label start">0</span><span class="axis-label mid">50</span><span class="axis-label end">100%</span>
+                <span class="conditional-range"></span><span class="estimate-marker"></span>
+                <span class="range-endpoint" style="left:45%">45</span><span class="range-endpoint" style="left:85%">85</span>
+              </div>
+              <p class="range-result">65% ± 20 → 45–85%</p>
+            </article>
+          </div>
+          <div class="qualify-explanation">
+            <strong>u_Lip = L × weighted angle</strong>
+            <span>Report estimate ± u_Lip, clamped to [0,1].</span>
+            <span class="not-ci"><strong>Not a confidence interval.</strong> It describes conditional geometric sensitivity.</span>
+          </div>
+          <p class="qualify-footer">Does not capture judge bias, embedding drift, or selection bias.</p>
+        </div>
+        <aside class="notes"><strong>Speaker notes.</strong> This is a controlled comparison. Both sides hold the IDW estimate at 65 percent and use the same response-surface slope L. Only the weighted donor angle changes. Near donors contribute a 5-point geometric allowance, producing 60 to 70 percent. Far donors contribute a 20-point allowance, producing 45 to 85 percent. Both ranges use the same zero-to-100 scale, so their widths are directly comparable. The numbers are illustrative: the mechanism is `u_Lip = L × weighted donor angle`, with estimate ± u_Lip clamped to [0,1]. This is conditional geometric sensitivity, not a confidence interval, and it does not capture judge bias, embedding drift, or selection bias.</aside>
+      </section>
+
+      <section class="slide" data-slide="11 / 12" aria-label="Storage blocker and v6 design">
+        <p class="kicker">TEST</p>
+        <h2>Can 1,536 dimensions become eight without harming the end result?</h2>
+        <p class="conclusion-question">Question: can storage-safe representations preserve end-to-end behavior?</p>
+        <div class="horizontal-pipeline">
+          <svg viewBox="0 0 1460 500" width="100%" height="440" role="img" aria-label="Single horizontal dimensionality experiment pipeline from blocker through reduction methods to end-to-end error comparison">
+            <rect x="0" y="0" width="1460" height="500" fill="#fbfeff"/>
+            <defs>
+              <marker id="exp-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#466673"/></marker>
+            </defs>
+            <rect x="24" y="154" width="224" height="78" rx="6" fill="#fff0ea" stroke="#cf5a42"/>
+            <text x="136" y="186" text-anchor="middle" font-family="Consolas, monospace" font-size="12" fill="#813b31">CUSTOMER-DATA STORAGE BLOCKER</text>
+
+            <g transform="translate(286 104)">
+              <rect width="170" height="180" rx="6" fill="#eef4f8" stroke="#a7bdc9"/>
+              <g stroke="#8ea8b7" stroke-width="1">
+                <line x1="14" y1="22" x2="156" y2="22"/><line x1="14" y1="44" x2="156" y2="44"/><line x1="14" y1="66" x2="156" y2="66"/><line x1="14" y1="88" x2="156" y2="88"/><line x1="14" y1="110" x2="156" y2="110"/><line x1="14" y1="132" x2="156" y2="132"/><line x1="14" y1="154" x2="156" y2="154"/>
+                <line x1="28" y1="14" x2="28" y2="166"/><line x1="56" y1="14" x2="56" y2="166"/><line x1="84" y1="14" x2="84" y2="166"/><line x1="112" y1="14" x2="112" y2="166"/><line x1="140" y1="14" x2="140" y2="166"/>
+              </g>
+              <text x="85" y="196" text-anchor="middle" font-family="Consolas, monospace" font-size="12" fill="#38525e">dense 1536-value vectors</text>
+            </g>
+
+            <line x1="248" y1="193" x2="286" y2="193" stroke="#466673" stroke-width="2.5" marker-end="url(#exp-arrow)"/>
+            <line x1="456" y1="193" x2="522" y2="193" stroke="#466673" stroke-width="2.5" marker-end="url(#exp-arrow)"/>
+
+            <rect x="522" y="84" width="458" height="220" rx="6" fill="#f6fafb" stroke="#c8d9e1"/>
+            <text x="548" y="112" font-family="Consolas, monospace" font-size="12" fill="#35505b">Reducers: PCA · SVD · GRP · Coordinate mean</text>
+            <text x="548" y="136" font-family="Consolas, monospace" font-size="12" fill="#35505b">Dimensions: 1024 · 512 · 256 · 128 · 64 · 32 · 16 · 8 · 2</text>
+            <g fill="#e9f2f6" stroke="#8ab0c3">
+              <rect x="548" y="154" width="42" height="130" rx="4"/><rect x="595" y="173" width="42" height="111" rx="4"/><rect x="642" y="188" width="42" height="96" rx="4"/><rect x="689" y="201" width="42" height="83" rx="4"/>
+              <rect x="736" y="217" width="42" height="67" rx="4"/><rect x="783" y="231" width="42" height="53" rx="4"/><rect x="830" y="244" width="42" height="40" rx="4"/><rect x="877" y="252" width="42" height="32" rx="4"/><rect x="924" y="259" width="42" height="25" rx="4"/>
+            </g>
+
+            <line x1="980" y1="193" x2="1032" y2="193" stroke="#466673" stroke-width="2.5" marker-end="url(#exp-arrow)"/>
+            <rect x="1032" y="132" width="404" height="122" rx="6" fill="#eef6f7" stroke="#9bc1c8"/>
+            <text x="1054" y="162" font-family="Consolas, monospace" font-size="12" fill="#2f4f58">SELECT -> IDW -> COMPARE TO KNOWN LABELS</text>
+            <text x="1054" y="198" font-family="Consolas, monospace" font-size="14" fill="#1f4049">metric: End-to-end error</text>
+
+            <g font-family="Consolas, monospace" font-size="12" fill="#36505c">
+              <rect x="24" y="340" width="332" height="58" rx="6" fill="#f4f8fa" stroke="#ccdce3"/>
+              <text x="40" y="372">2,500 synthetic sessions</text>
+              <rect x="372" y="340" width="332" height="58" rx="6" fill="#f4f8fa" stroke="#ccdce3"/>
+              <text x="388" y="372">30 replay seeds</text>
+              <rect x="720" y="340" width="332" height="58" rx="6" fill="#f4f8fa" stroke="#ccdce3"/>
+              <text x="736" y="372">5 traffic schedules</text>
+              <rect x="1068" y="340" width="368" height="58" rx="6" fill="#f4f8fa" stroke="#ccdce3"/>
+              <text x="1084" y="372">5 judge budgets</text>
+            </g>
+          </svg>
+          <div class="study-note">Reducer fit once (seed 13); 30 seeds vary replay, not the fit.</div>
+        </div>
+        <aside class="notes"><strong>Speaker notes.</strong> This slide frames experiment design only, not results. The blocker is storage/compliance for raw 1536-dimensional vectors. We evaluate reducers (PCA, SVD, GRP, coordinate-mean baseline) across 1024 to 2 dimensions using the same end-to-end pipeline: reduce, select, estimate, compare to known labels. Metric is end-to-end error, not vector reconstruction fidelity. Dataset is transductive over full unlabeled population; t-SNE is intentionally omitted because it is visualization-only and non-invertible. Totals: 2,500 synthetic sessions, 30 replay seeds, 5 traffic schedules, 5 judge budgets, yielding 54,750 evaluation rows. No runtime benchmark claim is made here.</aside>
+      </section>
+
+      <section class="slide" data-slide="12 / 12" aria-label="Result and path forward">
+        <p class="kicker">UNLOCK</p>
+        <h2>PCA-8 is a promising engineering unlock - not a production result</h2>
+        <p class="conclusion-question">Question: does compact representation preserve quality enough to justify deeper validation?</p>
+        <div class="unlock-facts">
+          <article class="unlock-fact"><div class="v">8</div><div class="l">PCA components</div></article>
+          <article class="unlock-fact"><div class="v">22.8%</div><div class="l">lower end-to-end MAE</div></article>
+          <article class="unlock-fact"><div class="v">~119x</div><div class="l">smaller stored representation · 0.129 vs 15.36 MB</div></article>
+        </div>
+        <div class="unlock-bars">
+          <svg viewBox="0 0 1460 310" width="100%" height="248" role="img" aria-label="Two-bar end-to-end MAE comparison between native 1536 dimensions and PCA 8 dimensions">
+            <rect x="0" y="0" width="1460" height="310" fill="#fbfeff"/>
+            <g stroke="#d7e3e8" stroke-width="1"><line x1="220" y1="56" x2="1360" y2="56"/><line x1="220" y1="132" x2="1360" y2="132"/><line x1="220" y1="208" x2="1360" y2="208"/></g>
+            <g font-family="Consolas, monospace" font-size="13" fill="#2f4f5b">
+              <text x="34" y="103">Native 1536D</text>
+              <text x="34" y="179">PCA 8D</text>
+            </g>
+            <rect x="220" y="74" width="1130" height="44" rx="6" fill="#2a6fa8" opacity="0.88"/>
+            <rect x="220" y="150" width="872" height="44" rx="6" fill="#0a8f88" opacity="0.88"/>
+            <text x="1368" y="102" text-anchor="end" font-family="Consolas, monospace" font-size="14" fill="#1e3b46">0.3476</text>
+            <text x="1108" y="178" text-anchor="start" font-family="Consolas, monospace" font-size="14" fill="#1e3b46">0.2682</text>
+            <text x="220" y="236" font-family="Consolas, monospace" font-size="13" fill="#35525d">Difference: -0.0794 (lower is better)</text>
+          </svg>
+          <span class="research-badge" style="margin-top:0;">Caveat: 18.9% selection overlap with native</span>
+        </div>
+        <div class="unlock-path">
+          <div class="unlock-step" style="--step-color:var(--blue)"><div class="step-label">NOW</div><div class="step-copy">Deterministic Random in production</div></div>
+          <div class="unlock-path-arrow">→</div>
+          <div class="unlock-step" style="--step-color:var(--amber)"><div class="step-label">VALIDATE</div><div class="step-copy">Out-of-sample reducer · selected-session quality · schema + compliance · production scale</div></div>
+          <div class="unlock-path-arrow">→</div>
+          <div class="unlock-step" style="--step-color:var(--teal)"><div class="step-label">THEN</div><div class="step-copy">ESP pilot: store 8 components and compute similarity directly</div></div>
+        </div>
+        <p class="unlock-qualifier">Synthetic · transductive · one reducer fit · no measured runtime win</p>
+        <aside class="notes"><strong>Speaker notes.</strong> Report exact headline values: Native 1536D MAE 0.3476, PCA-8 MAE 0.2682, absolute delta -0.0794 and relative 22.8 percent lower. Storage basis is representation bytes only: 15.36 MB versus 0.129 MB for the compared payload shape, about 119 times smaller. Keep caveat explicit: 18.9 percent overlap with native selected sessions. Full reducer sweep and F1-style details stay in appendix notes, not on this main slide. This is a proposed path, not deployed production behavior.</aside>
+      </section>
+    </section>
+  </main>
+
+  <div class="controls" aria-label="Slide controls">
+    <button class="control-btn" id="prev" type="button" aria-label="Previous slide" title="Previous slide (Left arrow)">←</button>
+    <div class="counter" id="counter">01 / 12</div>
+    <button class="control-btn" id="next" type="button" aria-label="Next slide" title="Next slide (Right arrow)">→</button>
+    <button class="control-btn" id="overview" type="button" aria-label="Toggle overview" title="Overview (O)">▦</button>
+    <button class="control-btn" id="notes" type="button" aria-label="Toggle notes" title="Speaker notes (N)">≡</button>
+    <button class="control-btn" id="fullscreen" type="button" aria-label="Toggle fullscreen" title="Fullscreen (F)">⛶</button>
+  </div>
+  <div class="progress" id="progress" aria-hidden="true"></div>
+  <aside class="notes-drawer" id="notesDrawer" hidden></aside>
+
+  <script src="./three.min.js"></script>
+  <script>
+    (() => {
+      "use strict";
+
+      const slides = Array.from(document.querySelectorAll('.slide'));
+      const app = document.getElementById('app');
+      const stage = document.getElementById('stage');
+      const counter = document.getElementById('counter');
+      const progress = document.getElementById('progress');
+      const notesDrawer = document.getElementById('notesDrawer');
+      const resetView = document.getElementById('resetView');
+      const prevButton = document.getElementById('prev');
+      const nextButton = document.getElementById('next');
+      const overviewButton = document.getElementById('overview');
+      const notesButton = document.getElementById('notes');
+      const fullscreenButton = document.getElementById('fullscreen');
+      const fallbackScene = document.getElementById('fallbackScene');
+      const pipelineStageLabel = document.getElementById('pipelineStageLabel');
+      const pipelineStageExplanation = document.getElementById('pipelineStageExplanation');
+      const pipelineLegend = document.getElementById('pipelineLegend');
+      const pipelineStageTrack = document.getElementById('pipelineStageTrack');
+      const pipelineReplay = document.getElementById('pipelineReplay');
+      const pipelinePrevStage = document.getElementById('pipelinePrevStage');
+      const pipelineNextStage = document.getElementById('pipelineNextStage');
+      const semanticStageWrap = document.getElementById('semanticStage');
+      const semanticLegend = document.getElementById('semanticLegend');
+      const semanticReplay = document.getElementById('semanticReplay');
+
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const PIPELINE_TRANSITION_MS = 1400;
+      const SEMANTIC_STAGE_DEFS = {
+        1: [
+          ['#0a8f88', 'selected sessions', true, false],
+          ['#8fb0c4', 'unselected sessions', false, false],
+        ],
+        2: [
+          ['#199156', 'judged pass', false, false],
+          ['#dc921c', 'judged fail', false, true],
+          ['#8fb0c4', 'unjudged', false, false],
+        ],
+        3: [
+          ['#199156', 'judged pass', false, false],
+          ['#dc921c', 'judged fail', false, true],
+          ['#2a6fa8', 'estimated target', true, false],
+          ['#0a8f88', 'donor ring + link', true, false],
+        ],
+      };
+      const PIPELINE_STAGE_DEFS = [
+        {
+          code: 'A', label: 'session traces', ms: 2400,
+          explanation: 'The same 2,800 whole sessions enter as trace records.',
+          legend: [['#2a6fa8', 'eligible session', false]],
+        },
+        {
+          code: 'B', label: 'full-session embeddings', ms: 2800,
+          explanation: 'Each trace becomes one point; nearby points represent similar session behavior.',
+          legend: [['#2a6fa8', 'session embedding', false]],
+        },
+        {
+          code: 'C', label: 'freeze the coverage sample', ms: 2600,
+          explanation: 'Teal rings mark the 560 sessions selected for judging. Outcomes are still hidden.',
+          legend: [['#0a8f88', 'selected for judging', true], ['#8fb0c4', 'not selected', false]],
+        },
+        {
+          code: 'D', label: 'reveal judge outcomes', ms: 2600,
+          explanation: 'The same 560 points stay fixed. Green means pass; orange means fail.',
+          legend: [['#199156', 'pass', false, false], ['#dc921c', 'fail', false, true], ['#8fb0c4', 'unjudged', false, false]],
+        },
+        {
+          code: 'E', label: 'estimate an unjudged session', ms: 2600,
+          explanation: 'One hollow blue target borrows from exactly 8 same-agent judged donors.',
+          legend: [['#2a6fa8', 'IDW estimate', true], ['#0a8f88', 'judged donor', false]],
+        },
+      ];
+
+      const SCENE_SLIDES = new Set([3]);
+      const SCENE_KIND = {
+        3: 'pipeline',
+      };
+
+      const state = {
+        index: 0,
+        overview: false,
+        paused: false,
+        fallback: false,
+        dragging: false,
+        dragEligible: false,
+        yaw: 0,
+        pitch: 0,
+        zoom: 1,
+        targetYaw: 0,
+        targetPitch: 0,
+        targetZoom: 1,
+        lastX: 0,
+        lastY: 0,
+        sceneMode: 0,
+        sceneKind: 'off',
+        transitionT: 1,
+        transitionStart: 0,
+        fromMode: 0,
+        toMode: 0,
+        pipelineStage: reducedMotion ? 4 : 0,
+        pipelineProgress: reducedMotion ? 1 : 0,
+        pipelineRunning: false,
+        pipelineManual: false,
+        pipelineFromStage: reducedMotion ? 4 : 0,
+        pipelineManualTransitioning: false,
+        pipelineManualTransitionStart: 0,
+        pipelineRunId: 0,
+        uncertaintyWide: false,
+        time: 0,
+        semanticStage: 1,
+      };
+
+      function hashString(str) {
+        let h = 2166136261 >>> 0;
+        for (let i = 0; i < str.length; i += 1) {
+          h ^= str.charCodeAt(i);
+          h = Math.imul(h, 16777619);
+        }
+        return h >>> 0;
+      }
+
+      function mulberry32(seed) {
+        let a = seed >>> 0;
+        return function rand() {
+          a |= 0;
+          a = (a + 0x6D2B79F5) | 0;
+          let t = Math.imul(a ^ (a >>> 15), 1 | a);
+          t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      }
+
+      function gaussian(random) {
+        const u = Math.max(random(), Number.EPSILON);
+        const v = random();
+        return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+      }
+
+      function normalize(v) {
+        const n = Math.hypot(v.x, v.y, v.z) || 1;
+        return { x: v.x / n, y: v.y / n, z: v.z / n };
+      }
+
+      function dot(a, b) {
+        return a.x * b.x + a.y * b.y + a.z * b.z;
+      }
+
+      function clamp(x, lo, hi) {
+        return Math.max(lo, Math.min(hi, x));
+      }
+
+      function smoothStep(t) {
+        const x = clamp(t, 0, 1);
+        return x * x * (3 - 2 * x);
+      }
+
+      function lerp(a, b, t) {
+        return a + (b - a) * t;
+      }
+
+      function parseHash() {
+        const n = Number(location.hash.replace('#', ''));
+        if (Number.isFinite(n) && n >= 1 && n <= slides.length) {
+          return n - 1;
+        }
+        return 0;
+      }
+
+      function scaleStage() {
+        if (state.overview) return;
+        const scale = Math.min(window.innerWidth / 1600, window.innerHeight / 900);
+        stage.style.transform = `translate(-50%, -50%) scale(${scale})`;
+      }
+
+      function setNotes() {
+        const notes = slides[state.index].querySelector('.notes');
+        notesDrawer.innerHTML = notes ? notes.innerHTML : '<strong>Speaker notes.</strong> No notes for this slide.';
+      }
+
+      function updateSlideControls() {
+        counter.textContent = `${String(state.index + 1).padStart(2, '0')} / ${String(slides.length).padStart(2, '0')}`;
+        progress.style.width = `${((state.index + 1) / slides.length) * 100}%`;
+        prevButton.disabled = state.index === 0;
+        nextButton.disabled = state.index === slides.length - 1;
+        const on3d = SCENE_SLIDES.has(state.index);
+        resetView.style.display = (!state.overview && on3d && !state.fallback) ? 'grid' : 'none';
+      }
+
+      function setPipelineStageUi(stageIndex) {
+        if (!pipelineStageLabel || !pipelineStageTrack) return;
+        const safe = clamp(stageIndex, 0, PIPELINE_STAGE_DEFS.length - 1);
+        const stageDef = PIPELINE_STAGE_DEFS[safe];
+        pipelineStageLabel.textContent = `Stage ${stageDef.code}. ${stageDef.label}`;
+        if (pipelineStageExplanation) pipelineStageExplanation.textContent = stageDef.explanation;
+        if (pipelineLegend) {
+          pipelineLegend.innerHTML = stageDef.legend.map(([color, label, ring, diamond]) => (
+            `<span class="pipeline-key"><i class="${[ring ? 'ring' : '', diamond ? 'diamond' : ''].filter(Boolean).join(' ')}" style="--key-color:${color}"></i>${label}</span>`
+          )).join('');
+        }
+        const dots = Array.from(pipelineStageTrack.querySelectorAll('.stage-dot'));
+        dots.forEach((dot, idx) => {
+          dot.classList.toggle('completed', idx < safe);
+          dot.classList.toggle('current', idx === safe);
+          dot.setAttribute('aria-current', idx === safe ? 'step' : 'false');
+        });
+        if (pipelinePrevStage) pipelinePrevStage.disabled = safe === 0;
+        if (pipelineNextStage) pipelineNextStage.disabled = safe === PIPELINE_STAGE_DEFS.length - 1;
+      }
+
+      function selectPipelineStage(stageIndex) {
+        const nextStage = clamp(stageIndex, 0, PIPELINE_STAGE_DEFS.length - 1);
+        state.pipelineRunId += 1;
+        state.pipelineRunning = false;
+        state.pipelineManual = true;
+        state.pipelineFromStage = state.pipelineStage;
+        state.pipelineStage = nextStage;
+        state.pipelineProgress = reducedMotion ? 1 : 0;
+        state.pipelineManualTransitioning = !reducedMotion && state.pipelineFromStage !== nextStage;
+        state.pipelineManualTransitionStart = performance.now();
+        setPipelineStageUi(state.pipelineStage);
+        runIfNeeded();
+      }
+
+      function setSceneVisibility() {
+        const on3d = SCENE_SLIDES.has(state.index) && !state.overview;
+        document.body.classList.toggle('scene-hidden', !on3d);
+        if (state.fallback) {
+          fallbackScene.style.display = on3d ? 'flex' : 'none';
+        }
+        const canvas = document.getElementById('webglCanvas');
+        canvas.style.pointerEvents = on3d && !state.fallback ? 'auto' : 'none';
+      }
+
+      function renderSemanticLegend(stage) {
+        if (!semanticLegend) return;
+        const items = SEMANTIC_STAGE_DEFS[stage] || SEMANTIC_STAGE_DEFS[1];
+        semanticLegend.innerHTML = items.map(([color, label, hollow, diamond]) => (
+          `<span class="item"><i class="${[hollow ? 'hollow' : '', diamond ? 'diamond' : ''].filter(Boolean).join(' ')}" style="--key-color:${color};--fill-color:${hollow ? '#ffffff' : color}"></i>${label}</span>`
+        )).join('');
+      }
+
+      function setSemanticStage(stage) {
+        if (!semanticStageWrap) return;
+        const safe = clamp(Number(stage) || 1, 1, 3);
+        state.semanticStage = safe;
+        semanticStageWrap.setAttribute('data-sem-stage', String(safe));
+        semanticStageWrap.querySelectorAll('[data-sem-stage]').forEach((button) => {
+          const active = Number(button.getAttribute('data-sem-stage')) === safe;
+          button.classList.toggle('active', active);
+          button.setAttribute('aria-pressed', String(active));
+        });
+        renderSemanticLegend(safe);
+      }
+
+      function replaySemanticStages() {
+        if (!semanticStageWrap) return;
+        setSemanticStage(1);
+        if (reducedMotion) return;
+        window.clearTimeout(replaySemanticStages._t1);
+        window.clearTimeout(replaySemanticStages._t2);
+        replaySemanticStages._t1 = window.setTimeout(() => setSemanticStage(2), 1800);
+        replaySemanticStages._t2 = window.setTimeout(() => setSemanticStage(3), 3600);
+      }
+
+      function replayPipeline() {
+        state.pipelineRunId += 1;
+        state.pipelineManual = false;
+        state.pipelineManualTransitioning = false;
+        state.pipelineFromStage = 0;
+        if (reducedMotion) {
+          state.pipelineRunning = false;
+          state.pipelineStage = 4;
+          state.pipelineProgress = 1;
+          setPipelineStageUi(4);
+          return;
+        }
+        state.pipelineRunning = true;
+        state.pipelineStage = 0;
+        state.pipelineProgress = 0;
+        state.transitionStart = performance.now();
+        setPipelineStageUi(0);
+        runIfNeeded();
+      }
+
+      function updateSceneKindForSlide() {
+        state.sceneKind = SCENE_KIND[state.index] || 'off';
+        if (state.sceneKind === 'pipeline') {
+          replayPipeline();
+        } else {
+          state.pipelineRunning = false;
+        }
+      }
+
+      function showSlide(i, updateHash = true) {
+        state.index = clamp(i, 0, slides.length - 1);
+        slides.forEach((s, idx) => s.classList.toggle('active', idx === state.index));
+        setNotes();
+        updateSlideControls();
+        if (updateHash) {
+          history.replaceState(null, '', `#${state.index + 1}`);
+        }
+        updateSceneKindForSlide();
+        const wantedMode = state.sceneKind === 'pipeline' ? 1 : (state.sceneKind === 'future' ? 2 : (state.sceneKind === 'uncertainty' ? 3 : 0));
+        transitionScene(wantedMode);
+        setSceneVisibility();
+      }
+
+      function toggleOverview(force) {
+        state.overview = typeof force === 'boolean' ? force : !state.overview;
+        app.classList.toggle('overview', state.overview);
+        overviewButton.setAttribute('aria-pressed', String(state.overview));
+        notesDrawer.hidden = true;
+        notesButton.setAttribute('aria-pressed', 'false');
+        state.paused = state.overview || document.hidden;
+        if (!state.overview) {
+          scaleStage();
+          resize();
+        }
+        setSceneVisibility();
+      }
+
+      function toggleNotes() {
+        if (state.overview) toggleOverview(false);
+        notesDrawer.hidden = !notesDrawer.hidden;
+        notesButton.setAttribute('aria-pressed', String(!notesDrawer.hidden));
+      }
+
+      function toggleFullscreen() {
+        if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+        else document.exitFullscreen?.();
+      }
+
+      const population = [];
+      const DENSE_AGENTS = ["A001", "A002", "A003", "A004", "A005"];
+      const BROAD_AGENT_COUNT = 100;
+      const rng = mulberry32(20260902);
+      const projectionCenters = [
+        [-0.96, 0.32, -0.28], [-0.66, -0.28, 0.48], [-0.38, 0.44, 0.62],
+        [-0.18, -0.12, -0.68], [0.08, 0.24, 0.16], [0.28, -0.42, 0.58],
+        [0.48, 0.38, -0.46], [0.72, -0.08, -0.02], [0.92, 0.26, 0.48],
+        [0.76, -0.44, -0.56], [-0.08, 0.58, -0.16], [0.22, -0.02, 0.82]
+      ];
+
+      function buildPopulation() {
+        let idCounter = 0;
+        for (let dense = 0; dense < DENSE_AGENTS.length; dense += 1) {
+          const aid = DENSE_AGENTS[dense];
+          for (let i = 0; i < 500; i += 1) {
+            const sid = `S${String(idCounter).padStart(4, '0')}`;
+            const seed = hashString(`${aid}|${sid}|v4`);
+            const local = mulberry32(seed);
+            const semanticCluster = Math.floor(local() * projectionCenters.length);
+            const center = projectionCenters[semanticCluster];
+            const spread = 0.105 + (semanticCluster % 4) * 0.014;
+            const projected = {
+              x: center[0] + gaussian(local) * spread + (dense - 2) * 0.012,
+              y: center[1] + gaussian(local) * spread * 0.78,
+              z: center[2] + gaussian(local) * spread * 0.9,
+            };
+            const vec = normalize(projected);
+            const novelty = clamp(Math.hypot(projected.x - center[0], projected.y - center[1], projected.z - center[2]) / (spread * 2.8), 0, 1);
+            const rarity = semanticCluster % 5 === 0 ? 0.72 : 0.24 + local() * 0.38;
+            const baseScore = 0.64 * novelty + 0.36 * rarity;
+            population.push({
+              idx: idCounter,
+              agentId: aid,
+              sessionId: sid,
+              dense: true,
+              embed: vec,
+              projected,
+              baseScore,
+              selected: false,
+              labelKnown: false,
+              label: 0,
+              observed: false,
+              estimate: false,
+              uncertainty: 0,
+              donorWeight: 0,
+            });
+            idCounter += 1;
+          }
+        }
+
+        for (let j = 0; j < 300; j += 1) {
+          const aidNum = 6 + (j % BROAD_AGENT_COUNT);
+          const aid = `A${String(aidNum).padStart(3, '0')}`;
+          const sid = `S${String(idCounter).padStart(4, '0')}`;
+          const seed = hashString(`${aid}|${sid}|v4`);
+          const local = mulberry32(seed);
+          const semanticCluster = Math.floor(local() * projectionCenters.length);
+          const center = projectionCenters[semanticCluster];
+          const spread = 0.12 + (semanticCluster % 3) * 0.02;
+          const projected = {
+            x: center[0] + gaussian(local) * spread,
+            y: center[1] + gaussian(local) * spread * 0.85,
+            z: center[2] + gaussian(local) * spread,
+          };
+          const vec = normalize(projected);
+          const novelty = clamp(Math.hypot(projected.x - center[0], projected.y - center[1], projected.z - center[2]) / (spread * 2.6), 0, 1);
+          const rarity = 0.42 + local() * 0.5;
+          const baseScore = 0.64 * novelty + 0.36 * rarity + 0.05;
+          population.push({
+            idx: idCounter,
+            agentId: aid,
+            sessionId: sid,
+            dense: false,
+            embed: vec,
+            projected,
+            baseScore,
+            selected: false,
+            labelKnown: false,
+            label: 0,
+            observed: false,
+            estimate: false,
+            uncertainty: 0,
+            donorWeight: 0,
+          });
+          idCounter += 1;
+        }
+
+        const ranked = [...population].sort((a, b) => b.baseScore - a.baseScore || a.idx - b.idx);
+        ranked.slice(0, 560).forEach((p) => { p.selected = true; });
+
+        // Deterministic post-selection labels with fixed totals: 1993 pass, 807 fail.
+        const labelRank = [...population].sort((a, b) => {
+          const sa = hashString(`${a.agentId}|${a.sessionId}|label`);
+          const sb = hashString(`${b.agentId}|${b.sessionId}|label`);
+          return sa - sb;
+        });
+        labelRank.forEach((p, i) => { p.label = i < 1993 ? 1 : 0; });
+
+        // Observed labels only for selected records in the reveal state.
+        population.forEach((p) => {
+          p.observed = p.selected;
+          p.estimate = !p.selected;
+          p.labelKnown = false;
+        });
+      }
+
+      buildPopulation();
+
+      let donorSet = [];
+      let targetPoint = null;
+      let weightedAngle = 0;
+      let yhat = 0;
+      let minDonorDistance = 0;
+      let maxDonorDistance = 1;
+
+      function computeLocalNeighborhood() {
+        targetPoint = population.find((p) => p.agentId === 'A003' && !p.selected) || population.find((p) => !p.selected);
+        const candidates = population.filter((p) => p.agentId === targetPoint.agentId && p.selected);
+        const scored = candidates.map((p) => {
+          const c = clamp(dot(targetPoint.embed, p.embed), -1, 1);
+          const angle = Math.acos(c);
+          const d = angle / Math.PI;
+          return { p, angle, d };
+        }).sort((a, b) => a.d - b.d);
+
+        donorSet = scored.slice(0, 8);
+        minDonorDistance = donorSet[0]?.d || 0;
+        maxDonorDistance = donorSet[donorSet.length - 1]?.d || 1;
+        const eps = 1e-3;
+        let sumW = 0;
+        let sumY = 0;
+        let sumA = 0;
+        donorSet.forEach((entry) => {
+          const w = 1 / Math.pow(entry.d + eps, 2);
+          entry.w = w;
+          sumW += w;
+          sumY += w * entry.p.label;
+          sumA += w * entry.angle;
+        });
+        donorSet.forEach((entry) => {
+          entry.wn = entry.w / (sumW || 1);
+          entry.p.donorWeight = entry.wn;
+        });
+
+        weightedAngle = sumA / (sumW || 1);
+        yhat = sumY / (sumW || 1);
+        targetPoint.estimate = true;
+        targetPoint.observed = false;
+        targetPoint.uncertainty = weightedAngle;
+      }
+
+      computeLocalNeighborhood();
+
+      let renderer = null;
+      let three = null;
+
+      function initThree() {
+        const forcedFallback = new URLSearchParams(location.search).has('fallback');
+        if (!window.THREE || forcedFallback) {
+          state.fallback = true;
+          fallbackScene.style.display = 'flex';
+          return;
+        }
+
+        try {
+          const canvas = document.getElementById('webglCanvas');
+          renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
+          renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+          renderer.setSize(window.innerWidth, window.innerHeight, false);
+          renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+          const scene = new THREE.Scene();
+          scene.fog = new THREE.FogExp2(0xe7eff2, 0.17);
+
+          const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.01, 60);
+          camera.position.set(0, 0, 3.4);
+
+          const ambient = new THREE.AmbientLight(0xffffff, 1.1);
+          scene.add(ambient);
+          const dir = new THREE.DirectionalLight(0xc9f1ff, 0.75);
+          dir.position.set(1.8, 2.5, 2.4);
+          scene.add(dir);
+          const rim = new THREE.DirectionalLight(0xffdfba, 0.42);
+          rim.position.set(-2.4, -1.8, 1.3);
+          scene.add(rim);
+
+          const count = population.length;
+          const basePos = new Float32Array(count * 3);
+          const streamPos = new Float32Array(count * 3);
+          const currentPos = new Float32Array(count * 3);
+          const sizes = new Float32Array(count);
+          const colors = new Float32Array(count * 3);
+          const alphas = new Float32Array(count);
+          const hollows = new Float32Array(count);
+          const shapes = new Float32Array(count);
+
+          for (let i = 0; i < count; i += 1) {
+            const p = population[i];
+            basePos[i * 3] = p.projected.x * 1.32;
+            basePos[i * 3 + 1] = p.projected.y * 1.32;
+            basePos[i * 3 + 2] = p.projected.z * 1.32;
+
+            const t = i / (count - 1);
+            streamPos[i * 3] = -2.8 + (t * 5.6) + (rng() - 0.5) * 0.07;
+            streamPos[i * 3 + 1] = ((i % 14) - 7) * 0.055;
+            streamPos[i * 3 + 2] = ((i % 11) - 5) * 0.06;
+
+            currentPos[i * 3] = streamPos[i * 3];
+            currentPos[i * 3 + 1] = streamPos[i * 3 + 1];
+            currentPos[i * 3 + 2] = streamPos[i * 3 + 2];
+
+            sizes[i] = p.selected ? 9.5 : 4.6;
+            const c = p.selected ? new THREE.Color(0x0a8f88) : new THREE.Color(0x3f77a1);
+            colors[i * 3] = c.r;
+            colors[i * 3 + 1] = c.g;
+            colors[i * 3 + 2] = c.b;
+            alphas[i] = p.selected ? 0.92 : 0.36;
+            hollows[i] = 0;
+            shapes[i] = 0;
+          }
+
+          const geometry = new THREE.BufferGeometry();
+          geometry.setAttribute('position', new THREE.BufferAttribute(currentPos, 3));
+          geometry.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+          geometry.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
+          geometry.setAttribute('aAlpha', new THREE.BufferAttribute(alphas, 1));
+          geometry.setAttribute('aHollow', new THREE.BufferAttribute(hollows, 1));
+          geometry.setAttribute('aShape', new THREE.BufferAttribute(shapes, 1));
+
+          const material = new THREE.ShaderMaterial({
+            transparent: true,
+            depthWrite: false,
+            uniforms: {
+              uScale: { value: window.innerHeight / 980 },
+            },
+            vertexShader: `
+              attribute float aSize;
+              attribute vec3 aColor;
+              attribute float aAlpha;
+              varying vec3 vColor;
+              varying float vAlpha;
+              varying float vHollow;
+              varying float vShape;
+              uniform float uScale;
+              attribute float aHollow;
+              attribute float aShape;
+              void main() {
+                vec4 mv = modelViewMatrix * vec4(position, 1.0);
+                gl_Position = projectionMatrix * mv;
+                gl_PointSize = aSize * uScale * (2.15 / max(0.2, -mv.z));
+                vColor = aColor;
+                vAlpha = aAlpha;
+                vHollow = aHollow;
+                vShape = aShape;
+              }
+            `,
+            fragmentShader: `
+              varying vec3 vColor;
+              varying float vAlpha;
+              varying float vHollow;
+              varying float vShape;
+              void main() {
+                vec2 uv = gl_PointCoord - vec2(0.5);
+                float d = dot(uv, uv);
+                float diamondDistance = abs(uv.x) + abs(uv.y);
+                float shapeDistance = mix(d, diamondDistance * diamondDistance * 0.5, vShape);
+                if (shapeDistance > 0.25) discard;
+                float softness = smoothstep(0.25, 0.0, shapeDistance);
+                float hollowMask = smoothstep(0.055, 0.13, d);
+                float alphaShape = mix(softness, softness * hollowMask, vHollow);
+                gl_FragColor = vec4(vColor, vAlpha * alphaShape);
+              }
+            `,
+          });
+
+          const cloudGroup = new THREE.Group();
+          scene.add(cloudGroup);
+          const points = new THREE.Points(geometry, material);
+          cloudGroup.add(points);
+          const overlayGroup = new THREE.Group();
+          cloudGroup.add(overlayGroup);
+
+          const donorEdges = [];
+          const unitY = new THREE.Vector3(0, 1, 0);
+          for (let i = 0; i < 8; i += 1) {
+            const g = new THREE.CylinderGeometry(1, 1, 1, 12, 1, true);
+            const m = new THREE.MeshBasicMaterial({ color: 0x0a8f88, transparent: true, opacity: 0.88 });
+            const edge = new THREE.Mesh(g, m);
+            edge.userData.unitY = unitY;
+            edge.visible = false;
+            overlayGroup.add(edge);
+            donorEdges.push(edge);
+          }
+
+          const targetGeo = new THREE.SphereGeometry(0.095, 24, 24);
+          const targetMat = new THREE.MeshBasicMaterial({ color: 0x2a6fa8, transparent: true, opacity: 0.9, wireframe: true });
+          const targetMesh = new THREE.Mesh(targetGeo, targetMat);
+          targetMesh.visible = false;
+          overlayGroup.add(targetMesh);
+
+          const ringGeo = new THREE.TorusGeometry(0.32, 0.018, 16, 96);
+          const ringMat = new THREE.MeshBasicMaterial({ color: 0xc38813, transparent: true, opacity: 0.82 });
+          const uncertaintyRing = new THREE.Mesh(ringGeo, ringMat);
+          uncertaintyRing.visible = false;
+          uncertaintyRing.rotation.x = Math.PI / 2;
+          overlayGroup.add(uncertaintyRing);
+
+          three = {
+            scene,
+            camera,
+            points,
+            geometry,
+            material,
+            basePos,
+            streamPos,
+            currentPos,
+            sizes,
+            colors,
+            alphas,
+            hollows,
+            shapes,
+            cloudGroup,
+            donorEdges,
+            targetMesh,
+            uncertaintyRing,
+          };
+
+          state.fallback = false;
+          fallbackScene.style.display = 'none';
+        } catch (err) {
+          state.fallback = true;
+          fallbackScene.style.display = 'flex';
+        }
+      }
+
+      function colorForPoint(p, mode, stage, tPulse) {
+        if (mode <= 0) return { c: [0.2, 0.45, 0.64], a: 0.48, s: 6.0 };
+
+        if (mode === 1) {
+          if (stage <= 0) return { c: [0.2, 0.46, 0.65], a: 0.56, s: 5.8 };
+          if (stage === 1) return { c: [0.19, 0.48, 0.67], a: 0.62, s: 6.3 };
+          if (stage === 2) {
+            return p.selected
+              ? { c: [0.02, 0.58, 0.53], a: 0.96, s: 12.8 }
+              : { c: [0.23, 0.45, 0.61], a: 0.18, s: 4.0 };
+          }
+          if (stage === 3) {
+            if (!p.selected) return { c: [0.28, 0.47, 0.62], a: 0.15, s: 3.7 };
+            const pulse = 0.9 + 0.1 * tPulse;
+            return p.label > 0
+              ? { c: [0.13 * pulse, 0.57 * pulse, 0.35 * pulse], a: 0.95, s: 8.5 }
+              : { c: [0.86 * pulse, 0.51 * pulse, 0.11 * pulse], a: 0.97, s: 8.8 };
+          }
+          if (targetPoint && p.idx === targetPoint.idx) return { c: [0.14, 0.4, 0.73], a: 1, s: 21.5 };
+          const donor = donorSet.find((d) => d.p.idx === p.idx);
+          if (donor) {
+            return { c: [0.02, 0.56 + donor.wn * 0.35, 0.5], a: 1, s: 14 + 16 * donor.wn };
+          }
+          return { c: [0.24, 0.44, 0.58], a: 0.06, s: 3.1 };
+        }
+
+        if (mode === 2) {
+          if (p.selected) {
+            const bright = p.baseScore > 0.72;
+            return bright
+              ? { c: [0.80, 0.33, 0.26], a: 0.95, s: 9.6 }
+              : { c: [0.03, 0.58, 0.52], a: 0.92, s: 8.5 };
+          }
+          return { c: [0.26, 0.48, 0.64], a: 0.22, s: 3.8 };
+        }
+
+        if (mode === 3) {
+          if (targetPoint && p.idx === targetPoint.idx) return { c: [0.14, 0.4, 0.73], a: 1, s: 21.2 };
+          const donor = donorSet.find((d) => d.p.idx === p.idx);
+          if (donor) return { c: [0.02, 0.56 + donor.wn * 0.35, 0.49], a: 1, s: 13.2 + 15 * donor.wn };
+          if (p.selected) return { c: [0.18, 0.41, 0.56], a: 0.18, s: 3.6 };
+          return { c: [0.23, 0.43, 0.61], a: 0.07, s: 3.0 };
+        }
+
+        return { c: [0.24, 0.47, 0.63], a: 0.3, s: 4.2 };
+      }
+
+      function applySceneMode(mode, blendT) {
+        if (!three) return;
+        const { geometry, currentPos, basePos, streamPos, colors, alphas, hollows, shapes, sizes } = three;
+        const tPulse = reducedMotion ? 0 : (0.5 + 0.5 * Math.sin(state.time * 0.004));
+        const stage = mode === 1 ? state.pipelineStage : 4;
+        const stageProgress = mode === 1 ? state.pipelineProgress : 1;
+
+        for (let i = 0; i < population.length; i += 1) {
+          const p = population[i];
+          const o = i * 3;
+
+          let px = basePos[o];
+          let py = basePos[o + 1];
+          let pz = basePos[o + 2];
+
+          if (mode === 1) {
+            const coordinatesForStage = (pipelineStage) => {
+              if (pipelineStage === 0) {
+                return [streamPos[o], streamPos[o + 1], streamPos[o + 2]];
+              }
+              if (pipelineStage === 4 && targetPoint) {
+                const donor = donorSet.find((entry) => entry.p.idx === p.idx);
+                if (p.idx === targetPoint.idx) return [0, -0.08, 0];
+                if (donor) {
+                  const donorIndex = donorSet.indexOf(donor);
+                  const distanceRange = Math.max(1e-6, maxDonorDistance - minDonorDistance);
+                  const normalizedDistance = (donor.d - minDonorDistance) / distanceRange;
+                  const displayRadius = 0.38 + normalizedDistance * 0.54;
+                  const displayAngle = donorIndex * (Math.PI * 2 / donorSet.length) - Math.PI * 0.12;
+                  return [
+                    Math.cos(displayAngle) * displayRadius,
+                    Math.sin(displayAngle) * displayRadius * 0.72 - 0.08,
+                    (donorIndex % 2 === 0 ? -1 : 1) * (0.07 + normalizedDistance * 0.09),
+                  ];
+                }
+                return [basePos[o] * 1.18, basePos[o + 1] * 1.18, basePos[o + 2] * 1.18];
+              }
+              return [basePos[o], basePos[o + 1], basePos[o + 2]];
+            };
+            const sourceCoordinates = coordinatesForStage(state.pipelineFromStage);
+            const targetCoordinates = coordinatesForStage(stage);
+            const transitionEase = smoothStep(stageProgress);
+            px = lerp(sourceCoordinates[0], targetCoordinates[0], transitionEase);
+            py = lerp(sourceCoordinates[1], targetCoordinates[1], transitionEase);
+            pz = lerp(sourceCoordinates[2], targetCoordinates[2], transitionEase);
+          } else if (mode === 3 && targetPoint) {
+            const donor = donorSet.find((entry) => entry.p.idx === p.idx);
+            if (p.idx === targetPoint.idx) {
+              px = 0; py = -0.08; pz = 0;
+            } else if (donor) {
+              const donorIndex = donorSet.indexOf(donor);
+              const distanceRange = Math.max(1e-6, maxDonorDistance - minDonorDistance);
+              const normalizedDistance = (donor.d - minDonorDistance) / distanceRange;
+              const displayRadius = 0.38 + normalizedDistance * 0.54;
+              const displayAngle = donorIndex * (Math.PI * 2 / donorSet.length) - Math.PI * 0.12;
+              px = Math.cos(displayAngle) * displayRadius;
+              py = Math.sin(displayAngle) * displayRadius * 0.72 - 0.08;
+              pz = (donorIndex % 2 === 0 ? -1 : 1) * (0.07 + normalizedDistance * 0.09);
+            }
+          }
+
+          currentPos[o] = px;
+          currentPos[o + 1] = py;
+          currentPos[o + 2] = pz;
+
+          let cs = colorForPoint(p, mode, stage, tPulse);
+          let hollow = mode === 2 && !p.selected ? 1 : 0;
+          let shape = 0;
+          if (mode === 1) {
+            const sourceStyle = colorForPoint(p, mode, state.pipelineFromStage, tPulse);
+            const targetStyle = colorForPoint(p, mode, stage, tPulse);
+            const transitionEase = smoothStep(stageProgress);
+            cs = {
+              c: sourceStyle.c.map((value, channel) => lerp(value, targetStyle.c[channel], transitionEase)),
+              a: lerp(sourceStyle.a, targetStyle.a, transitionEase),
+              s: lerp(sourceStyle.s, targetStyle.s, transitionEase),
+            };
+            const hollowForStage = (pipelineStage) => (
+              (pipelineStage === 2 && p.selected) || (pipelineStage === 4 && targetPoint && p.idx === targetPoint.idx) ? 1 : 0
+            );
+            const sourceHollow = hollowForStage(state.pipelineFromStage);
+            const targetHollow = hollowForStage(stage);
+            hollow = lerp(sourceHollow, targetHollow, transitionEase);
+            const sourceShape = state.pipelineFromStage === 3 && p.selected && p.label === 0 ? 1 : 0;
+            const targetShape = stage === 3 && p.selected && p.label === 0 ? 1 : 0;
+            shape = lerp(sourceShape, targetShape, transitionEase);
+          }
+          colors[o] = cs.c[0];
+          colors[o + 1] = cs.c[1];
+          colors[o + 2] = cs.c[2];
+          alphas[i] = cs.a;
+          hollows[i] = hollow;
+          shapes[i] = shape;
+          sizes[i] = cs.s;
+        }
+
+        geometry.attributes.position.needsUpdate = true;
+        geometry.attributes.aColor.needsUpdate = true;
+        geometry.attributes.aAlpha.needsUpdate = true;
+        geometry.attributes.aHollow.needsUpdate = true;
+        geometry.attributes.aShape.needsUpdate = true;
+        geometry.attributes.aSize.needsUpdate = true;
+
+        const pipelineTransitionEase = smoothStep(stageProgress);
+        const pipelineOverlayOpacity = mode === 1
+          ? (stage === 4 ? pipelineTransitionEase : (state.pipelineFromStage === 4 ? 1 - pipelineTransitionEase : 0))
+          : 1;
+        const showNeighborhood = (mode === 1 && pipelineOverlayOpacity > 0.01) || mode === 3;
+        three.targetMesh.visible = showNeighborhood;
+        three.uncertaintyRing.visible = mode === 3;
+
+        if (showNeighborhood && targetPoint) {
+          const ti = targetPoint.idx * 3;
+          const tx = currentPos[ti];
+          const ty = currentPos[ti + 1];
+          const tz = currentPos[ti + 2];
+
+          three.targetMesh.position.set(tx, ty, tz);
+          three.targetMesh.material.opacity = 0.9 * pipelineOverlayOpacity;
+          three.uncertaintyRing.position.set(tx, ty, tz);
+          const radiusScale = state.uncertaintyWide ? 1.2 : 0.82;
+          const radius = 0.34 + weightedAngle * 0.9 * radiusScale;
+          three.uncertaintyRing.scale.set(radius / 0.32, radius / 0.32, radius / 0.32);
+
+          for (let i = 0; i < three.donorEdges.length; i += 1) {
+            const edge = three.donorEdges[i];
+            const donor = donorSet[i];
+            if (!donor) {
+              edge.visible = false;
+              continue;
+            }
+            edge.visible = true;
+            const di = donor.p.idx * 3;
+            const dx = currentPos[di];
+            const dy = currentPos[di + 1];
+            const dz = currentPos[di + 2];
+            const vx = dx - tx;
+            const vy = dy - ty;
+            const vz = dz - tz;
+            const len = Math.hypot(vx, vy, vz) || 1e-6;
+            const mx = (tx + dx) * 0.5;
+            const my = (ty + dy) * 0.5;
+            const mz = (tz + dz) * 0.5;
+
+            const radius = 0.012 + donor.wn * 0.055;
+            edge.position.set(mx, my, mz);
+            edge.scale.set(radius, len * 0.5, radius);
+            const dir = new THREE.Vector3(vx / len, vy / len, vz / len);
+            edge.quaternion.setFromUnitVectors(edge.userData.unitY, dir);
+            const edgeOpacity = reducedMotion ? 0.95 : 0.74 + donor.wn * 0.2 + 0.05 * Math.sin(state.time * 0.005 + i);
+            edge.material.opacity = edgeOpacity * pipelineOverlayOpacity;
+            edge.material.color.setRGB(0.04, 0.45 + donor.wn * 0.35, 0.51);
+          }
+        } else {
+          for (const edge of three.donorEdges) edge.visible = false;
+        }
+      }
+
+      function transitionScene(nextMode) {
+        if (state.sceneMode === nextMode && state.toMode === nextMode) return;
+        state.fromMode = state.sceneMode;
+        state.toMode = nextMode;
+        state.transitionStart = performance.now();
+        state.transitionT = reducedMotion ? 1 : 0;
+      }
+
+      function updateCamera(dt) {
+        if (!three) return;
+
+        const on3dSlide = SCENE_SLIDES.has(state.index) && !state.overview;
+        state.dragEligible = on3dSlide;
+
+        let baseYaw = 0;
+        let basePitch = 0;
+        let baseZoom = 1;
+
+        const mode = state.sceneMode;
+        let focusX = 0;
+        if (mode === 1) {
+          baseYaw = -0.26;
+          basePitch = 0.04;
+          baseZoom = 1.32;
+          focusX = 0.78;
+        } else if (mode === 2) {
+          baseYaw = 0.24;
+          basePitch = -0.04;
+          baseZoom = 1.08;
+          focusX = -0.52;
+        } else if (mode === 3) {
+          baseYaw = 0.02;
+          basePitch = 0.06;
+          baseZoom = 1.32;
+          focusX = 0.78;
+        }
+
+        if (!reducedMotion && on3dSlide && !state.dragging) {
+          baseYaw += Math.sin(state.time * 0.00014) * 0.06;
+          basePitch += Math.cos(state.time * 0.00012) * 0.02;
+        }
+
+        const targetYaw = baseYaw + state.targetYaw;
+        const targetPitch = basePitch + state.targetPitch;
+        const targetZoom = clamp(baseZoom * state.targetZoom, 0.74, 1.32);
+
+        state.yaw = lerp(state.yaw, targetYaw, clamp(dt * 0.0065, 0, 0.16));
+        state.pitch = lerp(state.pitch, targetPitch, clamp(dt * 0.0065, 0, 0.16));
+        state.zoom = lerp(state.zoom, targetZoom, clamp(dt * 0.0065, 0, 0.16));
+
+        const r = 3.35 / state.zoom;
+        const cx = r * Math.sin(state.yaw) * Math.cos(state.pitch);
+        const cy = r * Math.sin(state.pitch) * 0.92;
+        const cz = r * Math.cos(state.yaw) * Math.cos(state.pitch);
+
+        three.camera.position.set(cx, cy, cz);
+        three.camera.lookAt(0, 0, 0);
+        if (three.cloudGroup) three.cloudGroup.position.x = focusX;
+      }
+
+      function resetCameraView() {
+        state.targetYaw = 0;
+        state.targetPitch = 0;
+        state.targetZoom = 1;
+      }
+
+      function animate(now) {
+        if (state.paused || state.fallback || !three) return;
+
+        const dt = now - (state.time || now);
+        state.time = now;
+
+        if (state.transitionT < 1) {
+          const duration = 880;
+          const elapsed = now - state.transitionStart;
+          state.transitionT = clamp(elapsed / duration, 0, 1);
+          state.sceneMode = state.toMode;
+        } else {
+          state.sceneMode = state.toMode;
+        }
+
+        if (state.sceneKind === 'pipeline') {
+          if (reducedMotion && !state.pipelineManual) {
+            state.pipelineStage = 4;
+            state.pipelineFromStage = 4;
+            state.pipelineProgress = 1;
+            state.pipelineRunning = false;
+            state.pipelineManualTransitioning = false;
+          } else if (state.pipelineManualTransitioning) {
+            state.pipelineProgress = clamp(
+              (now - state.pipelineManualTransitionStart) / PIPELINE_TRANSITION_MS,
+              0,
+              1,
+            );
+            if (state.pipelineProgress >= 1) {
+              state.pipelineManualTransitioning = false;
+              state.pipelineFromStage = state.pipelineStage;
+            }
+          } else if (state.pipelineRunning) {
+            const elapsed = now - state.transitionStart;
+            const totalDuration = PIPELINE_STAGE_DEFS.reduce((sum, stageDef) => sum + stageDef.ms, 0);
+            let acc = 0;
+            let stage = 4;
+            let stageProg = 1;
+            for (let i = 0; i < PIPELINE_STAGE_DEFS.length; i += 1) {
+              const seg = PIPELINE_STAGE_DEFS[i].ms;
+              if (elapsed < acc + seg) {
+                stage = i;
+                stageProg = i === 0
+                  ? 0
+                  : clamp((elapsed - acc) / Math.min(PIPELINE_TRANSITION_MS, seg), 0, 1);
+                break;
+              }
+              acc += seg;
+            }
+            if (elapsed >= totalDuration) {
+              state.pipelineRunning = false;
+              state.pipelineStage = 4;
+              state.pipelineProgress = 1;
+            } else {
+              if (stage !== state.pipelineStage) {
+                state.pipelineFromStage = Math.max(0, stage - 1);
+              }
+              state.pipelineStage = stage;
+              state.pipelineProgress = stageProg;
+            }
+          }
+          setPipelineStageUi(state.pipelineStage);
+        }
+
+        if (state.sceneKind === 'pipeline') {
+          population.forEach((p) => { p.labelKnown = state.pipelineStage >= 3 ? p.selected : false; });
+        } else {
+          population.forEach((p) => { p.labelKnown = false; });
+        }
+
+        state.uncertaintyWide = state.sceneKind === 'uncertainty' && !reducedMotion && Math.sin(now * 0.0012) > 0;
+
+        const modeT = state.sceneMode === 1 ? state.transitionT : 1;
+
+        applySceneMode(state.sceneMode, modeT);
+        updateCamera(dt);
+
+        three.material.uniforms.uScale.value = (window.innerHeight / 900);
+        renderer.render(three.scene, three.camera);
+
+        if (!state.paused && !state.overview && (!reducedMotion || state.dragging)) requestAnimationFrame(animate);
+      }
+
+      function runIfNeeded() {
+        if (state.fallback || !three) return;
+        if (state.paused || state.overview || document.hidden) return;
+        requestAnimationFrame(animate);
+      }
+
+      function resize() {
+        if (state.fallback || !three || !renderer) return;
+        renderer.setSize(window.innerWidth, window.innerHeight, false);
+        three.camera.aspect = window.innerWidth / window.innerHeight;
+        three.camera.updateProjectionMatrix();
+      }
+
+      function onPointerDown(e) {
+        if (!state.dragEligible || state.fallback) return;
+        state.dragging = true;
+        state.lastX = e.clientX;
+        state.lastY = e.clientY;
+      }
+
+      function onPointerMove(e) {
+        if (!state.dragging || !state.dragEligible) return;
+        const dx = e.clientX - state.lastX;
+        const dy = e.clientY - state.lastY;
+        state.lastX = e.clientX;
+        state.lastY = e.clientY;
+        state.targetYaw += dx * 0.0035;
+        state.targetPitch = clamp(state.targetPitch + dy * 0.0026, -0.42, 0.42);
+        runIfNeeded();
+      }
+
+      function onPointerUp() {
+        state.dragging = false;
+      }
+
+      function onWheel(e) {
+        if (!state.dragEligible || state.fallback) return;
+        e.preventDefault();
+        const scale = e.deltaY > 0 ? 0.95 : 1.05;
+        state.targetZoom = clamp(state.targetZoom * scale, 0.74, 1.32);
+      }
+
+      document.getElementById('webglCanvas').addEventListener('pointerdown', onPointerDown);
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', onPointerUp);
+      document.getElementById('webglCanvas').addEventListener('wheel', onWheel, { passive: false });
+      resetView.addEventListener('click', () => { resetCameraView(); runIfNeeded(); });
+      if (pipelineReplay) {
+        pipelineReplay.addEventListener('click', () => {
+          if (state.index === 3) {
+            replayPipeline();
+          }
+        });
+      }
+      if (pipelinePrevStage) {
+        pipelinePrevStage.addEventListener('click', () => {
+          if (state.index === 3) selectPipelineStage(state.pipelineStage - 1);
+        });
+      }
+      if (pipelineNextStage) {
+        pipelineNextStage.addEventListener('click', () => {
+          if (state.index === 3) selectPipelineStage(state.pipelineStage + 1);
+        });
+      }
+      if (pipelineStageTrack) {
+        pipelineStageTrack.querySelectorAll('[data-pipeline-stage]').forEach((button) => {
+          button.addEventListener('click', () => {
+            if (state.index === 3) selectPipelineStage(Number(button.dataset.pipelineStage));
+          });
+        });
+      }
+      if (semanticStageWrap) {
+        semanticStageWrap.querySelectorAll('[data-sem-stage]').forEach((button) => {
+          button.addEventListener('click', () => setSemanticStage(Number(button.getAttribute('data-sem-stage'))));
+        });
+      }
+      if (semanticReplay) {
+        semanticReplay.addEventListener('click', () => replaySemanticStages());
+      }
+
+      prevButton.addEventListener('click', () => { showSlide(state.index - 1); runIfNeeded(); });
+      nextButton.addEventListener('click', () => { showSlide(state.index + 1); runIfNeeded(); });
+      overviewButton.addEventListener('click', () => toggleOverview());
+      notesButton.addEventListener('click', toggleNotes);
+      fullscreenButton.addEventListener('click', toggleFullscreen);
+
+      slides.forEach((s, i) => {
+        s.addEventListener('click', () => {
+          if (state.overview) {
+            showSlide(i);
+            toggleOverview(false);
+            runIfNeeded();
+          }
+        });
+      });
+
+      window.addEventListener('keydown', (event) => {
+        if (event.defaultPrevented) return;
+        if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {
+          event.preventDefault();
+          showSlide(state.index + 1);
+          runIfNeeded();
+          return;
+        }
+        if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
+          event.preventDefault();
+          showSlide(state.index - 1);
+          runIfNeeded();
+          return;
+        }
+        if (event.key === 'Home') {
+          showSlide(0);
+          runIfNeeded();
+          return;
+        }
+        if (event.key === 'End') {
+          showSlide(slides.length - 1);
+          runIfNeeded();
+          return;
+        }
+        if (event.key.toLowerCase() === 'o') {
+          toggleOverview();
+          runIfNeeded();
+          return;
+        }
+        if (event.key.toLowerCase() === 'n') {
+          toggleNotes();
+          return;
+        }
+        if (event.key.toLowerCase() === 'f') {
+          toggleFullscreen();
+          return;
+        }
+        if (event.key === 'Escape' && state.overview) {
+          toggleOverview(false);
+          runIfNeeded();
+        }
+      });
+
+      window.addEventListener('hashchange', () => {
+        showSlide(parseHash(), false);
+        runIfNeeded();
+      });
+
+      window.addEventListener('resize', () => {
+        scaleStage();
+        resize();
+        runIfNeeded();
+      });
+
+      document.addEventListener('visibilitychange', () => {
+        state.paused = document.hidden || state.overview;
+        if (!state.paused) runIfNeeded();
+      });
+      const printMedia = window.matchMedia('print');
+      const syncSemanticPrintState = () => {
+        if (printMedia.matches) setSemanticStage(3);
+      };
+      window.addEventListener('beforeprint', () => setSemanticStage(3));
+      if (typeof printMedia.addEventListener === 'function') {
+        printMedia.addEventListener('change', syncSemanticPrintState);
+      } else {
+        printMedia.addListener(syncSemanticPrintState);
+      }
+
+      initThree();
+      state.index = parseHash();
+      scaleStage();
+      showSlide(state.index, false);
+      setNotes();
+      updateSlideControls();
+      setPipelineStageUi(state.pipelineStage);
+      setSceneVisibility();
+      setSemanticStage(state.semanticStage);
+      syncSemanticPrintState();
+
+      if (reducedMotion) {
+        state.transitionT = 1;
+        state.sceneMode = state.toMode;
+        applySceneMode(state.sceneMode, 1);
+        if (three && renderer) renderer.render(three.scene, three.camera);
+      } else {
+        runIfNeeded();
+      }
+
+      window.__SCIENCE_DECK__ = {
+        total: population.length,
+        selected: population.filter((p) => p.selected).length,
+        donors: donorSet.length,
+        passCount: population.filter((p) => p.label === 1).length,
+        failCount: population.filter((p) => p.label === 0).length,
+        weightedAngle,
+        yhat,
+        get pipelineStage() { return state.pipelineStage; },
+        get pipelineRunning() { return state.pipelineRunning; },
+        get sceneSlide() { return state.index; },
+        get sceneKind() { return state.sceneKind; },
+        get sceneMode() { return state.sceneMode; },
+        get futureStage() { return state.semanticStage; },
+      };
+    })();
+  </script>
+</body>
+</html>
