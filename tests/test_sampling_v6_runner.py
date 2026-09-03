@@ -16,16 +16,57 @@ from sampling_comparison.v6_business_use_case import (
     BusinessUseCaseDetermination,
     SessionSelection,
 )
-from sampling_comparison.v6_experiment import METHOD_IDS
+from sampling_comparison.v6_experiment import METHOD_IDS, METHOD_ID_ORDER
 from sampling_comparison.v6_runner import (
     _Arm2SelectionResult,
     _ClassificationRow,
+    _ResilientVectorStore,
     _aggregate_trial_rows,
     _sha256_file,
     _select_arm2_exact_count,
     default_output_dir,
     run_sampling_v6_bundle,
 )
+
+
+class _FakeTransientSearchError(Exception):
+    status_code = 503
+
+
+def test_resilient_vector_store_retries_transient_nearest_and_rejects_purged_hit() -> None:
+    class Store:
+        def __init__(self) -> None:
+            self.nearest_calls = 0
+
+        def nearest(self, *args, **kwargs):
+            self.nearest_calls += 1
+            if self.nearest_calls == 1:
+                raise _FakeTransientSearchError("temporary")
+            return ("stale-cluster", 0.9)
+
+        def purge_stale(self, **kwargs):
+            return ["stale-cluster"]
+
+    inner = Store()
+    store = _ResilientVectorStore(inner, max_attempts=3, retry_seconds=0.0)
+    assert store.purge_stale(now=10.0, ttl=1.0) == ["stale-cluster"]
+    assert store.nearest(np.asarray([1.0]), agent_id="a") is None
+    assert inner.nearest_calls == 2
+    assert store.retried_operations == 1
+    assert store.stale_nearest_ignores == 1
+
+
+def test_resilient_vector_store_does_not_hide_nontransient_errors() -> None:
+    class Store:
+        def nearest(self, *args, **kwargs):
+            error = RuntimeError("bad request")
+            error.status_code = 400
+            raise error
+
+    store = _ResilientVectorStore(Store(), max_attempts=3, retry_seconds=0.0)
+    with pytest.raises(RuntimeError, match="bad request"):
+        store.nearest(np.asarray([1.0]), agent_id="a")
+    assert store.retried_operations == 0
 from trace_sampling.azure_config import AzureConfig
 
 import scripts.run_sampling_v6 as cli_script
@@ -281,6 +322,8 @@ def _run_bundle(
 ):
     data = _tiny_dataset(tmp_path)
     out_dir = tmp_path / out_name
+    emb_cache_path = embeddings_cache or (tmp_path / "cache" / out_name / "emb")
+    cls_cache_path = classifications_cache or (tmp_path / "cache" / out_name / "cls")
     cfg = AzureConfig(
         openai_endpoint="https://example.openai.azure.com",
         openai_api_version="2024-02-01",
@@ -302,8 +345,8 @@ def _run_bundle(
         cleanup_settle_seconds=0.0,
         ensure_search_index=False,
         idw_config=IDWConfig(k=2, power=2.0, eps=1e-6, exact_cosine_eps=1e-8, prior=0.5),
-        embeddings_cache_path=embeddings_cache,
-        classifications_cache_path=classifications_cache,
+        embeddings_cache_path=emb_cache_path,
+        classifications_cache_path=cls_cache_path,
         skip_report=True,
         data=data,
         azure_config=cfg,
@@ -369,20 +412,45 @@ def test_default_output_dir_points_to_v6_runs():
     assert "outputs_sampling_v6/runs/" in out
 
 
-def test_v6_runner_writes_expected_artifacts_and_75_shape(tmp_path: Path):
+def test_v6_runner_writes_expected_artifacts_and_105_shape(tmp_path: Path):
     result, _ = _run_bundle(tmp_path, out_name="o1")
     paths = result["output_paths"]
 
-    for key in ("aggregate", "runs", "memberships", "classifications", "dataset_examples", "methodology", "manifest"):
+    for key in ("aggregate", "runs", "memberships", "classifications", "agent_metrics", "dataset_examples", "methodology", "manifest"):
         assert Path(paths[key]).exists()
 
     runs = [json.loads(line) for line in Path(paths["runs"]).read_text(encoding="utf-8").splitlines() if line.strip()]
-    assert len(runs) == 75
+    assert len(runs) == 105
     methods = {(row["method_id"], row["cap"], row["seed"]) for row in runs}
-    assert len(methods) == 75
+    assert len(methods) == 105
+    assert {row["method_id"] for row in runs} == set(METHOD_ID_ORDER)
+
+    agent_metrics = [json.loads(line) for line in Path(paths["agent_metrics"]).read_text(encoding="utf-8").splitlines() if line.strip()]
+    agent_count = len({row["agent_id"] for row in agent_metrics})
+    assert len(agent_metrics) == 3 * 5 * 7 * agent_count
+    assert {row["method_id"] for row in agent_metrics} == set(METHOD_ID_ORDER)
+    for row in agent_metrics:
+        assert sorted(row.keys()) == sorted(
+            [
+                "version",
+                "method_id",
+                "seed",
+                "cap",
+                "agent_id",
+                "N",
+                "n",
+                "estimate",
+                "census_rate",
+                "absolute_error",
+                "concept_coverage",
+                "use_case_coverage",
+                "estimator",
+                "represented_population_fraction",
+            ]
+        )
 
 
-def test_memberships_exclude_labels_and_arm4_arm5_identical(tmp_path: Path):
+def test_memberships_exclude_labels_and_arm2_arm25_and_arm4_arm5_arm6_identities(tmp_path: Path):
     result, _ = _run_bundle(tmp_path, out_name="o2")
     memberships = [json.loads(line) for line in Path(result["output_paths"]["memberships"]).read_text(encoding="utf-8").splitlines() if line.strip()]
 
@@ -396,7 +464,9 @@ def test_memberships_exclude_labels_and_arm4_arm5_identical(tmp_path: Path):
 
     for seed in (13, 14, 15):
         for cap in (1, 2, 3, 4, 5):
+            assert grouped[(seed, cap, METHOD_IDS["arm2"])] == grouped[(seed, cap, METHOD_IDS["arm2_5"])]
             assert grouped[(seed, cap, METHOD_IDS["arm4"])] == grouped[(seed, cap, METHOD_IDS["arm5"])]
+            assert grouped[(seed, cap, METHOD_IDS["arm4"])] == grouped[(seed, cap, METHOD_IDS["arm6"])]
 
     for row in memberships:
         assert "selected_agent_count" in row
@@ -420,6 +490,24 @@ def test_memberships_exclude_labels_and_arm4_arm5_identical(tmp_path: Path):
     for idx in range(len(arm4_rows)):
         assert tuple(arm4_rows[idx]["selected_ids"]) == tuple(arm5_rows[idx]["selected_ids"])
         assert arm4_rows[idx]["inclusion_probability_by_unit"] == arm5_rows[idx]["inclusion_probability_by_unit"]
+
+    arm6_rows = [row for row in memberships if row["method_id"] == METHOD_IDS["arm6"]]
+    assert arm6_rows
+    for row in arm6_rows:
+        assert "arm6_diagnostics" in row
+        diag = row["arm6_diagnostics"]
+        assert sorted(diag.keys()) == sorted(
+            [
+                "total_cell_count",
+                "represented_cell_count",
+                "zero_sample_cell_count",
+                "population_count_in_zero_sample_cells",
+                "represented_population_fraction",
+                "weight_sum",
+                "weight_ess",
+                "max_weight",
+            ]
+        )
 
 
 def test_classification_rows_are_serialized_without_raw_text(tmp_path: Path):
@@ -519,7 +607,11 @@ def test_arm2_run_rows_include_sanitized_idw_and_aggregate_aliases(tmp_path: Pat
     result, _ = _run_bundle(tmp_path, out_name="o7")
     runs = [json.loads(line) for line in Path(result["output_paths"]["runs"]).read_text(encoding="utf-8").splitlines() if line.strip()]
     arm2 = [row for row in runs if row["method_id"] == METHOD_IDS["arm2"]]
+    arm2_5 = [row for row in runs if row["method_id"] == METHOD_IDS["arm2_5"]]
+    arm6 = [row for row in runs if row["method_id"] == METHOD_IDS["arm6"]]
     assert arm2
+    assert arm2_5
+    assert arm6
     for row in arm2:
         prov = row["idw_provenance"]
         assert sorted(prov.keys()) == sorted(
@@ -550,6 +642,36 @@ def test_arm2_run_rows_include_sanitized_idw_and_aggregate_aliases(tmp_path: Pat
         assert "distances" not in text
         assert "normalized_weights" not in text
         assert "rows" not in text
+
+    for row in arm2_5:
+        assert "arm2_telemetry" in row
+        assert "idw_provenance" in row
+        assert "estimator_diagnostics" in row
+        diag = row["estimator_diagnostics"]
+        assert diag["threshold"] == pytest.approx(0.5)
+        assert "value < 0.5 => 0; value >= 0.5 => 1" in diag["rule"]
+        assert row["estimate"] == pytest.approx(float(diag["binary_estimate"]))
+        assert "continuous_donor_model_diagnostic" in row["idw_validation"]
+
+    for row in arm6:
+        assert "joint_cell_probability_by_unit" in row
+        assert "estimator_diagnostics" in row
+        diag = row["estimator_diagnostics"]
+        assert sorted(diag.keys()) == sorted(
+            [
+                "design",
+                "total_cell_count",
+                "represented_cell_count",
+                "zero_sample_cell_count",
+                "population_count_in_zero_sample_cells",
+                "represented_population_fraction",
+                "weight_sum",
+                "weight_ess",
+                "max_weight",
+                "estimator_limitation",
+            ]
+        )
+        assert "zero-sample cells are not recovered" in diag["estimator_limitation"]
 
     agg = json.loads(Path(result["output_paths"]["aggregate"]).read_text(encoding="utf-8"))
     assert agg["config"]["skip_report"] is True
@@ -669,7 +791,7 @@ def test_progress_json_and_callback_track_completion(tmp_path: Path):
     assert payload["status"] == "complete"
     assert payload["percent"] == 100.0
     assert payload["total_replays"] == 1
-    assert payload["total_cells"] == 5
+    assert payload["total_cells"] == 7
     assert payload["phase"] in {"method-evaluation", "complete"}
     payload_json = json.dumps(payload)
     assert "openai_api_key" not in payload_json
@@ -966,16 +1088,20 @@ def test_extension_merge_counts_baseline_unchanged_and_checkpoint_per_cell(tmp_p
 
     runs = [json.loads(line) for line in Path(extended_result["output_paths"]["runs"]).read_text(encoding="utf-8").splitlines() if line.strip()]
     memberships = [json.loads(line) for line in Path(extended_result["output_paths"]["memberships"]).read_text(encoding="utf-8").splitlines() if line.strip()]
-    assert len(runs) == 30
-    assert len(memberships) == 30
+    agent_metrics = [json.loads(line) for line in Path(extended_result["output_paths"]["agent_metrics"]).read_text(encoding="utf-8").splitlines() if line.strip()]
+    agent_count = len({row["agent_id"] for row in agent_metrics})
+    assert len(runs) == 42
+    assert len(memberships) == 42
+    assert len(agent_metrics) == 42 * agent_count
 
     ckpt_cells = list((checkpoint_root / "cells").glob("seed-*-cap-*.json"))
     assert len(ckpt_cells) == 4
     for path in ckpt_cells:
         payload = json.loads(path.read_text(encoding="utf-8"))
         assert payload["status"] == "complete"
-        assert len(payload["run_rows"]) == 5
-        assert len(payload["membership_rows"]) == 5
+        assert len(payload["run_rows"]) == 7
+        assert len(payload["membership_rows"]) == 7
+        assert len(payload["agent_metric_rows"]) == 7 * agent_count
         text = json.dumps(payload).lower()
         assert "openai_api_key" not in text
         assert "search_api_key" not in text
@@ -1104,20 +1230,55 @@ def test_normalizes_old_baseline_floor_metadata_and_provenance_and_progress_fiel
     assert cohorts[0]["seeds"] == [13]
     assert cohorts[1]["seeds"] == [14]
     assert cohorts[0]["trial_count"] == 1
-    assert cohorts[0]["row_count"] == 10
+    assert cohorts[0]["row_count"] == 14
     assert cohorts[1]["trial_count"] == 1
-    assert cohorts[1]["row_count"] == 10
+    assert cohorts[1]["row_count"] == 14
     assert "publisher_code_hashes" in agg["provenance"]
     assert agg["provenance"]["checkpoint_summary"]["total_cells"] == 2
 
     progress_payload = json.loads((Path(extended_result["output_paths"]["aggregate"]).parent / "progress.json").read_text(encoding="utf-8"))
     assert progress_payload["total_replays"] == 2
-    assert progress_payload["total_cells"] == 10
+    assert progress_payload["total_cells"] == 14
     assert progress_payload["baseline_trials"] == 1
     assert progress_payload["final_trials"] == 2
-    assert progress_payload["baseline_rows"] == 10
-    assert progress_payload["final_rows"] == 20
+    assert progress_payload["baseline_rows"] == 14
+    assert progress_payload["final_rows"] == 28
     assert any(str(event.get("phase")) == "method-evaluation" for event in progress_events)
+
+
+def test_agent_metrics_method_faithful_estimates_and_safety(tmp_path: Path):
+    result, _ = _run_bundle(tmp_path, out_name="o_agent_metrics", seeds=(13,), caps=(1,))
+    rows = [json.loads(line) for line in Path(result["output_paths"]["agent_metrics"]).read_text(encoding="utf-8").splitlines() if line.strip()]
+    agent_count = len({row["agent_id"] for row in rows})
+    assert len(rows) == 7 * agent_count
+
+    by_method = {}
+    for row in rows:
+        by_method.setdefault(row["method_id"], []).append(row)
+
+    for method_id in METHOD_ID_ORDER:
+        assert len(by_method[method_id]) == agent_count
+
+    for row in by_method[METHOD_IDS["arm2"]]:
+        assert row["estimate"] is not None
+        assert row["represented_population_fraction"] == pytest.approx(1.0)
+
+    for row in by_method[METHOD_IDS["arm2_5"]]:
+        assert row["estimate"] is not None
+        assert row["represented_population_fraction"] == pytest.approx(1.0)
+
+    for row in by_method[METHOD_IDS["arm6"]]:
+        assert 0.0 <= float(row["represented_population_fraction"]) <= 1.0
+
+    for method_id in (METHOD_IDS["arm1"], METHOD_IDS["arm3"], METHOD_IDS["arm4"], METHOD_IDS["arm5"]):
+        for row in by_method[method_id]:
+            if row["n"] == 0:
+                assert row["estimate"] is None
+
+    payload_text = json.dumps(rows).lower()
+    assert "openai_api_key" not in payload_text
+    assert "search_api_key" not in payload_text
+    assert "label" not in payload_text
 
 
 def test_resumed_merge_populates_top_five_agent_aggregate(tmp_path: Path):

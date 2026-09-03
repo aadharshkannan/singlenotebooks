@@ -21,11 +21,13 @@ TRIAL_SEEDS: tuple[int, ...] = (13, 14, 15)
 METHOD_IDS: dict[str, str] = {
     "arm1": "arm1_global_random",
     "arm2": "arm2_embedding_idw",
+    "arm2_5": "arm2_5_embedding_idw_binary",
     "arm3": "arm3_agent_round_robin_floor",
     "arm4": "arm4_agent_round_robin",
     "arm5": "arm5_hajek_weighted",
+    "arm6": "arm6_agent_use_case_hajek",
 }
-METHOD_ID_ORDER: tuple[str, ...] = tuple(METHOD_IDS[k] for k in ("arm1", "arm2", "arm3", "arm4", "arm5"))
+METHOD_ID_ORDER: tuple[str, ...] = tuple(METHOD_IDS[k] for k in ("arm1", "arm2", "arm2_5", "arm3", "arm4", "arm5", "arm6"))
 
 
 def _trim_upper(value: Any) -> str:
@@ -61,11 +63,18 @@ class SessionDescriptor:
     use_case_id: str
     concept_key: str
     label: bool
+    business_use_case_guid: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "unit_id", str(self.unit_id))
         object.__setattr__(self, "agent_id", str(self.agent_id))
         object.__setattr__(self, "use_case_id", str(self.use_case_id))
+        business_use_case_guid = str(self.business_use_case_guid).strip() if self.business_use_case_guid is not None else ""
+        object.__setattr__(
+            self,
+            "business_use_case_guid",
+            business_use_case_guid if business_use_case_guid else str(self.use_case_id),
+        )
         object.__setattr__(self, "concept_key", str(self.concept_key))
         object.__setattr__(self, "label", bool(self.label))
 
@@ -111,6 +120,7 @@ class SelectionOutcome:
     records: tuple[SelectionRecord, ...]
     per_agent_counts: dict[str, int] = field(default_factory=dict)
     inclusion_probability_by_unit: dict[str, float] = field(default_factory=dict)
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 def build_session_descriptors(rows: Sequence[Mapping[str, Any]]) -> tuple[SessionDescriptor, ...]:
@@ -119,6 +129,13 @@ def build_session_descriptors(rows: Sequence[Mapping[str, Any]]) -> tuple[Sessio
         unit_id = str(row.get("unit_id") or row.get("id") or f"unit-{index}")
         agent_id = str(row.get("agent_id") or row.get("agent") or "agent-unknown")
         use_case_id = str(row.get("use_case_id") or row.get("maven_use_case_id") or row.get("use_case") or "use-case-unknown")
+        business_use_case_guid = str(
+            row.get("business_use_case_guid")
+            or row.get("maven_business_use_case_guid")
+            or row.get("maven_use_case_guid")
+            or row.get("use_case_guid")
+            or use_case_id
+        )
         concept_key = str(row.get("concept_key") or row.get("concept") or f"concept-{index}")
         label = bool(row.get("label") or row.get("pass") or row.get("passed") or False)
         out.append(
@@ -126,6 +143,7 @@ def build_session_descriptors(rows: Sequence[Mapping[str, Any]]) -> tuple[Sessio
                 unit_id=unit_id,
                 agent_id=agent_id,
                 use_case_id=use_case_id,
+                business_use_case_guid=business_use_case_guid,
                 concept_key=concept_key,
                 label=label,
             )
@@ -487,6 +505,7 @@ def _selection_by_method(method_id: str, *, descriptors: Sequence[SessionDescrip
             records=records,
             per_agent_counts={},
             inclusion_probability_by_unit={record.unit_id: record.inclusion_probability for record in records},
+            diagnostics={},
         )
 
     if method_id in (METHOD_IDS["arm3"], METHOD_IDS["arm4"]):
@@ -542,6 +561,7 @@ def _selection_by_method(method_id: str, *, descriptors: Sequence[SessionDescrip
             records=tuple(final_records),
             per_agent_counts=per_agent,
             inclusion_probability_by_unit=inclusion_map,
+            diagnostics={},
         )
 
     raise ValueError(f"Unsupported method_id={method_id!r}")
@@ -586,7 +606,7 @@ def arm4_inclusion_probabilities(*, descriptors: Sequence[SessionDescriptor], ca
 def select_arm5(*, descriptors: Sequence[SessionDescriptor], arm4_outcome: SelectionOutcome, labels_by_unit: Mapping[str, bool], trial_seed: int = 13, window_id: str = "window-1") -> SelectionOutcome:
     selected_ids = tuple(arm4_outcome.selected_ids)
     if not selected_ids:
-        return SelectionOutcome(method_id=METHOD_IDS["arm5"], selected_ids=(), records=(), per_agent_counts={}, inclusion_probability_by_unit={})
+        return SelectionOutcome(method_id=METHOD_IDS["arm5"], selected_ids=(), records=(), per_agent_counts={}, inclusion_probability_by_unit={}, diagnostics={})
     arm4_pi = dict(arm4_outcome.inclusion_probability_by_unit)
     if not arm4_pi:
         arm4_pi = {
@@ -611,6 +631,168 @@ def select_arm5(*, descriptors: Sequence[SessionDescriptor], arm4_outcome: Selec
         records=records,
         per_agent_counts=dict(arm4_outcome.per_agent_counts),
         inclusion_probability_by_unit={record.unit_id: record.inclusion_probability for record in records},
+        diagnostics={"design": "hajek-reuse-arm4"},
+    )
+
+
+def _extract_unit_estimate_value(row: Any) -> float:
+    if hasattr(row, "value"):
+        return float(getattr(row, "value"))
+    if isinstance(row, Mapping) and "value" in row:
+        return float(row["value"])
+    raise ValueError("unit estimate row must expose a numeric 'value'")
+
+
+def arm2_5_binary_estimate_from_rows(rows: Sequence[Any]) -> float:
+    if not rows:
+        return 0.0
+    binary_values = [1.0 if _extract_unit_estimate_value(row) >= 0.5 else 0.0 for row in rows]
+    return float(sum(binary_values) / len(binary_values))
+
+
+def arm2_5_binary_estimate_from_population(estimated_population: Any) -> float:
+    rows = tuple(getattr(estimated_population, "rows", ()) or ())
+    return arm2_5_binary_estimate_from_rows(rows)
+
+
+def run_arm2_5_binary_from_arm2_result(*, arm2_result: Mapping[str, Any]) -> dict[str, Any]:
+    estimated_population = arm2_result.get("estimated_population")
+    if estimated_population is None:
+        raise ValueError("arm2_result must include estimated_population for arm2.5")
+    binary_estimate = arm2_5_binary_estimate_from_population(estimated_population)
+    validation_obj = arm2_result.get("validation")
+    if isinstance(validation_obj, Mapping):
+        census_rate = float(validation_obj.get("census_pass_rate", 0.0))
+    elif validation_obj is not None and hasattr(validation_obj, "census_pass_rate"):
+        census_rate = float(getattr(validation_obj, "census_pass_rate"))
+    else:
+        census_rate = 0.0
+    selected_rate = float(arm2_result.get("selected_rate", 0.0))
+    return {
+        "method_id": METHOD_IDS["arm2_5"],
+        "membership": arm2_result.get("membership"),
+        "estimate": binary_estimate,
+        "binary_estimate": binary_estimate,
+        "continuous_estimate": float(arm2_result.get("estimate", 0.0)),
+        "selected_rate": selected_rate,
+        "selected_only_error": abs(selected_rate - census_rate),
+        "validation": validation_obj,
+        "estimated_population": estimated_population,
+    }
+
+
+def arm6_joint_cell_inclusion_probabilities(
+    *,
+    descriptors: Sequence[SessionDescriptor],
+    selected_ids: Sequence[str],
+) -> tuple[dict[str, float], dict[str, float], dict[str, Any]]:
+    by_id = {descriptor.unit_id: descriptor for descriptor in descriptors}
+    selected = tuple(str(uid) for uid in selected_ids)
+    selected_set = set(selected)
+    cells: dict[tuple[str, str], list[str]] = {}
+    for descriptor in descriptors:
+        key = (descriptor.agent_id, descriptor.business_use_case_guid)
+        cells.setdefault(key, []).append(descriptor.unit_id)
+
+    n_by_cell: dict[tuple[str, str], int] = {key: 0 for key in cells}
+    for unit_id in selected_set:
+        descriptor = by_id.get(unit_id)
+        if descriptor is None:
+            continue
+        key = (descriptor.agent_id, descriptor.business_use_case_guid)
+        if key in n_by_cell:
+            n_by_cell[key] += 1
+
+    represented_cells = {key for key, n_au in n_by_cell.items() if n_au > 0}
+    zero_sample_cells = {key for key, n_au in n_by_cell.items() if n_au <= 0}
+
+    pi_by_unit: dict[str, float] = {}
+    weight_by_unit: dict[str, float] = {}
+    reasons_by_unit: dict[str, str] = {}
+    for unit_id in selected:
+        descriptor = by_id.get(unit_id)
+        if descriptor is None:
+            continue
+        key = (descriptor.agent_id, descriptor.business_use_case_guid)
+        N_au = int(len(cells.get(key, ())))
+        n_au = int(n_by_cell.get(key, 0))
+        if N_au <= 0 or n_au <= 0:
+            continue
+        pi = float(n_au) / float(N_au)
+        if not (0.0 < pi <= 1.0):
+            raise ValueError(f"invalid arm6 represented-cell inclusion probability for unit {unit_id}: {pi}")
+        pi_by_unit[unit_id] = pi
+        weight_by_unit[unit_id] = float(N_au) / float(n_au)
+        reasons_by_unit[unit_id] = "hajek-represented-joint-cell-poststratified-agent-use-case"
+
+    total_population = int(len(descriptors))
+    zero_sample_population = int(sum(len(cells[key]) for key in zero_sample_cells))
+    represented_population = total_population - zero_sample_population
+    weights = tuple(weight_by_unit.values())
+    weight_sum = float(sum(weights))
+    weight_sumsq = float(sum(weight * weight for weight in weights))
+    diagnostics: dict[str, Any] = {
+        "design": "represented_joint_cell_poststratified_hajek_agent_use_case",
+        "total_cell_count": int(len(cells)),
+        "represented_cell_count": int(len(represented_cells)),
+        "zero_sample_cell_count": int(len(zero_sample_cells)),
+        "population_count_in_zero_sample_cells": zero_sample_population,
+        "represented_population_fraction": (float(represented_population) / float(total_population)) if total_population > 0 else 1.0,
+        "weight_sum": weight_sum,
+        "weight_ess": ((weight_sum * weight_sum) / weight_sumsq) if weight_sumsq > 0.0 else 0.0,
+        "max_weight": max(weights) if weights else 0.0,
+        "represented_reason": "post-stratified Hajek on represented (agent_id,use_case_guid) cells only",
+        "cell_sizes": {
+            f"{agent_id}|{use_case_guid}": {
+                "N_au": int(len(unit_ids)),
+                "n_au": int(n_by_cell[(agent_id, use_case_guid)]),
+            }
+            for (agent_id, use_case_guid), unit_ids in sorted(cells.items())
+        },
+    }
+    return pi_by_unit, weight_by_unit, diagnostics
+
+
+def select_arm6(*, descriptors: Sequence[SessionDescriptor], arm4_outcome: SelectionOutcome) -> SelectionOutcome:
+    selected_ids = tuple(arm4_outcome.selected_ids)
+    if not selected_ids:
+        _pi, _weights, diagnostics = arm6_joint_cell_inclusion_probabilities(descriptors=descriptors, selected_ids=selected_ids)
+        return SelectionOutcome(
+            method_id=METHOD_IDS["arm6"],
+            selected_ids=selected_ids,
+            records=(),
+            per_agent_counts=dict(arm4_outcome.per_agent_counts),
+            inclusion_probability_by_unit={},
+            diagnostics=diagnostics,
+        )
+
+    by_id = {descriptor.unit_id: descriptor for descriptor in descriptors}
+    pi_by_unit, weight_by_unit, diagnostics = arm6_joint_cell_inclusion_probabilities(descriptors=descriptors, selected_ids=selected_ids)
+    records: list[SelectionRecord] = []
+    for unit_id in selected_ids:
+        descriptor = by_id.get(unit_id)
+        if descriptor is None:
+            continue
+        pi = float(pi_by_unit.get(unit_id, 0.0))
+        if not (0.0 < pi <= 1.0):
+            raise ValueError(f"missing represented-cell inclusion probability for selected unit {unit_id}")
+        records.append(
+            SelectionRecord(
+                unit_id=unit_id,
+                method_id=METHOD_IDS["arm6"],
+                stratum=f"{descriptor.agent_id}|{descriptor.business_use_case_guid}",
+                inclusion_probability=pi,
+                weight=float(weight_by_unit[unit_id]),
+                reason="hajek-represented-joint-cell-poststratified-agent-use-case",
+            )
+        )
+    return SelectionOutcome(
+        method_id=METHOD_IDS["arm6"],
+        selected_ids=selected_ids,
+        records=tuple(records),
+        per_agent_counts=dict(arm4_outcome.per_agent_counts),
+        inclusion_probability_by_unit={record.unit_id: float(record.inclusion_probability or 0.0) for record in records},
+        diagnostics=diagnostics,
     )
 
 
@@ -684,6 +866,7 @@ def compute_trial_metrics(
     actual_token_count: int | None = None,
     idw_result: Mapping[str, Any] | None = None,
     arm4_outcome: SelectionOutcome | None = None,
+    selection_outcome: SelectionOutcome | None = None,
 ) -> TrialMetrics:
     selected = tuple(sorted({str(uid) for uid in selected_ids}))
     pop_ids = tuple(sorted({descriptor.unit_id for descriptor in descriptors}))
@@ -691,9 +874,25 @@ def compute_trial_metrics(
     census_rate = float(sum(labels.values()) / max(1, len(labels))) if labels else 0.0
     if method_id == METHOD_IDS["arm2"] and idw_result is not None:
         estimate = float(idw_result.get("estimate", census_rate))
+    elif method_id == METHOD_IDS["arm2_5"] and idw_result is not None:
+        if "binary_estimate" in idw_result:
+            estimate = float(idw_result.get("binary_estimate", census_rate))
+        elif idw_result.get("estimated_population") is not None:
+            estimate = arm2_5_binary_estimate_from_population(idw_result.get("estimated_population"))
+        else:
+            estimate = float(idw_result.get("estimate", census_rate))
     elif method_id == METHOD_IDS["arm5"] and arm4_outcome is not None:
         inclusion = arm4_inclusion_probabilities(descriptors=descriptors, cap=len(arm4_outcome.selected_ids), trial_seed=trial_seed, window_id=window_id)
         estimate = _hajek_estimate(selected, labels_by_unit, inclusion)
+    elif method_id == METHOD_IDS["arm6"] and selection_outcome is not None:
+        inclusion = dict(selection_outcome.inclusion_probability_by_unit)
+        if not inclusion:
+            inclusion = {
+                record.unit_id: float(record.inclusion_probability)
+                for record in selection_outcome.records
+                if record.inclusion_probability is not None
+            }
+        estimate = _hajek_estimate(selected, labels_by_unit, inclusion) if selected else 0.0
     else:
         estimate = float(sum(labels.get(uid, 0.0) for uid in selected) / max(1, len(selected))) if selected else 0.0
     selected_label_rate = float(sum(labels.get(uid, 0.0) for uid in selected) / max(1, len(selected))) if selected else 0.0
@@ -776,6 +975,7 @@ def _make_dense_fixture() -> tuple[tuple[SessionDescriptor, ...], dict[str, bool
                 unit_id=unit_id,
                 agent_id=f"agent-{agent_idx}",
                 use_case_id=f"use-case-{(idx % 3) + 1}",
+                business_use_case_guid=f"use-case-{(idx % 3) + 1}",
                 concept_key=f"concept-{(agent_idx + idx) % 4}",
                 label=(idx + agent_idx) % 2 == 0,
             )
@@ -809,9 +1009,14 @@ __all__ = [
     "select_arm3",
     "select_arm4",
     "select_arm5",
+    "select_arm6",
     "run_arm2_idw",
+    "run_arm2_5_binary_from_arm2_result",
+    "arm2_5_binary_estimate_from_rows",
+    "arm2_5_binary_estimate_from_population",
     "compute_trial_metrics",
     "arm4_inclusion_probabilities",
+    "arm6_joint_cell_inclusion_probabilities",
     "_stable_sha256_hex",
     "_hash_float",
     "arm4_and_arm5_membership_identity",

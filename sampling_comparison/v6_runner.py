@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -47,11 +47,13 @@ from sampling_comparison.v6_experiment import (
     TrialMetrics,
     build_session_descriptors,
     compute_trial_metrics,
+    run_arm2_5_binary_from_arm2_result,
     run_arm2_idw,
     select_arm1,
     select_arm3,
     select_arm4,
     select_arm5,
+    select_arm6,
     validate_selection_exactness,
 )
 from trace_sampling.azure_config import AzureConfig
@@ -68,9 +70,10 @@ DEFAULT_MAVEN_ROOT = Path(
 )
 DEFAULT_MAVEN_CENTROIDS_DB = str(DEFAULT_MAVEN_ROOT / "centroids_v6.db")
 DEFAULT_MAVEN_TAXONOMY_DB = str(DEFAULT_MAVEN_ROOT / "taxonomy_v6.db")
-V6_BUNDLE_VERSION = "sampling-v6-bundle-v1"
-V6_MANIFEST_VERSION = "sampling-v6-manifest-v1"
-V6_CHECKPOINT_VERSION = "sampling-v6-checkpoint-v1"
+V6_BUNDLE_VERSION = "sampling-v6-bundle-v2"
+V6_MANIFEST_VERSION = "sampling-v6-manifest-v2"
+V6_CHECKPOINT_VERSION = "sampling-v6-checkpoint-v2"
+V6_AGENT_METRICS_VERSION = "sampling-v6-agent-metrics-v1"
 UNDETERMINED_SENTINEL = "undetermined:none"
 
 _SELECTION_CONTROLLING_CODE_PATHS: tuple[Path, ...] = (
@@ -352,8 +355,16 @@ def _strip_label_fields_from_run_row(row: Mapping[str, Any]) -> dict[str, Any]:
     return dict(_clean(dict(row)))
 
 
-def _sanitize_idw_validation(value: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+def _sanitize_idw_validation(value: Any | None) -> Mapping[str, Any] | None:
     if value is None:
+        return None
+    if isinstance(value, Mapping):
+        source = dict(value)
+    elif is_dataclass(value):
+        source = dict(asdict(value))
+    elif hasattr(value, "__dict__"):
+        source = dict(getattr(value, "__dict__") or {})
+    else:
         return None
     banned = {
         "donor_ids",
@@ -364,7 +375,7 @@ def _sanitize_idw_validation(value: Mapping[str, Any] | None) -> Mapping[str, An
         "per_unit_rows",
     }
     out: dict[str, Any] = {}
-    for key, raw in value.items():
+    for key, raw in source.items():
         k = str(key)
         if k in banned or k.startswith("donor_"):
             continue
@@ -440,6 +451,89 @@ class _Arm2SelectionResult:
     selected_ids: tuple[str, ...]
     records: tuple[SelectionRecord, ...]
     telemetry: dict[str, Any]
+
+
+class _ResilientVectorStore:
+    """Retry transient live-store operations without changing selection semantics."""
+
+    def __init__(self, inner: VectorStore, *, max_attempts: int = 3, retry_seconds: float = 0.25) -> None:
+        self._inner = inner
+        self._max_attempts = max(1, int(max_attempts))
+        self._retry_seconds = max(0.0, float(retry_seconds))
+        self._purged_cluster_ids: set[str] = set()
+        self.retried_operations = 0
+        self.stale_nearest_ignores = 0
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    @staticmethod
+    def _is_retryable(exc: Exception) -> bool:
+        status_code = getattr(exc, "status_code", None)
+        if status_code in {408, 409, 429} or (isinstance(status_code, int) and status_code >= 500):
+            return True
+        return type(exc).__name__ in {"ServiceRequestError", "ServiceResponseError", "ServiceResponseTimeoutError"}
+
+    def _call(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
+        last_error: Exception | None = None
+        for attempt in range(self._max_attempts):
+            try:
+                return getattr(self._inner, method_name)(*args, **kwargs)
+            except Exception as exc:
+                last_error = exc
+                if not self._is_retryable(exc):
+                    raise
+                if attempt < self._max_attempts - 1:
+                    self.retried_operations += 1
+                    if self._retry_seconds > 0.0:
+                        time.sleep(self._retry_seconds)
+        assert last_error is not None
+        raise last_error
+
+    def nearest(self, vec, agent_id=None, semantic_scope=None, tenant_id=None, run_scope=None):
+        nearest = self._call(
+            "nearest",
+            vec,
+            agent_id=agent_id,
+            semantic_scope=semantic_scope,
+            tenant_id=tenant_id,
+            run_scope=run_scope,
+        )
+        if nearest is not None and str(nearest[0]) in self._purged_cluster_ids:
+            self.stale_nearest_ignores += 1
+            return None
+        return nearest
+
+    def upsert(self, doc):
+        return self._call("upsert", doc)
+
+    def touch(self, cluster_id: str, now: float) -> None:
+        self._call("touch", cluster_id, now)
+
+    def purge_stale(self, now: float, ttl: float, semantic_scope=None, tenant_id=None, run_scope=None):
+        purged = self._call(
+            "purge_stale",
+            now=now,
+            ttl=ttl,
+            semantic_scope=semantic_scope,
+            tenant_id=tenant_id,
+            run_scope=run_scope,
+        )
+        self._purged_cluster_ids.update(str(cluster_id) for cluster_id in purged)
+        return purged
+
+    def delete_scope(self, tenant_id: str, run_scope: str, semantic_scope=None):
+        return self._call("delete_scope", tenant_id, run_scope, semantic_scope=semantic_scope)
+
+    def delete_scope_settled(self, tenant_id: str, run_scope: str, semantic_scope=None, *, max_attempts=3, settle_seconds=0.0):
+        return self._call(
+            "delete_scope_settled",
+            tenant_id,
+            run_scope,
+            semantic_scope=semantic_scope,
+            max_attempts=max_attempts,
+            settle_seconds=settle_seconds,
+        )
 
 
 @dataclass(frozen=True)
@@ -912,6 +1006,75 @@ def _sanitize_arm2_idw_quality(validation: Mapping[str, Any] | None) -> dict[str
     }
 
 
+def _arm2_5_estimator_diagnostics(binary_result: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "threshold": 0.5,
+        "rule": "value < 0.5 => 0; value >= 0.5 => 1",
+        "continuous_estimate": _finite_float_or_none(binary_result.get("continuous_estimate")),
+        "binary_estimate": _finite_float_or_none(binary_result.get("binary_estimate")),
+        "note": "binary estimate is derived by thresholding the continuous donor model outputs",
+    }
+
+
+def _sanitize_arm6_diagnostics_for_run_row(diagnostics: Mapping[str, Any] | None) -> dict[str, Any]:
+    payload = dict(diagnostics or {})
+    return {
+        "design": str(payload.get("design") or "represented_joint_cell_poststratified_hajek_agent_use_case"),
+        "total_cell_count": int(payload.get("total_cell_count") or 0),
+        "represented_cell_count": int(payload.get("represented_cell_count") or 0),
+        "zero_sample_cell_count": int(payload.get("zero_sample_cell_count") or 0),
+        "population_count_in_zero_sample_cells": int(payload.get("population_count_in_zero_sample_cells") or 0),
+        "represented_population_fraction": _finite_float_or_none(payload.get("represented_population_fraction")),
+        "weight_sum": _finite_float_or_none(payload.get("weight_sum")),
+        "weight_ess": _finite_float_or_none(payload.get("weight_ess")),
+        "max_weight": _finite_float_or_none(payload.get("max_weight")),
+        "estimator_limitation": "realized represented-cell post-stratification; zero-sample cells are not recovered",
+    }
+
+
+def _sanitize_arm6_diagnostics_for_membership_row(diagnostics: Mapping[str, Any] | None) -> dict[str, Any]:
+    payload = dict(diagnostics or {})
+    return {
+        "total_cell_count": int(payload.get("total_cell_count") or 0),
+        "represented_cell_count": int(payload.get("represented_cell_count") or 0),
+        "zero_sample_cell_count": int(payload.get("zero_sample_cell_count") or 0),
+        "population_count_in_zero_sample_cells": int(payload.get("population_count_in_zero_sample_cells") or 0),
+        "represented_population_fraction": _finite_float_or_none(payload.get("represented_population_fraction")),
+        "weight_sum": _finite_float_or_none(payload.get("weight_sum")),
+        "weight_ess": _finite_float_or_none(payload.get("weight_ess")),
+        "max_weight": _finite_float_or_none(payload.get("max_weight")),
+    }
+
+
+def _unit_estimate_fields(row: Any) -> tuple[str, float] | None:
+    if isinstance(row, Mapping):
+        unit_id = str(row.get("unit_id") or "").strip()
+        value = _finite_float_or_none(row.get("value"))
+    else:
+        unit_id = str(getattr(row, "unit_id", "") or "").strip()
+        value = _finite_float_or_none(getattr(row, "value", None))
+    if not unit_id or value is None:
+        return None
+    return unit_id, float(value)
+
+
+def _hajek_ratio_estimate(selected_ids: Sequence[str], labels_by_unit: Mapping[str, bool], inclusion_probability_by_unit: Mapping[str, float]) -> float | None:
+    if not selected_ids:
+        return None
+    numerator = 0.0
+    denominator = 0.0
+    for unit_id in selected_ids:
+        pi = _finite_float_or_none(inclusion_probability_by_unit.get(unit_id))
+        if pi is None or pi <= 0.0:
+            continue
+        y = 1.0 if bool(labels_by_unit.get(unit_id, False)) else 0.0
+        numerator += y / pi
+        denominator += 1.0 / pi
+    if denominator <= 0.0:
+        return None
+    return float(numerator / denominator)
+
+
 def _scope_count(store: Any, *, tenant_id: str, run_scope: str, semantic_scope: str) -> int | None:
     if hasattr(store, "count_scope"):
         return int(store.count_scope(tenant_id=tenant_id, run_scope=run_scope, semantic_scope=semantic_scope))
@@ -1108,6 +1271,7 @@ def _select_arm2_exact_count(
     if remaining_after is not None and remaining_after != 0:
         raise RuntimeError("arm2 post-run cleanup did not settle to zero remaining docs")
 
+    resilient_store = getattr(store, "_inner", None)
     telemetry = {
         "native_proposed_count": len(native),
         "rejected_count": len(rejected),
@@ -1115,6 +1279,8 @@ def _select_arm2_exact_count(
         "search_queries": int(getattr(store, "search_queries", 0)),
         "writes": int(getattr(store, "writes", 0)),
         "cleanup_deleted": int(getattr(store, "cleanup_deleted", 0)),
+        "search_retried_operations": int(getattr(resilient_store, "retried_operations", 0)),
+        "search_stale_nearest_ignores": int(getattr(resilient_store, "stale_nearest_ignores", 0)),
     }
     emit({
         "status": "running",
@@ -1355,9 +1521,11 @@ def _methodology_md() -> str:
             "## Arms",
             "- Arm1: global deterministic random membership.",
             "- Arm2: embedding-based adaptive selection replayed against the real vector index with exact-count cap and IDW estimation over the full population.",
+            "- Arm2.5: thresholded binary estimator that reuses Arm2 membership exactly and maps continuous IDW per-unit values to binary via value < 0.5 => 0 and value >= 0.5 => 1.",
             "- Arm3: agent round-robin with floor prefix.",
             "- Arm4: agent round-robin probability design.",
             "- Arm5: Hajek-weighted reuse of Arm4 membership and inclusion probabilities.",
+            "- Arm6: Hajek estimator on realized represented (agent,use-case-guid) cells, reusing Arm4 membership exactly.",
             "",
             "## Arm2 Exact-Count Logic",
             "- Replays a deterministic seed order through AdaptiveSampler + AzureClusterIndex via V3EmbeddingSelector.",
@@ -1380,11 +1548,14 @@ def _methodology_md() -> str:
             "## Estimands",
             "- Aggregate estimand is pass-rate over full population.",
             "- Arm2 uses observed+IDW imputation and reports validation diagnostics.",
+            "- Arm2.5 uses the Arm2 donor-model population and computes binary aggregate estimate after thresholding.",
             "- Arm5 uses Hajek ratio estimator with Arm4 inclusion probabilities.",
+            "- Arm6 uses realized represented-cell post-stratification; unconditional design marginals are not used.",
             "",
             "## Limitations",
             "- Arm2 exact-count replay introduces deterministic ranking choices when proposals exceed cap.",
             "- IDW is model-assisted and should be treated as an approximation, not a design-unbiased guarantee.",
+            "- Arm6 does not recover zero-sample joint cells; represented-cell weights only adjust within observed support.",
             "- Existing dataset metadata and expected labels are synthetic and non-production.",
             "",
         ]
@@ -1539,15 +1710,16 @@ def _validate_checkpoint_rows(
     run_rows: Sequence[Mapping[str, Any]],
     membership_rows: Sequence[Mapping[str, Any]],
 ) -> None:
-    if len(run_rows) != 5 or len(membership_rows) != 5:
-        raise ValueError("checkpoint must contain exactly five run rows and five membership rows")
+    expected_method_count = len(METHOD_ID_ORDER)
+    if len(run_rows) != expected_method_count or len(membership_rows) != expected_method_count:
+        raise ValueError("checkpoint must contain exactly one run row and one membership row per method")
     run_keys = {_extract_cell_key(row) for row in run_rows}
     mem_keys = {_extract_cell_key(row) for row in membership_rows}
     expected = {(int(seed), int(cap), method_id) for method_id in METHOD_ID_ORDER}
     if run_keys != expected:
-        raise ValueError("checkpoint run rows do not match expected method grid")
+        raise ValueError("checkpoint run rows do not match expected method set")
     if mem_keys != expected:
-        raise ValueError("checkpoint membership rows do not match expected method grid")
+        raise ValueError("checkpoint membership rows do not match expected method set")
     for row in run_rows:
         if int(row.get("sample_size") or 0) != int(cap):
             raise ValueError("checkpoint run row sample_size does not equal cap")
@@ -1798,7 +1970,7 @@ def _validate_baseline_compatibility(
     if baseline_idw != dict(expected_compatibility_payload.get("idw") or {}):
         raise ValueError("baseline idw config mismatch")
 
-    expected_grid = len(baseline_caps) * len([int(x) for x in (baseline_cfg.get("seeds") or [])]) * 5
+    expected_grid = len(baseline_caps) * len([int(x) for x in (baseline_cfg.get("seeds") or [])]) * len(METHOD_ID_ORDER)
     if len(runs) != expected_grid or len(memberships) != expected_grid:
         raise ValueError("baseline row counts do not match baseline seed x cap grid")
 
@@ -1811,6 +1983,11 @@ def _validate_baseline_compatibility(
         raise ValueError(f"requested seeds overlap baseline seeds: {overlap}")
 
     _arm2_zero_fallbacks_or_fail(runs)
+    method_set = set(METHOD_ID_ORDER)
+    if {str(row.get("method_id")) for row in runs} != method_set:
+        raise ValueError("baseline run rows do not include the full seven-arm method set")
+    if {str(row.get("method_id")) for row in memberships} != method_set:
+        raise ValueError("baseline membership rows do not include the full seven-arm method set")
     for seed in baseline_seeds:
         for cap in baseline_caps:
             _validate_arm4_arm5_identity(memberships, seed=seed, cap=cap)
@@ -1838,6 +2015,7 @@ def _write_cell_checkpoint(
     selection_code_hashes: Mapping[str, Any],
     publisher_code_hashes: Mapping[str, Any],
     arm2_telemetry: Mapping[str, Any],
+    agent_metric_rows: Sequence[Mapping[str, Any]],
 ) -> None:
     payload: dict[str, Any] = {
         "version": V6_CHECKPOINT_VERSION,
@@ -1854,6 +2032,7 @@ def _write_cell_checkpoint(
         "selection_code_hashes": dict(selection_code_hashes),
         "producer_code_hashes": dict(publisher_code_hashes),
         "arm2_telemetry": dict(arm2_telemetry),
+        "agent_metric_rows": [dict(row) for row in agent_metric_rows],
         "created_at": _iso_now_utc(),
     }
     _validate_checkpoint_rows(seed=seed, cap=cap, run_rows=payload["run_rows"], membership_rows=payload["membership_rows"])
@@ -1868,7 +2047,7 @@ def _load_resume_checkpoint(
     seed: int,
     cap: int,
     compatibility_fingerprint: str,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]] | None:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]] | None:
     path = _checkpoint_cell_path(checkpoint_root, seed=seed, cap=cap)
     if not path.exists():
         return None
@@ -1886,9 +2065,10 @@ def _load_resume_checkpoint(
         raise ValueError(f"checkpoint payload hash mismatch for seed={seed} cap={cap}")
     run_rows = [dict(row) for row in (raw.get("run_rows") or [])]
     membership_rows = [dict(row) for row in (raw.get("membership_rows") or [])]
+    agent_metric_rows = [dict(row) for row in (raw.get("agent_metric_rows") or [])]
     _validate_checkpoint_rows(seed=seed, cap=cap, run_rows=run_rows, membership_rows=membership_rows)
     _sanitize_checkpoint_payload(raw)
-    return run_rows, membership_rows
+    return run_rows, membership_rows, agent_metric_rows
 
 
 def run_sampling_v6_bundle(
@@ -1928,7 +2108,7 @@ def run_sampling_v6_bundle(
     requested_new_seeds = [int(x) for x in seeds]
     caps_list = [int(x) for x in caps]
     total_replays = max(1, len(requested_new_seeds) * len(caps_list))
-    total_cells = max(1, total_replays * 5)
+    total_cells = max(1, total_replays * len(METHOD_ID_ORDER))
     progress_state: dict[str, Any] = {
         "version": "sampling-v6-progress-v1",
         "status": "running",
@@ -2052,14 +2232,19 @@ def run_sampling_v6_bundle(
         baseline_manifest_path: Path | None = None
         baseline_manifest_hash: str | None = None
         baseline_producer_hashes: dict[str, Any] | None = None
+        baseline_agent_metrics: list[dict[str, Any]] = []
         classifications_by_unit: dict[str, _ClassificationRow] = {}
         classification_cache_stats: dict[str, Any] = {}
 
         vstore_factory = vector_store_factory or (
-            lambda _tenant, _scope: AzureSearchVectorStore(
-                cfg,
-                dim=V3_EMBEDDING_DIMENSIONS,
-                ensure_index=bool(ensure_search_index),
+            lambda _tenant, _scope: _ResilientVectorStore(
+                AzureSearchVectorStore(
+                    cfg,
+                    dim=V3_EMBEDDING_DIMENSIONS,
+                    ensure_index=bool(ensure_search_index),
+                ),
+                max_attempts=3,
+                retry_seconds=0.25,
             )
         )
         arm2_fn = arm2_selector or _select_arm2_exact_count
@@ -2101,6 +2286,10 @@ def run_sampling_v6_bundle(
             baseline_manifest_path = Path(baseline_bundle["manifest_path"])
             baseline_manifest_hash = _sha256_file(baseline_manifest_path)
             baseline_producer_hashes = dict(((baseline_manifest.get("provenance") or {}).get("code_hashes") or {}))
+            baseline_agent_metrics_path = Path(baseline_dir) / "agent_metrics.jsonl"
+            if not baseline_agent_metrics_path.exists():
+                raise ValueError("baseline artifact missing: agent_metrics.jsonl")
+            baseline_agent_metrics = _read_jsonl(baseline_agent_metrics_path)
             baseline_classification_rows = {
                 str(row.get("unit_id") or ""): _coerce_baseline_classification_row(row)
                 for row in baseline_bundle["classifications"]
@@ -2193,7 +2382,7 @@ def run_sampling_v6_bundle(
         if len(set(requested_new_seeds)) != len(requested_new_seeds):
             raise ValueError("requested seeds contain duplicates")
         combined_seeds = sorted(set(baseline_seeds).union(requested_new_seeds))
-        expected_final_rows = len(combined_seeds) * len(caps_list) * 5
+        expected_final_rows = len(combined_seeds) * len(caps_list) * len(METHOD_ID_ORDER)
         progress_state["baseline_trials"] = int(baseline_trial_count)
         progress_state["final_trials"] = int(len(combined_seeds))
         progress_state["baseline_rows"] = int(len(baseline_runs))
@@ -2203,6 +2392,7 @@ def run_sampling_v6_bundle(
 
         run_rows: list[dict[str, Any]] = [dict(row) for row in baseline_runs]
         membership_rows: list[dict[str, Any]] = [dict(row) for row in baseline_memberships]
+        agent_metric_rows: list[dict[str, Any]] = [dict(row) for row in baseline_agent_metrics]
         trial_metrics_rows: list[TrialMetrics] = []
         checkpoint_reused_cells = 0
         checkpoint_new_cells = 0
@@ -2237,12 +2427,13 @@ def run_sampling_v6_bundle(
                         compatibility_fingerprint=compatibility_fingerprint,
                     )
                     if resumed is not None:
-                        resumed_runs, resumed_memberships = resumed
+                        resumed_runs, resumed_memberships, resumed_agent_metrics = resumed
                         run_rows.extend(resumed_runs)
                         membership_rows.extend(resumed_memberships)
+                        agent_metric_rows.extend(resumed_agent_metrics)
                         checkpoint_reused_cells += 1
                         progress_state["completed_replays"] = current_replay
-                        progress_state["completed_cells"] = int(progress_state.get("completed_cells", 0)) + 5
+                        progress_state["completed_cells"] = int(progress_state.get("completed_cells", 0)) + len(METHOD_ID_ORDER)
                         emit({
                             "phase": "checkpoint-resume",
                             "message": f"Reused checkpoint for seed {seed} cap {cap_eff}",
@@ -2339,27 +2530,49 @@ def run_sampling_v6_bundle(
                     trial_seed=seed,
                     window_id=window_id,
                 )
+                arm6 = select_arm6(descriptors=descriptors, arm4_outcome=arm4)
                 if arm4.selected_ids != arm5.selected_ids:
                     raise AssertionError("arm4 and arm5 membership must be identical")
+                if arm4.selected_ids != arm6.selected_ids:
+                    raise AssertionError("arm4 and arm6 membership must be identical")
+
+                arm2_outcome = SelectionOutcome(
+                    method_id=METHOD_IDS["arm2"],
+                    selected_ids=arm2.selected_ids,
+                    records=arm2.records,
+                )
+                arm2_5 = run_arm2_5_binary_from_arm2_result(arm2_result=arm2_idw)
+                arm2_5_outcome = SelectionOutcome(
+                    method_id=METHOD_IDS["arm2_5"],
+                    selected_ids=arm2.selected_ids,
+                    records=tuple(
+                        SelectionRecord(
+                            unit_id=rec.unit_id,
+                            method_id=METHOD_IDS["arm2_5"],
+                            stratum=rec.stratum,
+                            inclusion_probability=rec.inclusion_probability,
+                            weight=rec.weight,
+                            reason="arm2_5-thresholded-reuse-arm2-membership",
+                        )
+                        for rec in arm2.records
+                    ),
+                )
+                if tuple(arm2_outcome.selected_ids) != tuple(arm2_5_outcome.selected_ids):
+                    raise AssertionError("arm2 and arm2.5 membership must be identical")
 
                 arm_map: list[tuple[str, SelectionOutcome, dict[str, Any] | None]] = [
                     (METHOD_IDS["arm1"], arm1, None),
-                    (
-                        METHOD_IDS["arm2"],
-                        SelectionOutcome(
-                            method_id=METHOD_IDS["arm2"],
-                            selected_ids=arm2.selected_ids,
-                            records=arm2.records,
-                        ),
-                        arm2_idw,
-                    ),
+                    (METHOD_IDS["arm2"], arm2_outcome, arm2_idw),
+                    (METHOD_IDS["arm2_5"], arm2_5_outcome, arm2_5),
                     (METHOD_IDS["arm3"], arm3, None),
                     (METHOD_IDS["arm4"], arm4, None),
                     (METHOD_IDS["arm5"], arm5, None),
+                    (METHOD_IDS["arm6"], arm6, None),
                 ]
 
                 cell_run_rows: list[dict[str, Any]] = []
                 cell_membership_rows: list[dict[str, Any]] = []
+                cell_agent_metric_rows: list[dict[str, Any]] = []
                 arm2_run_row: dict[str, Any] | None = None
                 for method_id, outcome, idw_result in arm_map:
                     progress_state["current_method"] = method_id
@@ -2386,6 +2599,7 @@ def run_sampling_v6_bundle(
                         actual_token_count=actual_tokens,
                         idw_result=idw_result,
                         arm4_outcome=arm4 if method_id == METHOD_IDS["arm5"] else None,
+                        selection_outcome=outcome if method_id == METHOD_IDS["arm6"] else None,
                     )
                     trial_metrics_rows.append(metric)
 
@@ -2497,6 +2711,13 @@ def run_sampling_v6_bundle(
                             str(rec.unit_id): _finite_float_or_none(rec.inclusion_probability)
                             for rec in arm5.records
                         }
+                    if method_id == METHOD_IDS["arm6"]:
+                        membership_row["inclusion_probability_by_unit"] = {
+                            str(rec.unit_id): _finite_float_or_none(rec.inclusion_probability)
+                            for rec in arm6.records
+                        }
+                        membership_row["arm6_diagnostics"] = _sanitize_arm6_diagnostics_for_membership_row(outcome.diagnostics)
+                        membership_row["arm6_estimator_limitation"] = "realized represented-cell post-stratification; zero-sample cells are not recovered"
                     membership_rows.append(membership_row)
                     cell_membership_rows.append(dict(membership_row))
 
@@ -2516,14 +2737,139 @@ def run_sampling_v6_bundle(
                         run_row["idw_validation"] = _sanitize_idw_validation(run_row.get("idw_validation"))
                         run_row["idw_provenance"] = _sanitize_arm2_idw_provenance(idw_result)
                         run_row["idw_quality"] = _sanitize_arm2_idw_quality(run_row.get("idw_validation"))
+                    if method_id == METHOD_IDS["arm2_5"]:
+                        run_row["arm2_telemetry"] = dict(arm2.telemetry)
+                        run_row["idw_provenance"] = _sanitize_arm2_idw_provenance(arm2_idw)
+                        run_row["continuous_idw_diagnostic"] = _sanitize_arm2_idw_quality(_sanitize_idw_validation(arm2_idw.get("validation")))
+                        run_row["estimator_diagnostics"] = _arm2_5_estimator_diagnostics(arm2_5)
+                        run_row["idw_validation"] = {
+                            "continuous_donor_model_diagnostic": _sanitize_arm2_idw_quality(_sanitize_idw_validation(arm2_idw.get("validation")))
+                        }
+                    if method_id == METHOD_IDS["arm6"]:
+                        run_row["estimator_diagnostics"] = _sanitize_arm6_diagnostics_for_run_row(outcome.diagnostics)
+                        run_row["joint_cell_probability_by_unit"] = {
+                            str(rec.unit_id): _finite_float_or_none(rec.inclusion_probability)
+                            for rec in arm6.records
+                        }
                     run_row = _strip_label_fields_from_run_row(run_row)
                     run_rows.append(run_row)
                     cell_run_rows.append(dict(run_row))
                     if method_id == METHOD_IDS["arm2"]:
                         arm2_run_row = dict(run_row)
 
-                arm4_membership = membership_rows[-2] if len(membership_rows) >= 2 else None
-                arm5_membership = membership_rows[-1] if len(membership_rows) >= 1 else None
+                    selected_set = set(outcome.selected_ids)
+                    all_population_use_cases_by_agent: dict[str, set[str]] = {}
+                    all_population_concepts_by_agent: dict[str, set[str]] = {}
+                    represented_use_cases_by_agent: dict[str, set[str]] = {}
+                    represented_concepts_by_agent: dict[str, set[str]] = {}
+                    selected_ids_by_agent: dict[str, list[str]] = {}
+                    all_ids_by_agent: dict[str, list[str]] = {}
+                    for descriptor in descriptors:
+                        aid = descriptor.agent_id
+                        all_population_use_cases_by_agent.setdefault(aid, set()).add(descriptor.use_case_id)
+                        all_population_concepts_by_agent.setdefault(aid, set()).add(descriptor.concept_key)
+                        all_ids_by_agent.setdefault(aid, []).append(descriptor.unit_id)
+                        if descriptor.unit_id in selected_set:
+                            represented_use_cases_by_agent.setdefault(aid, set()).add(descriptor.use_case_id)
+                            represented_concepts_by_agent.setdefault(aid, set()).add(descriptor.concept_key)
+                            selected_ids_by_agent.setdefault(aid, []).append(descriptor.unit_id)
+
+                    unit_estimate_by_unit: dict[str, float] = {}
+                    if method_id in {METHOD_IDS["arm2"], METHOD_IDS["arm2_5"]}:
+                        source = arm2_idw if method_id == METHOD_IDS["arm2"] else arm2_5
+                        estimated_population = source.get("estimated_population")
+                        for estimate_row in tuple(getattr(estimated_population, "rows", ()) or ()):
+                            parsed = _unit_estimate_fields(estimate_row)
+                            if parsed is None:
+                                continue
+                            uid, value = parsed
+                            unit_estimate_by_unit[uid] = (1.0 if value >= 0.5 else 0.0) if method_id == METHOD_IDS["arm2_5"] else float(value)
+
+                    for agent_id in sorted(all_ids_by_agent):
+                        population_agent_ids = all_ids_by_agent[agent_id]
+                        selected_agent_ids = selected_ids_by_agent.get(agent_id, [])
+                        N = len(population_agent_ids)
+                        n = len(selected_agent_ids)
+                        census_rate = float(
+                            sum(1.0 if bool(labels_by_unit.get(uid, False)) else 0.0 for uid in population_agent_ids)
+                            / max(1, N)
+                        )
+
+                        estimator_label = "selected_mean"
+                        estimate: float | None
+                        represented_population_fraction = 1.0
+                        if method_id in {METHOD_IDS["arm1"], METHOD_IDS["arm3"], METHOD_IDS["arm4"]}:
+                            estimate = None if n == 0 else float(
+                                sum(1.0 if bool(labels_by_unit.get(uid, False)) else 0.0 for uid in selected_agent_ids) / n
+                            )
+                            represented_population_fraction = 1.0 if n > 0 else 0.0
+                        elif method_id == METHOD_IDS["arm2"]:
+                            estimator_label = "idw_continuous_mean_full_population"
+                            vals = [unit_estimate_by_unit[uid] for uid in population_agent_ids if uid in unit_estimate_by_unit]
+                            estimate = None if len(vals) != N else float(sum(vals) / max(1, len(vals)))
+                            represented_population_fraction = 1.0
+                        elif method_id == METHOD_IDS["arm2_5"]:
+                            estimator_label = "idw_thresholded_binary_mean_full_population"
+                            vals = [unit_estimate_by_unit[uid] for uid in population_agent_ids if uid in unit_estimate_by_unit]
+                            estimate = None if len(vals) != N else float(sum(vals) / max(1, len(vals)))
+                            represented_population_fraction = 1.0
+                        elif method_id == METHOD_IDS["arm5"]:
+                            estimator_label = "hajek_with_arm4_probabilities"
+                            pi = {str(rec.unit_id): float(rec.inclusion_probability or 0.0) for rec in arm5.records}
+                            estimate = _hajek_ratio_estimate(selected_agent_ids, labels_by_unit, pi)
+                            represented_population_fraction = 1.0 if n > 0 else 0.0
+                        elif method_id == METHOD_IDS["arm6"]:
+                            estimator_label = "hajek_represented_joint_agent_use_case_cells"
+                            pi = {str(rec.unit_id): float(rec.inclusion_probability or 0.0) for rec in arm6.records}
+                            estimate = _hajek_ratio_estimate(selected_agent_ids, labels_by_unit, pi)
+                            represented_cells = {
+                                (descriptor_by_id[uid].agent_id, descriptor_by_id[uid].business_use_case_guid)
+                                for uid in outcome.selected_ids
+                                if uid in descriptor_by_id
+                            }
+                            represented_pop = 0
+                            for uid in population_agent_ids:
+                                descriptor = descriptor_by_id[uid]
+                                if (descriptor.agent_id, descriptor.business_use_case_guid) in represented_cells:
+                                    represented_pop += 1
+                            represented_population_fraction = float(represented_pop / max(1, N))
+                        else:
+                            estimate = None if n == 0 else float(
+                                sum(1.0 if bool(labels_by_unit.get(uid, False)) else 0.0 for uid in selected_agent_ids) / n
+                            )
+                            represented_population_fraction = 1.0 if n > 0 else 0.0
+
+                        concept_cov = float(
+                            len(represented_concepts_by_agent.get(agent_id, set())) / max(1, len(all_population_concepts_by_agent.get(agent_id, set())))
+                        )
+                        use_case_cov = float(
+                            len(represented_use_cases_by_agent.get(agent_id, set())) / max(1, len(all_population_use_cases_by_agent.get(agent_id, set())))
+                        )
+                        abs_error = None if estimate is None else float(abs(float(estimate) - census_rate))
+
+                        agent_row = {
+                            "version": V6_AGENT_METRICS_VERSION,
+                            "method_id": method_id,
+                            "seed": int(seed),
+                            "cap": int(cap_eff),
+                            "agent_id": agent_id,
+                            "N": int(N),
+                            "n": int(n),
+                            "estimate": estimate,
+                            "census_rate": census_rate,
+                            "absolute_error": abs_error,
+                            "concept_coverage": concept_cov,
+                            "use_case_coverage": use_case_cov,
+                            "estimator": estimator_label,
+                            "represented_population_fraction": float(represented_population_fraction),
+                        }
+                        agent_row = _strip_label_fields_from_run_row(agent_row)
+                        agent_metric_rows.append(agent_row)
+                        cell_agent_metric_rows.append(dict(agent_row))
+
+                arm4_membership = next((row for row in cell_membership_rows if row.get("method_id") == METHOD_IDS["arm4"]), None)
+                arm5_membership = next((row for row in cell_membership_rows if row.get("method_id") == METHOD_IDS["arm5"]), None)
+                arm6_membership = next((row for row in cell_membership_rows if row.get("method_id") == METHOD_IDS["arm6"]), None)
                 if arm4_membership and arm5_membership:
                     if arm4_membership["method_id"] == METHOD_IDS["arm4"] and arm5_membership["method_id"] == METHOD_IDS["arm5"]:
                         if tuple(arm4_membership["selected_ids"]) != tuple(arm5_membership["selected_ids"]):
@@ -2532,6 +2878,9 @@ def run_sampling_v6_bundle(
                             arm5_membership.get("inclusion_probability_by_unit") or {}
                         ):
                             raise AssertionError("arm4 and arm5 inclusion probabilities must match exactly")
+                if arm4_membership and arm6_membership:
+                    if tuple(arm4_membership["selected_ids"]) != tuple(arm6_membership["selected_ids"]):
+                        raise AssertionError("arm4 and arm6 selected_ids must match exactly")
 
                 _write_cell_checkpoint(
                     checkpoint_root=checkpoints_root,
@@ -2547,13 +2896,17 @@ def run_sampling_v6_bundle(
                     selection_code_hashes=selection_code_hashes,
                     publisher_code_hashes=publisher_code_hashes,
                     arm2_telemetry=dict((arm2_run_row or {}).get("arm2_telemetry") or {}),
+                    agent_metric_rows=cell_agent_metric_rows,
                 )
                 checkpoint_new_cells += 1
 
+        expected_agent_metric_rows = expected_final_rows * len(agent_population_sizes)
         if len(run_rows) != expected_final_rows:
             raise AssertionError("run row count mismatch")
         if len(membership_rows) != expected_final_rows:
             raise AssertionError("membership row count mismatch")
+        if len(agent_metric_rows) != expected_agent_metric_rows:
+            raise AssertionError("agent metric row count mismatch")
         _validate_unique_cell_grid(run_rows)
 
         classifications_rows = [
@@ -2700,6 +3053,7 @@ def run_sampling_v6_bundle(
         runs_path = root / "runs.jsonl"
         memberships_path = root / "memberships.jsonl"
         classifications_path = root / "classifications.jsonl"
+        agent_metrics_path = root / "agent_metrics.jsonl"
         examples_path = root / "dataset_examples.json"
         methodology_path = root / "methodology.md"
 
@@ -2707,6 +3061,7 @@ def run_sampling_v6_bundle(
         _write_jsonl_atomic(runs_path, run_rows)
         _write_jsonl_atomic(memberships_path, membership_rows)
         _write_jsonl_atomic(classifications_path, classifications_rows)
+        _write_jsonl_atomic(agent_metrics_path, agent_metric_rows)
         _write_json_atomic(examples_path, dataset_examples)
         _write_text_atomic(methodology_path, methodology)
 
@@ -2719,6 +3074,7 @@ def run_sampling_v6_bundle(
                 "runs": _artifact_meta(runs_path, root),
                 "memberships": _artifact_meta(memberships_path, root),
                 "classifications": _artifact_meta(classifications_path, root),
+                "agent_metrics": _artifact_meta(agent_metrics_path, root),
                 "dataset_examples": _artifact_meta(examples_path, root),
                 "methodology": _artifact_meta(methodology_path, root),
             },
@@ -2760,11 +3116,13 @@ def run_sampling_v6_bundle(
             "runs": run_rows,
             "memberships": membership_rows,
             "classifications": classifications_rows,
+            "agent_metrics": agent_metric_rows,
             "output_paths": {
                 "aggregate": str(aggregate_path),
                 "runs": str(runs_path),
                 "memberships": str(memberships_path),
                 "classifications": str(classifications_path),
+                "agent_metrics": str(agent_metrics_path),
                 "dataset_examples": str(examples_path),
                 "methodology": str(methodology_path),
                 "manifest": str(manifest_path),

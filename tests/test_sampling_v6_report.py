@@ -118,9 +118,11 @@ def _build_fixture_bundle(tmp_path: Path) -> V6ReportInputs:
     method_rows = [
         ("arm1_global_random", 0.14, 0.55, 0.52, 0.47, 1300),
         ("arm2_embedding_idw", 0.11, 0.61, 0.58, 0.54, 1330),
+        ("arm2_5_embedding_idw_binary", 0.113, 0.61, 0.58, 0.54, 1330),
         ("arm3_agent_round_robin_floor", 0.105, 0.63, 0.60, 0.58, 1280),
         ("arm4_agent_round_robin", 0.09, 0.69, 0.67, 0.64, 1250),
         ("arm5_hajek_weighted", 0.086, 0.72, 0.70, 0.67, 1210),
+        ("arm6_agent_use_case_hajek", 0.084, 0.71, 0.71, 0.66, 1220),
     ]
     for method_id, mae, c_cov, uc_cov, a_cov, tok in method_rows:
         for cap in caps:
@@ -224,6 +226,36 @@ def _build_fixture_bundle(tmp_path: Path) -> V6ReportInputs:
                 runs.append(run)
 
     _write_jsonl(root / "runs.jsonl", runs)
+
+    agent_metrics: list[dict] = []
+    for seed in (1, 2, 3):
+        for cap in caps:
+            for method_id, base_mae, c_cov, uc_cov, _a_cov, _tok in method_rows:
+                for agent_id, n_value, census, estimate in (
+                    ("A-102", 10 + seed, 0.78, 0.76),
+                    ("A-205", 6 + seed, 0.62, 0.60),
+                    ("A-301", 0 if method_id in {"arm1_global_random", "arm2_embedding_idw"} else 2, 0.12, None),
+                ):
+                    abs_error = None if estimate is None else abs(float(estimate) - float(census))
+                    agent_metrics.append(
+                        {
+                            "method_id": method_id,
+                            "seed": seed,
+                            "cap": cap,
+                            "agent_id": agent_id,
+                            "N": 400 if agent_id == "A-102" else 300 if agent_id == "A-205" else 50,
+                            "n": n_value,
+                            "estimate": estimate,
+                            "census_rate": census,
+                            "absolute_error": abs_error,
+                            "concept_coverage": c_cov,
+                            "use_case_coverage": uc_cov,
+                            "estimator": "hajek" if method_id in {"arm5_hajek_weighted", "arm6_agent_use_case_hajek"} else "mean",
+                            "represented_population_fraction": 0.65 if n_value > 0 else 0.0,
+                        }
+                    )
+
+    _write_jsonl(root / "agent_metrics.jsonl", agent_metrics)
 
     memberships = []
     for cap in caps:
@@ -420,6 +452,7 @@ def _build_fixture_bundle(tmp_path: Path) -> V6ReportInputs:
         runs_jsonl=root / "runs.jsonl",
         memberships=root / "memberships.jsonl",
         classifications=root / "classifications.jsonl",
+        agent_metrics=root / "agent_metrics.jsonl",
         dataset_examples=root / "dataset_examples.json",
         methodology=root / "methodology.md",
         manifest=root / "manifest.json",

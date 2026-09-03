@@ -1,0 +1,1186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<title>Sampling for Agent 365 Evaluations</title>
+<style>
+:root {
+  --ink: #17242b;
+  --muted: #617078;
+  --paper: #f4f7f5;
+  --surface: #ffffff;
+  --line: #cfd9d6;
+  --blue: #1769aa;
+  --blue-soft: #dcecf7;
+  --teal: #00897b;
+  --teal-dark: #006c62;
+  --teal-soft: #d9f1ec;
+  --amber: #dc921c;
+  --amber-soft: #faedcf;
+  --coral: #df6555;
+  --coral-soft: #f9e0dc;
+  --navy: #173d53;
+  --lime: #72a43a;
+  --shadow: 0 24px 70px rgba(23, 36, 43, .18);
+  --display: "Aptos Display", "Segoe UI Variable Display", "Trebuchet MS", sans-serif;
+  --body: "Aptos", "Segoe UI Variable Text", "Trebuchet MS", sans-serif;
+  --mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; }
+body {
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink);
+  background:
+    linear-gradient(135deg, rgba(0, 137, 123, .08), transparent 38%),
+    linear-gradient(315deg, rgba(223, 101, 85, .08), transparent 36%),
+    #dfe7e4;
+  font-family: var(--body);
+}
+button { font: inherit; }
+
+.app {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+
+.stage {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1600px;
+  height: 900px;
+  transform-origin: center center;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.slide {
+  position: absolute;
+  inset: 0;
+  display: none;
+  width: 1600px;
+  height: 900px;
+  padding: 68px 80px 62px;
+  overflow: hidden;
+  background:
+    linear-gradient(rgba(23, 36, 43, .025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(23, 36, 43, .025) 1px, transparent 1px),
+    var(--paper);
+  background-size: 32px 32px;
+}
+
+.slide.active { display: block; }
+.slide::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 10px;
+  background: linear-gradient(90deg, var(--teal) 0 52%, var(--blue) 52% 76%, var(--amber) 76% 89%, var(--coral) 89%);
+}
+.slide::after {
+  content: attr(data-slide);
+  position: absolute;
+  right: 30px;
+  bottom: 22px;
+  color: #83918f;
+  font: 600 16px var(--mono);
+}
+
+.slide-kicker {
+  margin: 0 0 12px;
+  color: var(--teal-dark);
+  font: 700 18px var(--mono);
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+h1, h2, h3, p { margin-top: 0; }
+h1, h2, h3 { font-family: var(--display); letter-spacing: 0; }
+h1 { font-size: 88px; line-height: .96; margin-bottom: 26px; max-width: 980px; }
+h2 { font-size: 58px; line-height: 1.02; margin-bottom: 26px; max-width: 1350px; }
+h3 { font-size: 30px; line-height: 1.08; margin-bottom: 14px; }
+.lead { font-size: 31px; line-height: 1.28; color: var(--muted); max-width: 1050px; }
+.small { font-size: 20px; line-height: 1.35; color: var(--muted); }
+.micro { font-size: 16px; line-height: 1.3; color: var(--muted); }
+.strong { color: var(--ink); font-weight: 750; }
+.accent { color: var(--teal-dark); }
+.blue { color: var(--blue); }
+.amber { color: #a66500; }
+.coral { color: #b83e31; }
+
+.slide-header { position: relative; z-index: 2; }
+.slide-body { position: relative; z-index: 2; height: 670px; }
+.row { display: flex; align-items: center; gap: 28px; }
+.column { display: flex; flex-direction: column; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+
+.panel {
+  background: rgba(255,255,255,.92);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 28px;
+}
+.panel.blue-panel { border-top: 8px solid var(--blue); }
+.panel.amber-panel { border-top: 8px solid var(--amber); }
+.panel.teal-panel { border-top: 8px solid var(--teal); }
+.panel.coral-panel { border-top: 8px solid var(--coral); }
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  background: white;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 17px;
+  font-weight: 700;
+}
+.dot { width: 12px; height: 12px; border-radius: 50%; background: currentColor; }
+.dot.hollow { background: white; border: 3px solid currentColor; color: var(--teal-dark); }
+
+.metric {
+  font-family: var(--display);
+  font-size: 72px;
+  font-weight: 780;
+  line-height: .95;
+  color: var(--ink);
+}
+.metric-label { margin-top: 10px; color: var(--muted); font-size: 20px; line-height: 1.2; }
+
+.callout {
+  padding: 18px 24px;
+  border-left: 7px solid var(--teal);
+  background: white;
+  font: 700 25px/1.25 var(--display);
+}
+.callout.coral-callout { border-left-color: var(--coral); background: var(--coral-soft); }
+.callout.amber-callout { border-left-color: var(--amber); background: var(--amber-soft); }
+
+.notes { display: none; }
+.notes-drawer {
+  position: fixed;
+  left: 18px;
+  right: 18px;
+  bottom: 78px;
+  z-index: 30;
+  max-height: min(38vh, 330px);
+  overflow: auto;
+  padding: 18px 22px;
+  border: 1px solid #aebbb7;
+  border-radius: 8px;
+  background: rgba(255,255,255,.97);
+  box-shadow: 0 12px 42px rgba(23,36,43,.22);
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.5;
+}
+.notes-drawer[hidden] { display: none; }
+.notes-drawer strong { color: var(--teal-dark); }
+
+.controls {
+  position: fixed;
+  z-index: 40;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid rgba(255,255,255,.25);
+  border-radius: 8px;
+  background: rgba(23,36,43,.92);
+  box-shadow: 0 8px 28px rgba(23,36,43,.25);
+}
+.control-btn {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: white;
+  background: transparent;
+  cursor: pointer;
+  font-size: 21px;
+}
+.control-btn:hover, .control-btn:focus-visible { background: rgba(255,255,255,.16); outline: 2px solid #98d9ce; outline-offset: 1px; }
+.control-btn[disabled] { opacity: .35; cursor: default; }
+.counter { min-width: 76px; color: white; text-align: center; font: 600 14px var(--mono); }
+.progress {
+  position: fixed;
+  z-index: 41;
+  left: 0;
+  bottom: 0;
+  height: 5px;
+  background: var(--teal);
+  transition: width .24s ease;
+}
+.overview .stage {
+  position: relative;
+  left: auto;
+  top: auto;
+  width: min(94vw, 1500px) !important;
+  height: min(84vh, 820px) !important;
+  transform: none !important;
+  box-shadow: none;
+  background: transparent;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  overflow: auto;
+  padding: 6px;
+}
+.overview .slide {
+  position: relative;
+  display: block;
+  width: 352px;
+  height: 198px;
+  padding: 15px 17px;
+  transform: none;
+  overflow: hidden;
+  cursor: pointer;
+  border: 3px solid transparent;
+  box-shadow: 0 7px 20px rgba(23,36,43,.16);
+}
+.overview .slide.active { border-color: var(--teal); }
+.overview .slide > * { transform: scale(.22); transform-origin: top left; width: 1450px; }
+.overview .slide::before { height: 4px; }
+.overview .slide::after { transform: none; font-size: 11px; right: 8px; bottom: 5px; }
+.overview .controls, .overview .progress { display: none; }
+
+.reveal { opacity: 0; transform: translateY(16px); }
+.active .reveal { animation: rise .55s cubic-bezier(.2,.8,.2,1) forwards; }
+.active .reveal:nth-child(2) { animation-delay: .08s; }
+.active .reveal:nth-child(3) { animation-delay: .16s; }
+.active .reveal:nth-child(4) { animation-delay: .24s; }
+.active .reveal:nth-child(5) { animation-delay: .32s; }
+@keyframes rise { to { opacity: 1; transform: translateY(0); } }
+
+/* Slide 1 */
+.title-slide { background: #eef4f1; }
+.title-slide .title-copy { width: 800px; padding-top: 110px; position: relative; z-index: 3; }
+.title-slide h1 { font-size: 102px; }
+.title-slide .title-visual { position: absolute; inset: 0 0 0 770px; }
+.title-mark { position: absolute; left: 80px; bottom: 50px; color: var(--muted); font: 650 18px var(--mono); }
+
+/* Slide 2 */
+.scale-equation {
+  display: grid;
+  grid-template-columns: 1fr 90px 1fr 90px 1fr;
+  align-items: center;
+  gap: 18px;
+  margin-top: 25px;
+}
+.equation-symbol { text-align: center; color: var(--muted); font: 500 62px var(--display); }
+.session-stack { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.session-chip { height: 68px; border: 1px solid #b6c9c4; background: white; display: grid; place-items: center; color: var(--teal-dark); font-weight: 750; }
+.evaluator-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.eval-tile { min-height: 68px; padding: 10px 8px; display: grid; place-items: center; text-align: center; background: white; border: 1px solid #e1b7b0; color: #a54034; font-size: 15px; font-weight: 750; }
+.eval-tile.current { background: var(--coral-soft); border-color: var(--coral); }
+.capacity-box { height: 225px; position: relative; display: grid; place-items: center; background: var(--navy); color: white; }
+.capacity-box::before { content: ""; position: absolute; left: -28px; top: 36px; width: 0; height: 0; border-top: 76px solid transparent; border-bottom: 76px solid transparent; border-right: 28px solid var(--navy); }
+.valve { position: absolute; left: -55px; top: 74px; width: 60px; height: 76px; border: 7px solid var(--amber); border-radius: 50%; background: var(--paper); display: grid; place-items: center; color: #9d6100; font-size: 28px; }
+
+/* Slide 3 */
+.method-panels { margin-top: 18px; height: 510px; }
+.method-panel { position: relative; overflow: hidden; }
+.method-panel h3 { font-size: 38px; }
+.method-copy { position: absolute; left: 28px; right: 28px; bottom: 22px; display: flex; justify-content: space-between; gap: 18px; }
+.method-copy span { flex: 1; font-size: 19px; color: var(--muted); }
+.tumbler { position: absolute; left: 75px; top: 118px; width: 260px; height: 220px; border: 5px solid var(--blue); border-top: 0; border-radius: 0 0 120px 120px; background: rgba(220,236,247,.55); }
+.ball { position: absolute; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; color: white; font: 700 12px var(--mono); }
+.minhash-story { position: absolute; left: 28px; right: 28px; top: 112px; height: 265px; display: grid; grid-template-columns: 1.35fr 50px .9fr; gap: 12px; align-items: stretch; }
+.minhash-stage { min-width: 0; }
+.minhash-stage-label { margin-bottom: 8px; color: #80611f; font: 700 13px var(--mono); text-transform: uppercase; }
+.phrase-stack { display: grid; gap: 8px; }
+.phrase-card { display: grid; grid-template-columns: 28px 1fr 86px; gap: 9px; align-items: center; min-height: 62px; padding: 8px 10px; background: white; border: 1px solid #dccca9; }
+.phrase-id { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 50%; color: white; background: var(--amber); font: 700 13px var(--mono); }
+.phrase-card p { margin: 0; color: var(--ink); font-size: 15px; font-weight: 700; line-height: 1.18; }
+.word-match { padding: 1px 3px; background: var(--amber-soft); color: #845600; }
+.mini-signature { height: 33px; display: flex; gap: 3px; align-items: stretch; padding: 5px; background: #fbf4e4; }
+.mini-signature i { flex: 1; background: var(--amber); opacity: var(--opacity, .85); }
+.minhash-arrow { display: grid; place-items: center; color: var(--amber); font-size: 38px; font-weight: 800; }
+.neighborhoods { display: grid; grid-template-rows: 1.05fr .95fr; gap: 10px; }
+.neighborhood { position: relative; padding: 13px; border: 2px solid #d2b77c; background: var(--amber-soft); }
+.neighborhood.novel { border: 4px solid var(--coral); background: var(--coral-soft); }
+.neighborhood-title { color: #74551a; font-size: 15px; font-weight: 800; }
+.neighborhood-members { display: flex; gap: 7px; margin-top: 11px; }
+.member-chip { min-width: 40px; padding: 6px 9px; text-align: center; background: white; border: 1px solid #d1b36e; color: #765516; font: 700 13px var(--mono); }
+.novel .member-chip { border-color: var(--coral); color: #a33c31; }
+.sample-badge { position: absolute; right: 9px; bottom: 8px; padding: 5px 8px; background: var(--coral); color: white; font: 800 11px var(--mono); text-transform: uppercase; }
+
+/* Slides 4 and 9 point maps */
+.map-layout { display: grid; grid-template-columns: 380px 1fr; gap: 30px; height: 610px; }
+.steps { display: grid; gap: 16px; align-content: center; }
+.step-card { display: grid; grid-template-columns: 54px 1fr; gap: 16px; align-items: center; padding: 18px; background: white; border-left: 6px solid var(--teal); }
+.step-card:nth-child(2) { border-left-color: var(--coral); }
+.step-card:nth-child(3) { border-left-color: var(--blue); }
+.step-number { width: 50px; height: 50px; display: grid; place-items: center; border-radius: 50%; background: var(--ink); color: white; font: 700 20px var(--mono); }
+.point-map { position: relative; overflow: hidden; background: #edf3f1; border: 1px solid #c8d6d2; border-radius: 8px; }
+.point-map::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 24% 28%, rgba(0,137,123,.08), transparent 31%), radial-gradient(circle at 76% 64%, rgba(23,105,170,.07), transparent 34%); }
+.embedding-cloud { position: relative; z-index: 1; width: 100%; height: 100%; }
+.cloud-hull { fill: var(--hull-color, #00897b); opacity: .055; filter: blur(7px); }
+.cloud-point { transform-box: fill-box; transform-origin: center; animation: cloudDrift var(--drift-duration, 9s) ease-in-out var(--drift-delay, 0s) infinite alternate; }
+.cloud-point.base { fill: var(--point-color, #4b9f91); opacity: var(--point-opacity, .58); }
+.cloud-point.estimated { fill: white; stroke: var(--blue); stroke-width: 2.4; opacity: .96; }
+.cloud-point.judged { fill: var(--coral); stroke: white; stroke-width: 2.5; opacity: 1; }
+.cloud-link { stroke: var(--teal-dark); stroke-linecap: round; opacity: .2; animation: linkBreathe 4.8s ease-in-out infinite alternate; }
+.cloud-focus-ring { fill: none; stroke: var(--coral); stroke-width: 2.5; stroke-dasharray: 5 4; animation: focusPulse 3.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.cloud-contour { fill: none; stroke: #4e998e; stroke-width: 1.2; opacity: .16; stroke-dasharray: 4 7; }
+@keyframes cloudDrift { from { transform: translate(var(--drift-from-x, -1px), var(--drift-from-y, -1px)); } to { transform: translate(var(--drift-to-x, 1px), var(--drift-to-y, 1px)); } }
+@keyframes linkBreathe { from { opacity: .12; } to { opacity: .32; } }
+@keyframes focusPulse { 0%, 100% { transform: scale(.92); opacity: .48; } 50% { transform: scale(1.12); opacity: .95; } }
+.map-label { position: absolute; padding: 7px 10px; background: rgba(255,255,255,.88); color: var(--muted); font: 700 15px var(--mono); }
+.map-legend { position: absolute; right: 18px; bottom: 15px; display: flex; gap: 8px; }
+
+/* Slide 5 */
+.population-layout { display: grid; grid-template-columns: 420px 1fr; gap: 28px; height: 575px; }
+.stat-stack { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.stat { min-height: 150px; padding: 20px; background: white; border: 1px solid var(--line); }
+.population-map { position: relative; padding: 25px; background: white; border: 1px solid var(--line); }
+.agent-row { display: flex; align-items: center; gap: 10px; height: 44px; }
+.agent-name { width: 120px; color: var(--muted); font: 650 14px var(--mono); }
+.session-bar { height: 18px; border-radius: 2px; background: var(--teal); }
+.agent-row.broad .session-bar { background: var(--blue); }
+.record-icons { position: absolute; left: 28px; right: 28px; bottom: 22px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.record-icon { min-height: 84px; display: grid; place-items: center; text-align: center; padding: 8px; border: 1px solid var(--line); background: var(--paper); color: var(--muted); font-size: 14px; font-weight: 700; }
+.sealed { position: relative; }
+.sealed::after { content: "HIDDEN"; position: absolute; left: 50%; top: 9px; transform: translateX(-50%); padding: 4px 9px; border: 1px solid rgba(23,61,83,.38); border-radius: 3px; background: rgba(255,255,255,.78); color: var(--navy); font: 700 11px var(--mono); }
+
+/* Slide 6 */
+.metric-panels { height: 505px; }
+.metric-panel { position: relative; padding: 30px 34px; }
+.metric-panel h3 { font-size: 40px; }
+.gauge-wrap { position: absolute; left: 40px; right: 40px; top: 190px; }
+.gauge-row { display: grid; grid-template-columns: 160px 1fr 65px; gap: 14px; align-items: center; margin-bottom: 20px; font-size: 18px; font-weight: 700; }
+.gauge { height: 28px; background: #e6ecea; position: relative; }
+.gauge-fill { height: 100%; background: var(--blue); }
+.gauge-row.sample .gauge-fill { background: var(--coral); }
+.palette { display: grid; grid-template-columns: repeat(6, 52px); gap: 13px; justify-content: center; margin-top: 56px; }
+.swatch { width: 52px; height: 52px; border-radius: 4px; }
+.swatch.missed { background: repeating-linear-gradient(135deg,#e6ecea 0 7px,#cdd7d4 7px 14px) !important; opacity: .65; }
+
+/* Slide 7 */
+.result-layout { display: grid; grid-template-columns: 1fr 430px; gap: 30px; height: 535px; }
+.chart-panel { padding: 18px 22px 12px; background: white; border: 1px solid var(--line); }
+.decision-side { display: flex; flex-direction: column; gap: 16px; }
+.decision-card { padding: 22px; background: white; border: 1px solid var(--line); }
+.decision-arrow { display: grid; grid-template-columns: 1fr 48px 1fr; align-items: center; gap: 6px; padding: 20px; background: var(--navy); color: white; }
+.decision-arrow strong { font: 750 20px/1.15 var(--display); }
+
+/* Slide 8 */
+.hash-flow { display: grid; grid-template-columns: 1fr 54px 1fr 54px 1fr 54px 1fr; align-items: center; margin-top: 38px; }
+.hash-step { height: 142px; padding: 20px; display: grid; place-items: center; text-align: center; background: white; border: 1px solid var(--line); }
+.hash-step strong { display: block; font: 750 27px var(--display); }
+.hash-arrow { text-align: center; color: var(--teal); font-size: 36px; }
+.containers { display: grid; grid-template-columns: repeat(3, 1fr) 1.2fr; gap: 18px; margin-top: 32px; align-items: stretch; }
+.container-box { position: relative; min-height: 160px; padding: 19px; text-align: center; background: #e8f0ed; border: 3px solid #89aaa2; }
+.container-box::before { content: ""; display: block; width: 46px; height: 11px; margin: 0 auto 15px; border-top: 5px solid #89aaa2; border-bottom: 5px solid #89aaa2; }
+.same-result { min-height: 160px; display: grid; place-items: center; text-align: center; color: white; background: var(--teal-dark); }
+.no-cache { position: absolute; right: 82px; top: 330px; transform: rotate(-7deg); padding: 7px 11px; border: 3px solid var(--coral); background: white; color: #b83e31; font: 750 15px var(--mono); }
+
+/* Slide 9 */
+.full-map-layout { display: grid; grid-template-columns: 1fr 330px; gap: 24px; height: 560px; }
+.benefit-list { display: grid; gap: 12px; }
+.benefit { padding: 17px; border-left: 6px solid var(--teal); background: white; font-size: 20px; font-weight: 700; }
+.benefit.idw { border-left-color: var(--blue); }
+
+/* Slide 10 */
+.confidence-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; height: 430px; margin-top: 16px; }
+.confidence-panel { position: relative; padding: 24px; background: white; border: 1px solid var(--line); }
+.confidence-panel h3 { font-size: 33px; }
+.neighbor-scene { position: relative; height: 185px; margin-top: 8px; background: #edf3f1; }
+.range-track { position: relative; height: 20px; margin: 26px 30px 0; background: #dce6e3; }
+.range-band { position: absolute; top: 0; height: 20px; background: var(--teal); }
+.range-mid { position: absolute; top: -7px; width: 4px; height: 34px; background: var(--ink); }
+.range-values { display: flex; justify-content: space-between; margin: 8px 30px 0; color: var(--muted); font: 650 15px var(--mono); }
+.formula-strip { margin-top: 22px; padding: 17px 24px; background: var(--navy); color: white; text-align: center; font: 650 24px var(--mono); }
+
+/* Slide 11 */
+.compression-flow { display: grid; grid-template-columns: 1.1fr 70px 1fr; gap: 15px; align-items: center; height: 310px; margin-top: 22px; }
+.matrix-block { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; padding: 22px; background: white; border: 1px solid var(--line); }
+.matrix-block i { height: 17px; background: var(--teal); opacity: calc(.25 + var(--o) * .07); }
+.eight-bars { height: 230px; display: flex; align-items: flex-end; justify-content: center; gap: 16px; padding: 25px; background: white; border: 1px solid var(--line); }
+.eight-bars i { width: 40px; background: var(--blue); height: var(--h); }
+.method-lanes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 18px; }
+.method-lane { padding: 15px; text-align: center; background: white; border-bottom: 6px solid var(--teal); font-weight: 750; }
+.study-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 18px; }
+.study-stat { padding: 13px; text-align: center; background: var(--navy); color: white; font-size: 17px; }
+.study-stat strong { display: block; font: 750 27px var(--display); }
+
+/* Slide 12 */
+.final-layout { display: grid; grid-template-columns: 1fr 1.15fr; gap: 28px; height: 500px; }
+.big-three { display: grid; gap: 14px; }
+.big-stat { display: grid; grid-template-columns: 150px 1fr; align-items: center; min-height: 112px; padding: 18px 22px; background: white; border-left: 8px solid var(--teal); }
+.big-stat:nth-child(2) { border-left-color: var(--coral); }
+.big-stat:nth-child(3) { border-left-color: var(--blue); }
+.big-stat .metric { font-size: 58px; }
+.dimension-chart { height: 500px; padding: 16px 18px 10px; overflow: hidden; background: white; border: 1px solid var(--line); }
+.dimension-chart svg { display: block; width: 100%; height: 100%; }
+.dimension-chart .grid-line { stroke: #dce5e2; stroke-width: 1; }
+.dimension-chart .native-line { stroke: #617078; stroke-width: 2; stroke-dasharray: 7 6; }
+.dimension-chart .series { fill: none; stroke-width: 4; stroke-linejoin: round; stroke-linecap: round; }
+.dimension-chart .point { stroke: white; stroke-width: 2; }
+.dimension-chart .focus-halo { fill: none; stroke: var(--coral); stroke-width: 3; stroke-dasharray: 5 4; }
+.dimension-chart .axis-label { fill: var(--muted); font-size: 13px; font-weight: 650; }
+.dimension-chart .chart-title { fill: var(--ink); font-size: 18px; font-weight: 800; }
+.dimension-chart .chart-subtitle { fill: var(--muted); font-size: 13px; }
+.dimension-chart .legend-label { fill: var(--ink); font-size: 13px; font-weight: 700; }
+.dimension-chart .annotation { fill: var(--ink); font-size: 14px; font-weight: 800; }
+.decision-banner { position: absolute; left: 80px; right: 80px; bottom: 61px; display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; align-items: center; }
+.decision-banner .proposal { padding: 16px 20px; background: var(--navy); color: white; font: 700 22px/1.25 var(--display); }
+.decision-banner .qualifier { padding: 13px 17px; border-left: 5px solid var(--amber); background: var(--amber-soft); color: #6d4b14; font-size: 16px; line-height: 1.28; }
+
+svg text { font-family: var(--body); letter-spacing: 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal, .active .reveal { animation: none; opacity: 1; transform: none; }
+  .cloud-point, .cloud-link, .cloud-focus-ring { animation: none; }
+  .progress { transition: none; }
+}
+
+@media (max-width: 760px) {
+  .controls { bottom: max(10px, env(safe-area-inset-bottom)); }
+  .notes-drawer { font-size: 14px; bottom: 68px; }
+}
+
+@media print {
+  @page { size: 16.667in 9.375in; margin: 0; }
+  html, body { height: auto; overflow: visible; background: white; }
+  .app, .stage { display: block; width: 1600px !important; height: auto !important; transform: none !important; box-shadow: none; }
+  .slide { position: relative; display: block !important; page-break-after: always; break-after: page; }
+  .controls, .progress, .notes-drawer { display: none !important; }
+  .reveal { opacity: 1; transform: none; }
+  .cloud-point, .cloud-link, .cloud-focus-ring { animation: none !important; }
+}
+</style>
+</head>
+<body>
+<main class="app" aria-label="Sampling for Agent 365 Evaluations presentation">
+  <div class="stage" id="stage">
+
+    <section class="slide title-slide active" data-slide="01 / 12" aria-label="Title: Sampling for Agent 365 Evaluations">
+      <div class="title-copy">
+        <p class="slide-kicker reveal">Agent 365 evaluations</p>
+        <h1 class="reveal">Sampling for Agent 365 Evaluations</h1>
+        <p class="lead reveal">Evaluate every agent without sending every session to an LLM judge.</p>
+      </div>
+      <div class="title-visual" aria-hidden="true">
+        <svg viewBox="0 0 830 900" width="830" height="900">
+          <defs>
+            <pattern id="dots-title" width="36" height="36" patternUnits="userSpaceOnUse"><circle cx="4" cy="4" r="3" fill="#a7bdb7"/></pattern>
+            <linearGradient id="river" x1="0" x2="1"><stop offset="0" stop-color="#00897b" stop-opacity=".12"/><stop offset="1" stop-color="#00897b" stop-opacity=".78"/></linearGradient>
+          </defs>
+          <rect x="0" y="0" width="830" height="900" fill="url(#dots-title)" opacity=".35"/>
+          <path d="M80 135 C290 170 275 340 510 355 S720 500 580 625" fill="none" stroke="url(#river)" stroke-width="84" stroke-linecap="round"/>
+          <path d="M110 300 C310 280 300 430 495 460 S660 585 570 625" fill="none" stroke="#1769aa" stroke-opacity=".22" stroke-width="42" stroke-linecap="round"/>
+          <g fill="#00897b">
+            <circle cx="88" cy="125" r="10"/><circle cx="134" cy="148" r="8"/><circle cx="173" cy="135" r="12"/><circle cx="113" cy="190" r="7"/><circle cx="174" cy="204" r="9"/>
+            <circle cx="116" cy="290" r="10"/><circle cx="163" cy="306" r="7"/><circle cx="208" cy="280" r="11"/><circle cx="170" cy="352" r="8"/>
+            <circle cx="140" cy="480" r="9"/><circle cx="194" cy="463" r="11"/><circle cx="238" cy="495" r="7"/><circle cx="188" cy="533" r="10"/>
+          </g>
+          <g transform="translate(478 282)">
+            <rect width="190" height="160" rx="8" fill="#fff" stroke="#cbd8d4" stroke-width="3"/>
+            <text x="25" y="38" font-size="17" font-weight="700" fill="#617078">LLM JUDGE</text>
+            <path d="M28 78h134M28 105h92M28 132h112" stroke="#df6555" stroke-width="11" stroke-linecap="round"/>
+          </g>
+          <g transform="translate(420 585)">
+            <rect width="280" height="190" rx="8" fill="#173d53"/>
+            <text x="25" y="38" font-size="16" font-weight="700" fill="#9dded3">FULL SCORECARD</text>
+            <text x="24" y="103" font-size="58" font-weight="800" fill="#fff">71%</text>
+            <path d="M130 120 L164 95 L195 106 L248 62" fill="none" stroke="#72c9ba" stroke-width="8"/>
+            <circle cx="248" cy="62" r="9" fill="#f0b24e"/>
+            <g fill="#fff"><circle cx="31" cy="154" r="8"/><circle cx="61" cy="154" r="8" fill="none" stroke="#fff" stroke-width="3"/><circle cx="91" cy="154" r="8" fill="none" stroke="#fff" stroke-width="3"/></g>
+          </g>
+          <path d="M350 620h65" stroke="#df6555" stroke-width="7" stroke-dasharray="10 9"/>
+          <text x="182" y="652" font-size="18" font-weight="700" fill="#b83e31">sample judged</text>
+          <text x="485" y="813" font-size="18" font-weight="700" fill="#173d53">every session scored</text>
+        </svg>
+      </div>
+      <div class="title-mark">SAMPLING RESEARCH · V4 + V6</div>
+      <aside class="notes"><strong>Speaker notes.</strong> Agent 365 provides an enterprise control plane for observing, governing, and securing agents. Evaluation turns that observability into an answer to a business question: are agents completing work successfully and behaving as intended? The challenge is scale. We want evaluation coverage across every agent and every session, but LLM judges have real cost and capacity constraints. This presentation explains how sampling controls those constraints, what the experiments taught us, what is implemented today, and the path toward a more intelligent approach.</aside>
+    </section>
+
+    <section class="slide" data-slide="02 / 12" aria-label="The ambition multiplies faster than capacity">
+      <header class="slide-header">
+        <p class="slide-kicker reveal">The business case</p>
+        <h2 class="reveal">The ambition multiplies faster than capacity.</h2>
+      </header>
+      <div class="slide-body">
+        <div class="scale-equation reveal">
+          <div>
+            <p class="small strong">Every session from every agent</p>
+            <div class="session-stack" aria-hidden="true">
+              <div class="session-chip">A1</div><div class="session-chip">A2</div><div class="session-chip">A3</div><div class="session-chip">A4</div>
+              <div class="session-chip">A5</div><div class="session-chip">A6</div><div class="session-chip">A7</div><div class="session-chip">…</div>
+            </div>
+          </div>
+          <div class="equation-symbol">×</div>
+          <div>
+            <p class="small strong">Eight evaluation dimensions</p>
+            <div class="evaluator-grid">
+              <div class="eval-tile current">Task Completion<br><span class="micro">today</span></div>
+              <div class="eval-tile">Intent<br>Resolution</div>
+              <div class="eval-tile">Task<br>Adherence</div>
+              <div class="eval-tile">Tool Call<br>Accuracy</div>
+              <div class="eval-tile">Tool Call<br>Success</div>
+              <div class="eval-tile">Tool Input<br>Accuracy</div>
+              <div class="eval-tile">Tool Output<br>Utilization</div>
+              <div class="eval-tile">Tool<br>Selection</div>
+            </div>
+          </div>
+          <div class="equation-symbol">=</div>
+          <div class="capacity-box">
+            <div class="valve" aria-hidden="true">↕</div>
+            <div><div class="metric" style="color:white;font-size:66px">LLM calls</div><p style="margin:12px 0 0;font-size:21px;color:#c8e7e1">Cost + available capacity</p></div>
+          </div>
+        </div>
+        <div class="callout coral-callout reveal" style="margin-top:34px">Sampling turns an unbounded evaluation bill into a controlled capacity decision.</div>
+      </div>
+      <aside class="notes"><strong>Speaker notes.</strong> Our goal is to bring LLM-as-a-Judge evaluation to Agent 365 for all agents. We are starting with Task Completion and expect to expand across seven additional dimensions: Intent Resolution, Task Adherence, Tool Call Accuracy, Tool Call Success, Tool Input Accuracy, Tool Output Utilization, and Tool Selection. Without sampling, each evaluator multiplies the work: one LLM call per session, per evaluator. This creates two constraints before we attach a specific dollar amount: what we can afford and how much LLM throughput is available. Sampling is the control that makes broad evaluation operationally possible.</aside>
+    </section>
+
+    <section class="slide" data-slide="03 / 12" aria-label="Random Sampling and MinHash LSH">
+      <header class="slide-header">
+        <p class="slide-kicker reveal">Options · part 1</p>
+        <h2 class="reveal">Two simple ways to choose what gets judged.</h2>
+      </header>
+      <div class="slide-body">
+        <div class="grid-2 method-panels">
+          <article class="panel blue-panel method-panel reveal">
+            <h3 class="blue">Random Sampling</h3>
+            <p class="small">Every session gets an equal chance.</p>
+            <div class="tumbler" aria-hidden="true">
+              <span class="ball" style="left:26px;top:118px;background:#1769aa">A</span><span class="ball" style="left:74px;top:157px;background:#00897b">B</span><span class="ball" style="left:117px;top:112px;background:#dc921c">C</span><span class="ball" style="left:160px;top:159px;background:#df6555">D</span><span class="ball" style="left:203px;top:106px;background:#1769aa">A</span>
+              <span class="ball" style="left:51px;top:72px;background:#df6555">D</span><span class="ball" style="left:104px;top:60px;background:#1769aa">A</span><span class="ball" style="left:157px;top:75px;background:#00897b">B</span>
+            </div>
+            <svg aria-hidden="true" viewBox="0 0 230 150" style="position:absolute;right:45px;top:135px;width:230px;height:150px">
+              <path d="M10 58 C70 58 74 98 122 98" fill="none" stroke="#1769aa" stroke-width="5" stroke-dasharray="9 8"/>
+              <circle cx="145" cy="42" r="22" fill="#1769aa"/><circle cx="195" cy="70" r="22" fill="#00897b"/><circle cx="145" cy="113" r="22" fill="#dc921c"/>
+              <text x="145" y="48" text-anchor="middle" fill="white" font-weight="700">A</text><text x="195" y="76" text-anchor="middle" fill="white" font-weight="700">B</text><text x="145" y="119" text-anchor="middle" fill="white" font-weight="700">C</text>
+            </svg>
+            <div class="method-copy"><span><strong>Simple</strong><br>Low operational complexity</span><span><strong>Defensible</strong><br>Preserves equal chance</span></div>
+          </article>
+          <article class="panel amber-panel method-panel reveal">
+            <h3 class="amber">MinHash LSH</h3>
+            <p class="small">Compact fingerprints reveal unfamiliar wording.</p>
+            <div class="minhash-story" aria-label="Session wording becomes a fingerprint; similar fingerprints group together and an unmatched fingerprint is prioritized">
+              <div class="minhash-stage">
+                <div class="minhash-stage-label">1 · Fingerprint the wording</div>
+                <div class="phrase-stack">
+                  <div class="phrase-card"><span class="phrase-id">A</span><p><span class="word-match">Reset</span> my <span class="word-match">password</span></p><span class="mini-signature" aria-hidden="true"><i></i><i style="--opacity:.35"></i><i></i><i style="--opacity:.55"></i><i></i><i style="--opacity:.35"></i></span></div>
+                  <div class="phrase-card"><span class="phrase-id">B</span><p><span class="word-match">Password</span> <span class="word-match">reset</span> help</p><span class="mini-signature" aria-hidden="true"><i></i><i style="--opacity:.35"></i><i></i><i style="--opacity:.55"></i><i></i><i style="--opacity:.55"></i></span></div>
+                  <div class="phrase-card"><span class="phrase-id" style="background:var(--coral)">C</span><p>Reconcile supplier invoice</p><span class="mini-signature" aria-hidden="true"><i style="background:var(--coral);--opacity:.35"></i><i style="background:var(--coral)"></i><i style="background:var(--coral);--opacity:.35"></i><i style="background:var(--coral)"></i><i style="background:var(--coral);--opacity:.55"></i><i style="background:var(--coral)"></i></span></div>
+                </div>
+              </div>
+              <div class="minhash-arrow" aria-hidden="true">→</div>
+              <div class="minhash-stage">
+                <div class="minhash-stage-label">2 · Find a neighborhood</div>
+                <div class="neighborhoods">
+                  <div class="neighborhood"><div class="neighborhood-title">Similar wording</div><div class="neighborhood-members"><span class="member-chip">A</span><span class="member-chip">B</span></div></div>
+                  <div class="neighborhood novel"><div class="neighborhood-title" style="color:#a33c31">No close match</div><div class="neighborhood-members"><span class="member-chip">C</span></div><span class="sample-badge">Prioritize</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="method-copy"><span><strong>Fast</strong><br>Avoids all-pairs comparison</span><span><strong>Lexical</strong><br>Words, phrases, tool patterns</span></div>
+          </article>
+        </div>
+        <div class="callout reveal" style="margin-top:18px"><span class="blue">Random represents fairly.</span> <span class="amber">MinHash searches for lexical novelty.</span></div>
+      </div>
+      <aside class="notes"><strong>Speaker notes.</strong> Random sampling is the benchmark and simplest production option. It gives every eligible session the same chance. MinHash LSH is a fast way to recognize sessions that use similar words, phrases, and tool patterns. Each session becomes a compact fingerprint. Similar fingerprints land in the same buckets, while a bucket miss signals something less familiar. MinHash does not understand meaning as an embedding model does. Different words can describe the same task, or similar words can describe different tasks. That limitation motivated the semantic approach.</aside>
+    </section>
+
+    <section class="slide" data-slide="04 / 12" aria-label="Full-session embedding sampling and IDW">
+      <header class="slide-header">
+        <p class="slide-kicker reveal">Options · part 2</p>
+        <h2 class="reveal">Map meaning, sample broadly, estimate locally.</h2>
+      </header>
+      <div class="slide-body map-layout">
+        <div class="steps reveal">
+          <div class="step-card"><div class="step-number">1</div><div><h3>Map</h3><p class="small" style="margin:0">A whole session becomes one point based on meaning.</p></div></div>
+          <div class="step-card"><div class="step-number">2</div><div><h3>Sample</h3><p class="small" style="margin:0">Judge points that broaden behavioral coverage.</p></div></div>
+          <div class="step-card"><div class="step-number">3</div><div><h3>Estimate</h3><p class="small" style="margin:0">Nearby judged points inform unjudged points.</p></div></div>
+          <div class="row" style="gap:8px;flex-wrap:wrap"><span class="pill"><span class="dot" style="color:var(--teal)"></span>Embedding = map</span><span class="pill"><span class="dot hollow" style="color:var(--blue)"></span>IDW = estimate</span></div>
+        </div>
+        <div class="point-map reveal" aria-label="Animated semantic map with dense behavior clusters, rare outliers, judged sessions, and an IDW estimate">
+          <svg class="embedding-cloud" data-cloud="overview" viewBox="0 0 1010 610" aria-hidden="true"></svg>
+          <div class="map-label" style="left:195px;top:85px">common behavior</div>
+          <div class="map-label" style="right:25px;top:270px;color:#b83e31">rare / novel</div>
+          <div class="map-legend"><span class="pill"><span class="dot" style="color:var(--coral)"></span>judged</span><span class="pill"><span class="dot hollow" style="color:var(--blue)"></span>estimated</span></div>
+        </div>
+      </div>
+      <aside class="notes"><strong>Speaker notes.</strong> A full-session embedding converts the whole interaction into a numerical representation of meaning. Similar behavior appears nearby; semantically unusual sessions appear farther away. The embedding selector uses that map to seek broader semantic coverage. This is selection. Inverse Distance Weighting is a separate estimation step. After selected sessions receive observed judge scores, an unjudged session borrows information from nearby judged sessions from the same agent. Closer neighbors receive more weight. The result is a model-assisted estimate, not another LLM judgment.</aside>
+    </section>
+
+    <section class="slide" data-slide="05 / 12" aria-label="Experiment population and known labels">
+      <header class="slide-header">
+        <p class="slide-kicker reveal">Experiment process</p>
+        <h2 class="reveal">We tested against a known answer.</h2>
+      </header>
+      <div class="slide-body population-layout">
+        <div class="stat-stack reveal">
+          <div class="stat"><div class="metric">2,800</div><div class="metric-label">eval-ready sessions</div></div>
+          <div class="stat"><div class="metric">105</div><div class="metric-label">agents</div></div>
+          <div class="stat"><div class="metric">480</div><div class="metric-label">behavior concepts</div></div>
+          <div class="stat"><div class="metric">5</div><div class="metric-label">matched capacity levels</div></div>
+          <div class="callout" style="grid-column:1 / -1;font-size:21px">Expected labels stayed hidden from selection and were revealed only to score the result.</div>
+        </div>
+        <div class="population-map reveal">
+          <div class="row" style="justify-content:space-between;margin-bottom:12px"><h3 style="margin:0">Experiment population</h3><div class="row" style="gap:9px"><span class="pill"><span class="dot" style="color:var(--teal)"></span>dense</span><span class="pill"><span class="dot" style="color:var(--blue)"></span>broad mix</span></div></div>
+          <div class="agent-row"><span class="agent-name">Dense agent 1</span><span class="session-bar" style="width:500px"></span><strong>500</strong></div>
+          <div class="agent-row"><span class="agent-name">Dense agent 2</span><span class="session-bar" style="width:500px"></span><strong>500</strong></div>
+          <div class="agent-row"><span class="agent-name">Dense agent 3</span><span class="session-bar" style="width:500px"></span><strong>500</strong></div>
+          <div class="agent-row"><span class="agent-name">Dense agent 4</span><span class="session-bar" style="width:500px"></span><strong>500</strong></div>
+          <div class="agent-row"><span class="agent-name">Dense agent 5</span><span class="session-bar" style="width:500px"></span><strong>500</strong></div>
+          <div class="agent-row broad" style="margin-top:12px"><span class="agent-name">100 agents</span><span class="session-bar" style="width:300px"></span><strong>300 total</strong></div>
+          <div class="record-icons">
+            <div class="record-icon"><span style="font-size:29px">⌁</span>OTel trace</div>
+            <div class="record-icon sealed"><span style="font-size:29px">✓</span>Expected label</div>
+            <div class="record-icon"><span style="font-size:29px">▦</span>Concept</div>
+            <div class="record-icon"><span style="font-size:29px">◒</span>Difficulty</div>
+            <div class="record-icon"><span style="font-size:29px">#</span>Token cost</div>
+          </div>
+        </div>
+      </div>
+      <aside class="notes"><strong>Speaker notes.</strong> The v4 experiment used a labeled population of 2,800 normalized Agent 365-style sessions across 105 agents. Five dense agents contributed 500 sessions each; a broader 100-agent corpus contributed another 300. Each unit contained a structured OpenTelemetry trace, an expected pass/fail outcome, concept metadata, difficulty, and token cost. A concept combined corpus, domain, task, and difficulty, producing 480 distinct concepts. Expected outcomes and concept metadata were not used to select sessions. The population pass rate was 71.18%. The matched token budgets were 65,949; 131,898; 263,797; 395,695; and 659,492 tokens.</aside>
+    </section>
+
+    <section class="slide" data-slide="06 / 12" aria-label="Outcome error and concept coverage metrics">
+      <header class="slide-header">
+        <p class="slide-kicker reveal">How we measured success</p>
+        <h2 class="reveal">Success means accuracy <span class="accent">and</span> breadth.</h2>
+      </header>
+      <div class="slide-body">
+        <div class="grid-2 metric-panels">
+          <article class="panel coral-panel metric-panel reveal">
+            <h3>Outcome error <span class="coral">(MAE)</span></h3>
+            <p class="lead" style="font-size:24px">How close is the sampled pass rate to the full-population pass rate?</p>
+            <div class="gauge-wrap">
+              <div class="gauge-row"><span>Full population</span><div class="gauge"><div class="gauge-fill" style="width:72%"></div></div><strong>72%</strong></div>
+              <div class="gauge-row sample"><span>Sample</span><div class="gauge"><div class="gauge-fill" style="width:69%"></div></div><strong>69%</strong></div>
+              <div class="callout coral-callout" style="margin-top:28px;font-size:23px">|69% − 72%| = <strong>3 points</strong> <span class="small">· lower is better</span></div>
+            </div>
+          </article>
+          <article class="panel teal-panel metric-panel reveal">
+            <h3>Concept <span class="accent">coverage</span></h3>
+            <p class="lead" style="font-size:24px">How much of the population's behavioral variety did the sample touch?</p>
+            <div class="palette" aria-hidden="true">
+              <span class="swatch" style="background:#1769aa"></span><span class="swatch" style="background:#00897b"></span><span class="swatch" style="background:#dc921c"></span><span class="swatch" style="background:#df6555"></span><span class="swatch missed"></span><span class="swatch missed"></span>
+              <span class="swatch" style="background:#72a43a"></span><span class="swatch" style="background:#795d9c"></span><span class="swatch" style="background:#3e8c9e"></span><span class="swatch missed"></span><span class="swatch missed"></span><span class="swatch missed"></span>
+            </div>
+            <div class="callout" style="margin-top:35px;font-size:23px">120 ÷ 480 = <strong>25%</strong> <span class="small">· higher is better</span></div>
+          </article>
+        </div>
+        <div class="small reveal" style="text-align:center;margin-top:20px;font-weight:700">Same sessions · same whole-session token budgets · repeated deterministic replays</div>
+      </div>
+      <aside class="notes"><strong>Speaker notes.</strong> We measured two complementary questions. Selected-only outcome-rate MAE is the absolute gap between the sample pass rate and known full-population pass rate. Smaller is better. Concept coverage is the number of distinct behavior concepts touched by selected sessions divided by the 480 concepts in the population. Higher is better. The metrics can move differently: a sample can estimate the overall rate accurately while missing rare behaviors, or cover broad novelty while distorting the rate. That is why we evaluated both under the same whole-session token budgets.</aside>
+    </section>
+
+    <section class="slide" data-slide="07 / 12" aria-label="Experiment results and staged decision">
+      <header class="slide-header">
+        <p class="slide-kicker reveal">Experiment result</p>
+        <h2 class="reveal">Semantics won coverage; simplicity won the first release.</h2>
+      </header>
+      <div class="slide-body result-layout">
+        <div class="chart-panel reveal">
+          <svg viewBox="0 0 980 500" width="900" height="500" role="img" aria-label="Concept coverage by capacity tier for Random, MinHash, and Full-Session Embedding">
+            <rect x="380" y="42" width="430" height="378" fill="#d9f1ec" opacity=".55"/>
+            <text x="595" y="70" text-anchor="middle" font-size="16" font-weight="700" fill="#006c62">SEMANTIC COVERAGE SEPARATES</text>
+            <g stroke="#d4ddda" stroke-width="1"><line x1="85" y1="420" x2="810" y2="420"/><line x1="85" y1="340" x2="810" y2="340"/><line x1="85" y1="260" x2="810" y2="260"/><line x1="85" y1="180" x2="810" y2="180"/><line x1="85" y1="100" x2="810" y2="100"/></g>
+            <g fill="#617078" font-size="14"><text x="62" y="425">0%</text><text x="51" y="345">25%</text><text x="51" y="265">50%</text><text x="51" y="185">75%</text><text x="43" y="105">100%</text></g>
+            <g fill="#617078" font-size="15" text-anchor="middle"><text x="110" y="451">5%</text><text x="285" y="451">10%</text><text x="460" y="451">20%</text><text x="635" y="451">30%</text><text x="810" y="451">50%</text><text x="448" y="486" font-weight="700">Evaluation capacity used</text></g>
+            <text transform="translate(17 315) rotate(-90)" font-size="15" font-weight="700" fill="#617078">Behavior concepts covered</text>
+            <polyline points="110,346 285,307 460,265 635,243 810,201" fill="none" stroke="#1769aa" stroke-width="6"/>
+            <polyline points="110,350 285,305 460,258 635,231 810,180" fill="none" stroke="#dc921c" stroke-width="6"/>
+            <polyline points="110,359 285,309 460,212 635,168 810,139" fill="none" stroke="#00897b" stroke-width="8"/>
+            <g fill="#1769aa"><circle cx="110" cy="346" r="7"/><circle cx="285" cy="307" r="7"/><circle cx="460" cy="265" r="7"/><circle cx="635" cy="243" r="7"/><circle cx="810" cy="201" r="7"/></g>
+            <g fill="#dc921c"><circle cx="110" cy="350" r="7"/><circle cx="285" cy="305" r="7"/><circle cx="460" cy="258" r="7"/><circle cx="635" cy="231" r="7"/><circle cx="810" cy="180" r="7"/></g>
+            <g fill="#00897b"><circle cx="110" cy="359" r="8"/><circle cx="285" cy="309" r="8"/><circle cx="460" cy="212" r="8"/><circle cx="635" cy="168" r="8"/><circle cx="810" cy="139" r="8"/></g>
+            <g font-size="17" font-weight="800"><text x="828" y="144" fill="#006c62">Embedding 87.9%</text><text x="828" y="185" fill="#a66500">MinHash 75.0%</text><text x="828" y="207" fill="#1769aa">Random 68.5%</text></g>
+          </svg>
+        </div>
+        <div class="decision-side">
+          <div class="decision-card reveal">
+            <div class="metric" style="font-size:61px;color:var(--teal-dark)">+19.4 pts</div>
+            <p class="metric-label">more concept coverage than Random at 50% capacity</p>
+          </div>
+          <div class="decision-card reveal" style="border-left:7px solid var(--coral)">
+            <h3 style="font-size:26px">Coverage is not the whole story</h3>
+            <p class="small" style="margin:0">Random had lower headline pass-rate error at <strong>4 of 5</strong> budgets.</p>
+          </div>
+          <div class="decision-arrow reveal"><div><span class="micro" style="color:#9dded3">NOW</span><br><strong>Deterministic Random</strong></div><div style="font-size:34px;text-align:center">→</div><div><span class="micro" style="color:#f0c16d">NEXT</span><br><strong>Embedding + IDW</strong></div></div>
+        </div>
+      </div>
+      <aside class="notes"><strong>Speaker notes.</strong> Random and MinHash produced similar concept coverage at low budgets. Random led at 5%; MinHash led by less than one point at 10%. From 20% onward, embedding separated. At 30% capacity it covered 78.7% of concepts versus 55.4% for Random. At 50%, it reached 87.9% versus 68.5% for Random and 75.0% for MinHash. On selected-only outcome-rate error, however, Random won four of five cells and MinHash one. The initial IDW-augmented estimate did not beat the simpler selected-only estimate in v4. Random was far simpler to ship and operate, so we implemented it as the immediate control while continuing semantic research. This chart is selection coverage; IDW does not cause the lift.</aside>
+    </section>
+
+    <section class="slide" data-slide="08 / 12" aria-label="Production deterministic random sampling">
+      <header class="slide-header">
+        <p class="slide-kicker reveal">Current production implementation</p>
+        <h2 class="reveal">The same session gets the same answer everywhere.</h2>
+      </header>
+      <div class="slide-body">
+        <div class="hash-flow reveal">
+          <div class="hash-step"><div><strong>Session identity</strong><span class="small">Agent ID + Session ID</span></div></div><div class="hash-arrow">→</div>
+          <div class="hash-step"><div><strong>Stable hash</strong><span class="small">SHA-256</span></div></div><div class="hash-arrow">→</div>
+          <div class="hash-step"><div><strong>Bucket</strong><span class="small">0 to 99</span></div></div><div class="hash-arrow">→</div>
+          <div class="hash-step"><div><strong>Decision</strong><span class="small">bucket &lt; sample rate</span></div></div>
+        </div>
+        <div class="containers reveal">
+          <div class="container-box"><h3 style="font-size:24px">Container A</h3><p class="small">Session 42<br><strong class="accent">bucket 17</strong></p></div>
+          <div class="container-box"><h3 style="font-size:24px">Container B</h3><p class="small">Session 42<br><strong class="accent">bucket 17</strong></p></div>
+          <div class="container-box"><h3 style="font-size:24px">Retry</h3><p class="small">Session 42<br><strong class="accent">bucket 17</strong></p></div>
+          <div class="same-result"><div><div class="metric" style="font-size:52px;color:white">Same result</div><p style="margin:10px 0 0;color:#bfe7df;font-size:20px">No shared sampling state</p></div></div>
+        </div>
+        <div class="no-cache">NO IN-MEMORY / REDIS COORDINATION</div>
+        <div class="callout reveal" style="margin-top:22px">Same session + same rate = same decision in every container and retry. <span class="small">Then apply per-agent minimums and run/capacity limits.</span></div>
+      </div>
+      <aside class="notes"><strong>Speaker notes.</strong> The current External3p session-completion path normalizes agent and session identities, hashes them with SHA-256, maps the result to one of 100 buckets, and includes the session when the bucket is below the configured percentage. Each production container has separate memory, and retries can reach another instance. An in-memory cache cannot coordinate that reliably; Redis would add state, network calls, and failure modes. Deterministic hashing lets each container independently recompute the same answer. A per-agent minimum can add sessions, and run or throughput limits can constrain them. This cross-container claim applies to the default SHA-256 session path; the legacy path uses process-seeded HashCode.Combine and does not provide the same guarantee across restarts.</aside>
+    </section>
+
+    <section class="slide" data-slide="09 / 12" aria-label="Benefits of Full-Session Embedding and IDW">
+      <header class="slide-header">
+        <p class="slide-kicker reveal">Why move beyond Random</p>
+        <h2 class="reveal">Judge the evidence-rich sample; score the full picture.</h2>
+      </header>
+      <div class="slide-body full-map-layout">
+        <div class="point-map reveal" aria-label="Animated super-agent semantic map with many task clusters, judged sessions, and population-wide IDW estimates">
+          <svg class="embedding-cloud" data-cloud="super-agent" viewBox="0 0 1070 560" aria-hidden="true"></svg>
+          <div class="map-label" style="left:17%;top:8%">common workflows</div>
+          <div class="map-label" style="left:55%;top:15%">broad task mix</div>
+          <div class="map-label" style="right:5%;top:5%;color:#b83e31">rare behavior</div>
+          <div class="map-label" style="left:8%;bottom:7%;color:#b83e31">long tail</div>
+          <div class="map-label" style="right:7%;bottom:15%;color:#b83e31">unique task</div>
+          <div class="map-legend"><span class="pill"><span class="dot" style="color:var(--coral)"></span>observed judge score</span><span class="pill"><span class="dot hollow" style="color:var(--blue)"></span>IDW estimate</span></div>
+        </div>
+        <div class="benefit-list">
+          <div class="benefit reveal"><span class="accent">Find</span><br>Novel and rare sessions</div>
+          <div class="benefit reveal"><span class="accent">Reveal</span><br>Long-tail tasks inside super agents</div>
+          <div class="benefit idw reveal"><span class="blue">Judge</span><br>Only the evidence-rich sample</div>
+          <div class="benefit idw reveal"><span class="blue">Estimate</span><br>Every eligible unjudged session</div>
+          <div class="callout reveal" style="font-size:20px">Broader discovery + population-wide estimated scores</div>
+        </div>
+      </div>
+      <aside class="notes"><strong>Speaker notes.</strong> Random is a strong baseline for estimating an overall rate, but most budget naturally lands where most traffic exists. Semantic selection seeks broader coverage, which matters for rare and unique sessions, especially within super agents that handle many kinds of work. IDW then uses judged sessions as same-agent donors for unjudged sessions. It can assign each eligible session a model-assisted pass probability without pretending it was directly judged. The production contract must retain provenance: judged versus estimated, donors, representation version, and uncertainty. The initial v4 IDW result was mixed, so this remains a validated research direction rather than a production-accuracy claim.</aside>
+    </section>
+
+    <section class="slide" data-slide="10 / 12" aria-label="Lipschitz confidence signal">
+      <header class="slide-header">
+        <p class="slide-kicker reveal">Confidence for estimated scores</p>
+        <h2 class="reveal">Confidence depends on how far we reached.</h2>
+      </header>
+      <div class="slide-body">
+        <div class="confidence-grid">
+          <article class="confidence-panel reveal">
+            <h3 class="accent">Nearby evidence → narrower range</h3>
+            <div class="neighbor-scene">
+              <svg viewBox="0 0 660 185" width="660" height="185" aria-hidden="true"><g stroke="#1769aa" stroke-width="5"><line x1="330" y1="93" x2="258" y2="65"/><line x1="330" y1="93" x2="388" y2="58"/><line x1="330" y1="93" x2="378" y2="130"/><line x1="330" y1="93" x2="275" y2="128"/></g><g fill="#00897b"><circle cx="258" cy="65" r="12"/><circle cx="388" cy="58" r="12"/><circle cx="378" cy="130" r="12"/><circle cx="275" cy="128" r="12"/></g><circle cx="330" cy="93" r="15" fill="white" stroke="#1769aa" stroke-width="5"/></svg>
+            </div>
+            <div class="range-track"><span class="range-band" style="left:38%;width:24%"></span><span class="range-mid" style="left:50%"></span></div>
+            <div class="range-values"><span>60%</span><strong>65%</strong><span>70%</span></div>
+          </article>
+          <article class="confidence-panel reveal">
+            <h3 class="coral">Distant evidence → wider range</h3>
+            <div class="neighbor-scene">
+              <svg viewBox="0 0 660 185" width="660" height="185" aria-hidden="true"><g stroke="#1769aa" stroke-width="2" opacity=".6"><line x1="330" y1="93" x2="115" y2="40"/><line x1="330" y1="93" x2="560" y2="50"/><line x1="330" y1="93" x2="525" y2="155"/><line x1="330" y1="93" x2="150" y2="152"/></g><g fill="#00897b"><circle cx="115" cy="40" r="12"/><circle cx="560" cy="50" r="12"/><circle cx="525" cy="155" r="12"/><circle cx="150" cy="152" r="12"/></g><circle cx="330" cy="93" r="15" fill="white" stroke="#1769aa" stroke-width="5"/></svg>
+            </div>
+            <div class="range-track"><span class="range-band" style="left:14%;width:72%;background:var(--coral)"></span><span class="range-mid" style="left:50%"></span></div>
+            <div class="range-values"><span>45%</span><strong>65%</strong><span>85%</span></div>
+          </article>
+        </div>
+        <div class="formula-strip reveal">Estimated score ± (behavior sensitivity × weighted neighbor distance)</div>
+        <div class="row reveal" style="justify-content:space-between;margin-top:17px"><div><strong style="font-size:25px">Example: 65% estimated pass probability → 55%–75% conditional range</strong></div><span class="pill" style="border-color:var(--coral);color:#9a3d32">Conditional geometric sensitivity · not a statistical confidence interval</span></div>
+      </div>
+      <aside class="notes"><strong>Speaker notes.</strong> An IDW estimate does not tell us whether support came from nearly identical sessions or across a sparse region. A Lipschitz bound turns distance into a confidence signal. It assumes expected evaluation scores change smoothly across the semantic map. The allowance is the Lipschitz value multiplied by the weighted average angular distance to judged donors. An estimate of 0.65, weighted angle 0.20, and L of 0.50 gives an allowance of 0.10 and a range of 0.55 to 0.75. This is conditional geometric sensitivity, not a 95% confidence interval. It does not cover evaluator bias, embedding drift, binary outcome noise, or selection bias.</aside>
+    </section>
+
+    <section class="slide" data-slide="11 / 12" aria-label="Dimensionality reduction experiment design">
+      <header class="slide-header">
+        <p class="slide-kicker reveal">A science solution to an engineering problem</p>
+        <h2 class="reveal">How small can the representation become?</h2>
+      </header>
+      <div class="slide-body">
+        <div class="compression-flow reveal">
+          <div>
+            <div class="matrix-block" aria-label="Dense 1536-dimensional representation">
+              <i style="--o:1"></i><i style="--o:2"></i><i style="--o:3"></i><i style="--o:4"></i><i style="--o:5"></i><i style="--o:6"></i><i style="--o:7"></i><i style="--o:8"></i><i style="--o:2"></i><i style="--o:4"></i><i style="--o:7"></i><i style="--o:3"></i><i style="--o:6"></i><i style="--o:1"></i><i style="--o:5"></i><i style="--o:8"></i><i style="--o:4"></i><i style="--o:2"></i><i style="--o:6"></i><i style="--o:3"></i><i style="--o:8"></i><i style="--o:5"></i><i style="--o:7"></i><i style="--o:1"></i>
+              <i style="--o:4"></i><i style="--o:7"></i><i style="--o:2"></i><i style="--o:8"></i><i style="--o:3"></i><i style="--o:5"></i><i style="--o:1"></i><i style="--o:6"></i><i style="--o:7"></i><i style="--o:3"></i><i style="--o:5"></i><i style="--o:1"></i><i style="--o:8"></i><i style="--o:2"></i><i style="--o:6"></i><i style="--o:4"></i><i style="--o:5"></i><i style="--o:8"></i><i style="--o:1"></i><i style="--o:7"></i><i style="--o:2"></i><i style="--o:6"></i><i style="--o:4"></i><i style="--o:3"></i>
+              <i style="--o:8"></i><i style="--o:1"></i><i style="--o:5"></i><i style="--o:3"></i><i style="--o:7"></i><i style="--o:4"></i><i style="--o:2"></i><i style="--o:6"></i><i style="--o:3"></i><i style="--o:6"></i><i style="--o:2"></i><i style="--o:7"></i><i style="--o:4"></i><i style="--o:8"></i><i style="--o:1"></i><i style="--o:5"></i><i style="--o:7"></i><i style="--o:2"></i><i style="--o:8"></i><i style="--o:4"></i><i style="--o:6"></i><i style="--o:1"></i><i style="--o:3"></i><i style="--o:5"></i>
+            </div>
+            <p class="small strong" style="text-align:center;margin-top:10px">Native embedding · 1,536 values per session</p>
+          </div>
+          <div style="font-size:54px;color:var(--teal);text-align:center">→</div>
+          <div>
+            <div class="eight-bars" aria-label="Eight-dimensional representation"><i style="--h:75%"></i><i style="--h:42%"></i><i style="--h:88%"></i><i style="--h:56%"></i><i style="--h:68%"></i><i style="--h:31%"></i><i style="--h:82%"></i><i style="--h:48%"></i></div>
+            <p class="small strong" style="text-align:center;margin-top:10px">Reduced representation · 8 values per session</p>
+          </div>
+        </div>
+        <div class="method-lanes reveal"><div class="method-lane">PCA</div><div class="method-lane">SVD</div><div class="method-lane">GRP</div><div class="method-lane">Random coordinate mean</div></div>
+        <div class="study-strip reveal"><div class="study-stat"><strong>2,500</strong>sessions</div><div class="study-stat"><strong>30</strong>replay seeds</div><div class="study-stat"><strong>5</strong>traffic patterns</div><div class="study-stat"><strong>5</strong>judge budgets</div></div>
+        <div class="small reveal" style="text-align:center;margin-top:14px;font-weight:700">reduce → select → impute with IDW → compare with expected labels</div>
+      </div>
+      <aside class="notes"><strong>Speaker notes.</strong> Native text-embedding-3-small representations contain 1,536 values per session. Embeddings are customer data, so storage must meet corresponding compliance requirements. The initial architecture assumed a vector-capable store. We tested PCA, SVD, Gaussian Random Projection, and a random-coordinate-mean baseline from 1,024 dimensions down to 2. The intended v6 study used 2,500 synthetic sessions from five dense agents, 30 replay seeds, five traffic schedules, and five judge-budget levels, producing 54,750 rows. The reducer was fitted once on the full unlabeled population; replay seeds varied downstream behavior rather than refitting it. We tested the end-to-end result, not merely vector reconstruction.</aside>
+    </section>
+
+    <section class="slide" data-slide="12 / 12" aria-label="Eight dimensions unlock the semantic path">
+      <header class="slide-header">
+        <p class="slide-kicker reveal">Dimensionality result</p>
+        <h2 class="reveal">Eight dimensions can unlock the semantic path.</h2>
+      </header>
+      <div class="slide-body final-layout">
+        <div class="big-three">
+          <div class="big-stat reveal"><div class="metric accent">8D</div><div><h3 style="margin-bottom:6px">Small representation</h3><p class="small" style="margin:0">from 1,536 native dimensions</p></div></div>
+          <div class="big-stat reveal"><div class="metric coral">23%</div><div><h3 style="margin-bottom:6px">Lower end-to-end MAE</h3><p class="small" style="margin:0">0.2682 vs 0.3476 native</p></div></div>
+          <div class="big-stat reveal"><div class="metric blue">119×</div><div><h3 style="margin-bottom:6px">Smaller stored representation</h3><p class="small" style="margin:0">0.129 MB vs 15.36 MB</p></div></div>
+        </div>
+        <div class="dimension-chart reveal">
+          <svg viewBox="0 0 820 500" role="img" aria-label="End-to-end mean absolute error by representation dimension for PCA, SVD, Gaussian random projection, and random coordinate mean, with native 1536-dimensional reference">
+            <text class="chart-title" x="58" y="26">Actual imputation error by representation dimension</text>
+            <text class="chart-subtitle" x="58" y="47">Mean end-to-end MAE across 30 replay seeds · lower is better</text>
+            <g aria-hidden="true">
+              <line class="grid-line" x1="58" y1="72" x2="770" y2="72"/><line class="grid-line" x1="58" y1="140" x2="770" y2="140"/><line class="grid-line" x1="58" y1="208" x2="770" y2="208"/><line class="grid-line" x1="58" y1="276" x2="770" y2="276"/><line class="grid-line" x1="58" y1="344" x2="770" y2="344"/>
+              <text class="axis-label" x="48" y="77" text-anchor="end">0.41</text><text class="axis-label" x="48" y="145" text-anchor="end">0.37</text><text class="axis-label" x="48" y="213" text-anchor="end">0.33</text><text class="axis-label" x="48" y="281" text-anchor="end">0.29</text><text class="axis-label" x="48" y="349" text-anchor="end">0.25</text>
+              <text class="axis-label" x="58" y="369" text-anchor="middle">2</text><text class="axis-label" x="142" y="369" text-anchor="middle">8</text><text class="axis-label" x="226" y="369" text-anchor="middle">16</text><text class="axis-label" x="310" y="369" text-anchor="middle">32</text><text class="axis-label" x="394" y="369" text-anchor="middle">64</text><text class="axis-label" x="478" y="369" text-anchor="middle">128</text><text class="axis-label" x="562" y="369" text-anchor="middle">256</text><text class="axis-label" x="646" y="369" text-anchor="middle">512</text><text class="axis-label" x="730" y="369" text-anchor="middle">1024</text>
+              <text class="axis-label" x="414" y="393" text-anchor="middle">Representation dimensions</text>
+            </g>
+            <line class="native-line" x1="58" y1="178" x2="770" y2="178"/><circle cx="770" cy="178" r="6" fill="#17242b"/><rect x="592" y="137" width="176" height="25" rx="3" fill="white" opacity=".94"/><text class="axis-label" x="760" y="154" text-anchor="end">Native 1,536D · 0.3476</text>
+            <polyline class="series" stroke="#2472b8" points="58,113 142,313 226,236 310,191 394,168 478,161 562,158 646,158 730,157"/>
+            <polyline class="series" stroke="#dc921c" points="58,103 142,237 226,238 310,199 394,182 478,179 562,178 646,178 730,178"/>
+            <polyline class="series" stroke="#00897b" points="58,110 142,228 226,147 310,181 394,178 478,165 562,162 646,176 730,176"/>
+            <polyline class="series" stroke="#6eb6e8" points="58,122 142,112 226,165 310,149 394,186 478,184 562,168 646,175"/>
+            <g fill="#2472b8"><circle class="point" cx="58" cy="113" r="5"/><circle class="point" cx="142" cy="313" r="7"/><circle class="point" cx="226" cy="236" r="5"/><circle class="point" cx="310" cy="191" r="5"/><circle class="point" cx="394" cy="168" r="5"/><circle class="point" cx="478" cy="161" r="5"/><circle class="point" cx="562" cy="158" r="5"/><circle class="point" cx="646" cy="158" r="5"/><circle class="point" cx="730" cy="157" r="5"/></g>
+            <g fill="#dc921c"><circle class="point" cx="58" cy="103" r="5"/><circle class="point" cx="142" cy="237" r="5"/><circle class="point" cx="226" cy="238" r="5"/><circle class="point" cx="310" cy="199" r="5"/><circle class="point" cx="394" cy="182" r="5"/><circle class="point" cx="478" cy="179" r="5"/><circle class="point" cx="562" cy="178" r="5"/><circle class="point" cx="646" cy="178" r="5"/><circle class="point" cx="730" cy="178" r="5"/></g>
+            <g fill="#00897b"><circle class="point" cx="58" cy="110" r="5"/><circle class="point" cx="142" cy="228" r="5"/><circle class="point" cx="226" cy="147" r="5"/><circle class="point" cx="310" cy="181" r="5"/><circle class="point" cx="394" cy="178" r="5"/><circle class="point" cx="478" cy="165" r="5"/><circle class="point" cx="562" cy="162" r="5"/><circle class="point" cx="646" cy="176" r="5"/><circle class="point" cx="730" cy="176" r="5"/></g>
+            <g fill="#6eb6e8"><circle class="point" cx="58" cy="122" r="5"/><circle class="point" cx="142" cy="112" r="5"/><circle class="point" cx="226" cy="165" r="5"/><circle class="point" cx="310" cy="149" r="5"/><circle class="point" cx="394" cy="186" r="5"/><circle class="point" cx="478" cy="184" r="5"/><circle class="point" cx="562" cy="168" r="5"/><circle class="point" cx="646" cy="175" r="5"/></g>
+            <circle class="focus-halo" cx="142" cy="313" r="15"/><path d="M154 306 L240 291" fill="none" stroke="#df6555" stroke-width="2"/><rect x="240" y="270" width="145" height="42" rx="4" fill="#f9e0dc" stroke="#df6555"/><text class="annotation" x="251" y="288">PCA-8 leads</text><text class="chart-subtitle" x="251" y="304">MAE 0.2682</text>
+            <g transform="translate(64 424)"><line x1="0" y1="0" x2="28" y2="0" stroke="#2472b8" stroke-width="4"/><text class="legend-label" x="36" y="5">PCA</text></g><g transform="translate(176 424)"><line x1="0" y1="0" x2="28" y2="0" stroke="#dc921c" stroke-width="4"/><text class="legend-label" x="36" y="5">SVD</text></g><g transform="translate(284 424)"><line x1="0" y1="0" x2="28" y2="0" stroke="#00897b" stroke-width="4"/><text class="legend-label" x="36" y="5">GRP</text></g><g transform="translate(392 424)"><line x1="0" y1="0" x2="28" y2="0" stroke="#6eb6e8" stroke-width="4"/><text class="legend-label" x="36" y="5">Random coordinate mean</text></g>
+            <g transform="translate(64 462)"><rect width="690" height="25" rx="3" fill="#eef4f1"/><text class="chart-subtitle" x="12" y="17">95% bootstrap intervals omitted at slide scale; the full report retains them.</text></g>
+          </svg>
+        </div>
+      </div>
+      <div class="decision-banner reveal"><div class="proposal">Proposed unlock: store eight components in ESP and compute similarity directly.</div><div class="qualifier">Synthetic-label research result. Confirm reducer choice, ESP schema/compliance, and production-scale performance.</div></div>
+      <aside class="notes"><strong>Speaker notes.</strong> Across the intended 30-seed v6 run, PCA at eight dimensions achieved end-to-end MAE 0.2682 versus 0.3476 for native 1,536D: a 0.0794 absolute reduction, about 23%. PCA-8 F1 was 0.8589, a 0.0396 improvement over native. Modeled stored representation was 0.129 MB versus 15.36 MB, about 119 times smaller; this is not total process memory. PCA-8 led this artifact, but the study was synthetic and transductive with one fitted reducer. Selection overlap with native was only 18.9%, so production must validate selected sessions, not only averages. Eight scalar components create a plausible ESP storage path without a dedicated vector index, pending schema, compliance, query, and production performance validation. The experiment did not show a persuasive runtime improvement.</aside>
+    </section>
+  </div>
+
+  <nav class="controls" aria-label="Presentation controls">
+    <button class="control-btn" id="prev" type="button" aria-label="Previous slide" title="Previous slide (Left arrow)">←</button>
+    <span class="counter" id="counter" aria-live="polite">01 / 12</span>
+    <button class="control-btn" id="next" type="button" aria-label="Next slide" title="Next slide (Right arrow)">→</button>
+    <button class="control-btn" id="overview" type="button" aria-label="Toggle slide overview" title="Overview (O)">▦</button>
+    <button class="control-btn" id="notes" type="button" aria-label="Toggle speaker notes" title="Speaker notes (N)">≡</button>
+    <button class="control-btn" id="fullscreen" type="button" aria-label="Toggle fullscreen" title="Fullscreen (F)">⛶</button>
+  </nav>
+  <div class="progress" id="progress" aria-hidden="true"></div>
+  <aside class="notes-drawer" id="notesDrawer" hidden></aside>
+</main>
+
+<script>
+(() => {
+  const svgNamespace = 'http://www.w3.org/2000/svg';
+  const app = document.querySelector('.app');
+  const stage = document.getElementById('stage');
+  const slides = [...document.querySelectorAll('.slide')];
+  const counter = document.getElementById('counter');
+  const progress = document.getElementById('progress');
+  const prevButton = document.getElementById('prev');
+  const nextButton = document.getElementById('next');
+  const overviewButton = document.getElementById('overview');
+  const notesButton = document.getElementById('notes');
+  const fullscreenButton = document.getElementById('fullscreen');
+  const notesDrawer = document.getElementById('notesDrawer');
+  let index = 0;
+  let overview = false;
+
+  function seededRandom(seed) {
+    let state = seed >>> 0;
+    return () => {
+      state += 0x6D2B79F5;
+      let value = state;
+      value = Math.imul(value ^ value >>> 15, value | 1);
+      value ^= value + Math.imul(value ^ value >>> 7, value | 61);
+      return ((value ^ value >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  function gaussian(random) {
+    const first = Math.max(random(), Number.EPSILON);
+    const second = random();
+    return Math.sqrt(-2 * Math.log(first)) * Math.cos(2 * Math.PI * second);
+  }
+
+  function svgElement(name, attributes = {}) {
+    const element = document.createElementNS(svgNamespace, name);
+    Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, String(value)));
+    return element;
+  }
+
+  function cloudConfiguration(kind) {
+    if (kind === 'overview') {
+      return {
+        seed: 36504,
+        width: 1010,
+        height: 610,
+        clusters: [
+          { cx: 350, cy: 270, sx: 132, sy: 82, count: 96, angle: -0.12 },
+          { cx: 725, cy: 170, sx: 82, sy: 48, count: 42, angle: 0.22 },
+          { cx: 765, cy: 420, sx: 108, sy: 62, count: 54, angle: -0.18 },
+          { cx: 178, cy: 478, sx: 48, sy: 28, count: 18, angle: 0.08 },
+          { cx: 545, cy: 352, sx: 115, sy: 28, count: 24, angle: 0.42 }
+        ],
+        outliers: [[930, 300], [884, 535], [560, 540], [92, 385]],
+        focus: { x: 315, y: 430, donors: [[266, 395], [283, 465], [362, 391], [377, 451]] }
+      };
+    }
+    return {
+      seed: 36509,
+      width: 1070,
+      height: 560,
+      clusters: [
+        { cx: 265, cy: 180, sx: 155, sy: 72, count: 90, angle: -0.15 },
+        { cx: 590, cy: 295, sx: 178, sy: 96, count: 112, angle: 0.17 },
+        { cx: 870, cy: 135, sx: 74, sy: 38, count: 38, angle: -0.25 },
+        { cx: 205, cy: 450, sx: 48, sy: 24, count: 18, angle: 0.08 },
+        { cx: 918, cy: 442, sx: 52, sy: 27, count: 18, angle: -0.08 },
+        { cx: 510, cy: 112, sx: 80, sy: 28, count: 28, angle: 0.38 },
+        { cx: 760, cy: 465, sx: 92, sy: 26, count: 26, angle: -0.32 }
+      ],
+      outliers: [[1010, 265], [73, 340], [405, 515], [973, 58], [690, 74]]
+    };
+  }
+
+  function rotatePoint(x, y, angle) {
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
+    return { x: x * cosine - y * sine, y: x * sine + y * cosine };
+  }
+
+  function addAnimatedPoint(group, point, random, type = 'base', radius) {
+    const driftX = 1 + random() * 2.2;
+    const driftY = 1 + random() * 2.2;
+    const circle = svgElement('circle', {
+      cx: point.x.toFixed(2),
+      cy: point.y.toFixed(2),
+      r: (radius || 2.3 + random() * 2.4).toFixed(2),
+      class: `cloud-point ${type}`
+    });
+    circle.style.setProperty('--drift-from-x', `${-driftX.toFixed(2)}px`);
+    circle.style.setProperty('--drift-to-x', `${driftX.toFixed(2)}px`);
+    circle.style.setProperty('--drift-from-y', `${-driftY.toFixed(2)}px`);
+    circle.style.setProperty('--drift-to-y', `${driftY.toFixed(2)}px`);
+    circle.style.setProperty('--drift-duration', `${(7.5 + random() * 6).toFixed(2)}s`);
+    circle.style.setProperty('--drift-delay', `${(-random() * 8).toFixed(2)}s`);
+    if (type === 'base') {
+      circle.style.setProperty('--point-opacity', (0.35 + random() * 0.4).toFixed(2));
+      circle.style.setProperty('--point-color', random() > 0.82 ? '#2472b8' : '#4b9f91');
+    }
+    group.appendChild(circle);
+    return circle;
+  }
+
+  function buildEmbeddingCloud(svg) {
+    const configuration = cloudConfiguration(svg.dataset.cloud);
+    const random = seededRandom(configuration.seed);
+    const contours = svgElement('g');
+    const links = svgElement('g');
+    const bases = svgElement('g');
+    const estimates = svgElement('g');
+    const judged = svgElement('g');
+    const rings = svgElement('g');
+    const points = [];
+    const selected = [];
+
+    configuration.clusters.forEach((cluster, clusterIndex) => {
+      const hull = svgElement('ellipse', {
+        cx: cluster.cx,
+        cy: cluster.cy,
+        rx: cluster.sx * 1.75,
+        ry: cluster.sy * 1.75,
+        class: 'cloud-hull',
+        transform: `rotate(${cluster.angle * 180 / Math.PI} ${cluster.cx} ${cluster.cy})`
+      });
+      contours.appendChild(hull);
+      contours.appendChild(svgElement('ellipse', {
+        cx: cluster.cx,
+        cy: cluster.cy,
+        rx: cluster.sx * 1.2,
+        ry: cluster.sy * 1.2,
+        class: 'cloud-contour',
+        transform: `rotate(${cluster.angle * 180 / Math.PI} ${cluster.cx} ${cluster.cy})`
+      }));
+
+      const clusterPoints = [];
+      for (let pointIndex = 0; pointIndex < cluster.count; pointIndex += 1) {
+        const localX = gaussian(random) * cluster.sx * 0.55;
+        const localY = gaussian(random) * cluster.sy * 0.55;
+        const rotated = rotatePoint(localX, localY, cluster.angle);
+        const point = {
+          x: Math.max(18, Math.min(configuration.width - 18, cluster.cx + rotated.x)),
+          y: Math.max(18, Math.min(configuration.height - 18, cluster.cy + rotated.y)),
+          clusterIndex,
+          radial: Math.hypot(localX / cluster.sx, localY / cluster.sy)
+        };
+        clusterPoints.push(point);
+        points.push(point);
+      }
+      clusterPoints.sort((left, right) => right.radial - left.radial);
+      selected.push(...clusterPoints.slice(0, svg.dataset.cloud === 'overview' ? 2 : 3));
+    });
+
+    configuration.outliers.forEach(([x, y]) => selected.push({ x, y, radial: 2 }));
+    const selectedKeys = new Set(selected.map(point => `${point.x.toFixed(2)}:${point.y.toFixed(2)}`));
+
+    points.forEach((point, pointIndex) => {
+      const key = `${point.x.toFixed(2)}:${point.y.toFixed(2)}`;
+      if (!selectedKeys.has(key)) addAnimatedPoint(bases, point, random, 'base');
+      if (svg.dataset.cloud === 'super-agent' && pointIndex % 17 === 6 && !selectedKeys.has(key)) {
+        addAnimatedPoint(estimates, point, random, 'estimated', 5.2);
+      }
+    });
+
+    selected.forEach((point, pointIndex) => {
+      addAnimatedPoint(judged, point, random, 'judged', point.radial > 1.5 ? 7 : 6);
+      if (point.radial > 1.5 || pointIndex % 5 === 0) {
+        rings.appendChild(svgElement('circle', { cx: point.x, cy: point.y, r: 12, class: 'cloud-focus-ring' }));
+      }
+    });
+
+    if (configuration.focus) {
+      configuration.focus.donors.forEach(([x, y], donorIndex) => {
+        links.appendChild(svgElement('line', {
+          x1: configuration.focus.x,
+          y1: configuration.focus.y,
+          x2: x,
+          y2: y,
+          class: 'cloud-link',
+          'stroke-width': donorIndex < 2 ? 3.4 : 2
+        }));
+        addAnimatedPoint(judged, { x, y }, random, 'judged', donorIndex < 2 ? 6.8 : 5.8);
+      });
+      addAnimatedPoint(estimates, configuration.focus, random, 'estimated', 8.2);
+      rings.appendChild(svgElement('circle', { cx: configuration.focus.x, cy: configuration.focus.y, r: 15, class: 'cloud-focus-ring' }));
+    } else {
+      const judgedPoints = selected.slice();
+      [...estimates.children].slice(0, 12).forEach((estimate, estimateIndex) => {
+        const source = points[estimateIndex * 17 + 6];
+        const nearest = judgedPoints
+          .map(point => ({ point, distance: Math.hypot(point.x - source.x, point.y - source.y) }))
+          .sort((left, right) => left.distance - right.distance)
+          .slice(0, 2);
+        nearest.forEach((neighbor, neighborIndex) => links.appendChild(svgElement('line', {
+          x1: source.x,
+          y1: source.y,
+          x2: neighbor.point.x,
+          y2: neighbor.point.y,
+          class: 'cloud-link',
+          'stroke-width': neighborIndex === 0 ? 2.5 : 1.4
+        })));
+      });
+    }
+
+    svg.append(contours, links, bases, estimates, judged, rings);
+  }
+
+  function buildEmbeddingClouds() {
+    document.querySelectorAll('.embedding-cloud').forEach(buildEmbeddingCloud);
+  }
+
+  function scaleStage() {
+    if (overview) return;
+    const availableWidth = window.innerWidth - 28;
+    const availableHeight = window.innerHeight - 28;
+    const scale = Math.min(availableWidth / 1600, availableHeight / 900);
+    stage.style.transform = `translate(-50%, -50%) scale(${scale})`;
+  }
+
+  function parseHash() {
+    const parsed = Number(location.hash.replace('#', ''));
+    return Number.isFinite(parsed) && parsed >= 1 && parsed <= slides.length ? parsed - 1 : 0;
+  }
+
+  function updateNotes() {
+    const source = slides[index].querySelector('.notes');
+    notesDrawer.innerHTML = source ? source.innerHTML : '<strong>Speaker notes.</strong> No notes for this slide.';
+  }
+
+  function showSlide(nextIndex, updateHash = true) {
+    index = Math.max(0, Math.min(slides.length - 1, nextIndex));
+    slides.forEach((slide, slideIndex) => slide.classList.toggle('active', slideIndex === index));
+    counter.textContent = `${String(index + 1).padStart(2, '0')} / ${String(slides.length).padStart(2, '0')}`;
+    progress.style.width = `${((index + 1) / slides.length) * 100}%`;
+    prevButton.disabled = index === 0;
+    nextButton.disabled = index === slides.length - 1;
+    updateNotes();
+    if (updateHash) history.replaceState(null, '', `#${index + 1}`);
+  }
+
+  function toggleOverview(force) {
+    overview = typeof force === 'boolean' ? force : !overview;
+    app.classList.toggle('overview', overview);
+    overviewButton.setAttribute('aria-pressed', String(overview));
+    notesDrawer.hidden = true;
+    notesButton.setAttribute('aria-pressed', 'false');
+    if (!overview) scaleStage();
+  }
+
+  function toggleNotes() {
+    if (overview) toggleOverview(false);
+    notesDrawer.hidden = !notesDrawer.hidden;
+    notesButton.setAttribute('aria-pressed', String(!notesDrawer.hidden));
+  }
+
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  }
+
+  prevButton.addEventListener('click', () => showSlide(index - 1));
+  nextButton.addEventListener('click', () => showSlide(index + 1));
+  overviewButton.addEventListener('click', () => toggleOverview());
+  notesButton.addEventListener('click', toggleNotes);
+  fullscreenButton.addEventListener('click', toggleFullscreen);
+  slides.forEach((slide, slideIndex) => slide.addEventListener('click', () => {
+    if (overview) { showSlide(slideIndex); toggleOverview(false); }
+  }));
+
+  document.addEventListener('keydown', event => {
+    if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') { event.preventDefault(); showSlide(index + 1); }
+    if (event.key === 'ArrowLeft' || event.key === 'PageUp') { event.preventDefault(); showSlide(index - 1); }
+    if (event.key === 'Home') showSlide(0);
+    if (event.key === 'End') showSlide(slides.length - 1);
+    if (event.key.toLowerCase() === 'o') toggleOverview();
+    if (event.key.toLowerCase() === 'n') toggleNotes();
+    if (event.key.toLowerCase() === 'f') toggleFullscreen();
+    if (event.key === 'Escape' && overview) toggleOverview(false);
+  });
+  window.addEventListener('resize', scaleStage);
+  window.addEventListener('hashchange', () => showSlide(parseHash(), false));
+  document.addEventListener('fullscreenchange', scaleStage);
+
+  buildEmbeddingClouds();
+  index = parseHash();
+  showSlide(index, false);
+  scaleStage();
+})();
+</script>
+</body>
+</html>
