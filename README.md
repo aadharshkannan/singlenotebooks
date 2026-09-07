@@ -18,6 +18,31 @@ The expected-label-only experiment and report harness lives in
 [`Agent365 Sampling V2 report`](outputs_sampling_v2/v2/agent365-sampling-v2-report.html).
 The exact synthetic sources are retained under [`synthetic_data/`](synthetic_data/).
 
+## Sampling V7
+
+The v7 experiment is a transductive PCA-8 evaluation over the existing three corpora:
+`historical_300`, `dense_2500`, and `cosmos_otel`. Every dataset is evaluated with ten paired
+bootstrap replays by default. Each replay draws $N$ session occurrences with replacement from
+the $N$ source sessions, randomizing both event order and source-session frequency while using
+the same replay for every method and budget. This is a sensitivity analysis, not ten sets of
+independent labels.
+
+To run it locally without Azure calls, use the deterministic offline test fixtures or a fake
+embedder/search adapter. The default live CLI is:
+
+```powershell
+.\.venv-v3\Scripts\python.exe scripts\run_sampling_v7.py `
+  --output outputs_sampling_v7\runs\<name> `
+  --repetitions 10 `
+  --base-seed 13
+```
+
+This CLI is cloud-backed by default: it loads `AzureConfig.from_env()`, builds canonical v3 full-session runtime packets/embeddings, and syncs PCA-8 evidence vectors into dedicated Search indexes (`trace-clusters-sampling-v7-cosine` and `trace-clusters-sampling-v7-euclidean`). It intentionally fails if live Search sync is disabled outside debug/test usage. Use `--skip-search-sync` only for tests or debug-only runs.
+
+The output includes label-free replay manifests, Student-t replay uncertainty summaries, and
+paired cosine-versus-Euclidean differences in addition to the per-run metrics and interactive
+report.
+
 Each package README documents its production contract. The V2 runbook is the
 single retained interactive experiment and keeps all LLM/network paths disabled
 by default.
