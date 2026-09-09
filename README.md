@@ -1,5 +1,26 @@
 # singlenotebooks
-Repo where I have single notebooks for one off analysis
+Agent-evaluation sampling experiments, reporting tools, and supporting analysis notebooks.
+
+## Start Here
+
+| Need | Start with |
+| --- | --- |
+| Current goal, team direction, and evidence limits | [Sampling context](docs/SAMPLING_CONTEXT.md) |
+| Consistent methods/data/results reports in HTML or PDF | [Sampling experiment reporting skill](.github/skills/sampling-experiment-report/SKILL.md) |
+| Source, notebooks, retained results, and safe cleanup | [Repository layout](docs/REPOSITORY_LAYOUT.md) |
+| Latest retained repeated V7 comparison | [Interactive report](outputs_sampling_v7/runs/v7-live-repeated-20260903/interactive_report.html) and [PCA-8 distance report](outputs_sampling_v7/runs/v7-live-repeated-20260903/pca8-distance-report.html) |
+
+The preferred direction is full-session semantic sampling with IDW score
+imputation, conditional Lipschitz bounds, and PCA-8 representations. These are
+not yet one validated production pipeline: V7 tests PCA-8 binary IDW, while the
+value/bounds prototype is separate. The proposed 20-session-per-agent weekly
+sampling gate is planning context, not implemented behavior. Read the context
+before interpreting the historical experiments below.
+
+For report work, ask an agent to use `sampling-experiment-report` and supply a
+specific run's aggregate path, audience, question, and HTML/PDF requirements.
+The skill includes a report template, acceptance checklist, and local browser
+quality checker. Existing notebooks and run paths are retained for compatibility.
 
 ## Agent365 Sampling V2
 
