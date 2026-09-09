@@ -10,6 +10,20 @@ outputs_sampling_v2/v2/optional_judge_inputs/
 # Sampling V3 ad-hoc runs are local; retained reviewed bundle stays tracked.
 outputs_sampling_v3/runs/
 
+# Local screenshot cleanup: only temporary validation assets are ignored.
+outputs_sampling_v6/**/qa_*.png
+outputs_sampling_v6/**/qa_*/
+outputs_sampling_v6/**/validation_screenshots/**
+outputs_sampling_v6/**/storytelling-validation/**
+outputs_sampling_v7/**/cache/**
+outputs_sampling_v7/**/validation_screenshots/**
+outputs_sampling_v7/**/storytelling-validation/**
+outputs_sampling_v7/**/report-*.png
+outputs_sampling_v7/**/pca8-audit-*.png
+outputs_sampling_v7/**/pca8-story-*.png
+outputs_sampling_v7/**/pca8-final-*.png
+outputs_sampling_v7/**/pca8-distance-report-*.png
+
 # Sampling V6 real-resource caches and local report fixtures are reproducible.
 outputs_sampling_v6/cache/
 outputs_sampling_v6/report-fixture/
