@@ -47,6 +47,14 @@ The idea is that useful shorter representations are nested inside the larger vec
 <p>At 8 dimensions, we kept coordinates <strong>0 through 7</strong>, in their original order. We then divided the shortened vector by its Euclidean (L2) length:</p>
 <pre><code>short = full_embedding[:d]
 short = short / np.linalg.norm(short)</code></pre>
+<div class="note" id="normalization-note"><p><strong>Why divide by the length?</strong>
+&ldquo;Length&rdquo; means magnitude, not the number of dimensions: <strong>we are not dividing by 8</strong>.
+In a two-number example, <code>[0.3, 0.4]</code> has length <code>sqrt(0.3&sup2; + 0.4&sup2;) = 0.5</code>.
+Dividing by 0.5 gives <code>[0.6, 0.8]</code>: the same direction and proportions, but length 1.</p>
+<p>Cutting off coordinates removes part of the original unit-length vector.
+Re-normalizing lets dot products give correct cosine similarities for IDW's angular distances.
+Keeping the raw first-eight values is also valid if the cosine calculation normalizes internally.
+This changes scale, not direction; it is not another reduction technique or an accuracy-enhancing trick.</p></div>
 <p><strong>No PCA, SVD, Gaussian random projection, coordinate sorting or retraining was used.</strong>
 All shortened vectors came from the same saved full-dimensional embeddings. Tested sizes: 1,536 &rarr; 512 &rarr; 256 &rarr; 128 &rarr; 64 &rarr; 32 &rarr; 16 &rarr; 8.</p>
 <h3>What does &ldquo;performance&rdquo; mean here?</h3>

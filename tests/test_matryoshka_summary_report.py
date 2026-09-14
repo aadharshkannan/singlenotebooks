@@ -82,6 +82,17 @@ def test_conclusion_is_scoped_and_does_not_hide_budget_regression():
     assert "not silently substituted" in html
 
 
+def test_normalization_note_explains_magnitude_and_cosine_without_an_extra_graph():
+    html, _ = render()
+    for text in ("we are not dividing by 8", "[0.3, 0.4]", "[0.6, 0.8]",
+                 "same direction and proportions, but length 1",
+                 "cosine calculation normalizes internally",
+                 "not another reduction technique or an accuracy-enhancing trick"):
+        assert text in html
+    assert html.index('id="normalization-note"') > html.index("np.linalg.norm(short)")
+    assert html.count("data-graph=") == 3
+
+
 def test_negative_results_cannot_receive_requested_positive_conclusion():
     data = fixture()
     for row in data["rows"]:
