@@ -41,15 +41,15 @@ def main() -> None:
                     pass_rate=prepared["positive_count"] / prepared["sessions"] if prepared["positive_count"] is not None else None,
                     provenance=prepared, source_hashes=prepared["source_hashes"],
                 )
-        if profile["status"] != "completed" and args.authentication_blocker:
-            profile["reason"] = (
-                prepared["reason"] if source.exists() and prepared.get("status") == "blocked_expected_labels"
-                else args.authentication_blocker
-            )
+        if profile["status"] != "completed":
+            if source.exists() and prepared.get("status") == "blocked_expected_labels":
+                profile["reason"] = prepared["reason"]
+            elif args.authentication_blocker:
+                profile["reason"] = args.authentication_blocker
     readiness_path = root / "input_readiness.json"
     write_json(readiness_path, {
         "datasets": readiness, "authentication_blocker": args.authentication_blocker,
-        "boundary": "Prepared source/label counts are not measured sampling accuracy. Live embedding preparation is authorized; no new judge calls.",
+        "boundary": "Prepared source/label counts are not measured sampling accuracy. Live embedding preparation is authorized; no new judge calls. Successful completed-dataset embedding totals are recorded in each preparation manifest.",
     })
     aggregate["files"]["input_readiness"] = str(readiness_path)
     write_json(aggregate_path, aggregate)
@@ -57,7 +57,8 @@ def main() -> None:
         manifest["files"][name] = {"path": path, "sha256": sha256_file(Path(path))}
     for name in (
         "report.html", "scientific_validation.json", "browser_validation.json",
-        "visual_validation.json", "protocol_parity.json", "environment-requirements.txt", "unit_tests.xml",
+        "visual_validation.json", "protocol_parity.json", "environment-requirements.txt",
+        "unit_tests.xml", "cache_reuse_validation.json",
     ):
         path = root / name
         if path.exists():

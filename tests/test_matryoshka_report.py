@@ -250,6 +250,11 @@ def test_build_report_renders_required_datasets_and_curves() -> None:
         assert f">{dim}<" in html
     assert "Missing from aggregate datasets list" in html
     assert "Unjudged-only accuracy (fraction)" in html
+    assert "unjudged-only MAE by dimension" in html
+    assert "MAE difference (fraction)" in html
+    assert "MAE (lower is better):" in html
+    assert "before thresholding" in html
+    assert "Existing cutoff-candidate tables use accuracy, not an agreed MAE tolerance" in html
     assert "Rate-specific paired accuracy delta (pp) vs native" in html
     assert "N/A (single seed or unavailable)" in html
     assert "provenance</code> is taken from input-manifest profile metadata" in html

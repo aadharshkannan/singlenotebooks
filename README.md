@@ -31,20 +31,26 @@ It replays the earlier dimensionality study's ARM2 selection and causal IDW
 protocol, with both end-to-end selection and a native-fixed-membership diagnostic.
 There is no PCA/SVD/GRP fitting and no new LLM judge.
 
-The [2026-09-14 report](outputs_matryoshka/runs/mrl-cutoff-20260914/report.html)
-is **partial**: `dense_2500` completed 30 paired seeds, five arrival schedules,
-five session-budget rates and eight dimensions (12,000 cells across both modes).
-The other requested datasets, `historical_300`, `cosmos_otel` and `tau2_bench`,
-must not be interpreted as measured until their embedding inputs are available.
-Fresh embedding API calls were authorized. The user identified
-`https://bugboss-foundry.services.ai.azure.com` as the correct resource; its
-API-key `.env` is not present in this isolated worktree. The preparer supports
-that modern Foundry endpoint through the existing `/openai/v1/` client factory.
-Earlier corporate-tenant authentication failures involved the superseded
-endpoint, not a verified access failure against this corrected resource.
-Existing labels, not a new LLM judge, remain the scoring reference.
-The local Tau2 source has 388 trajectories but no verified expected-label
-mapping; recorded benchmark rewards are not silently substituted.
+The latest [three-dataset report](outputs_matryoshka/runs/mrl-three-datasets-30-seed-20260914/report.html)
+contains **36,000 cells**: `historical_300`, `dense_2500` and `cosmos_otel` each
+completed 30 paired seeds, five arrival schedules, five session-budget rates,
+eight dimensions and both modes. Actual membership artifacts verify 30 distinct
+source orders per dataset/schedule, paired across dimensions and budgets.
+MAE measures continuous IDW-probability error and is directly comparable to the
+earlier study; thresholded accuracy is shown separately.
+
+The 300 Historical and 205 Cosmos full-dimensional embeddings were generated
+through the user-approved `bugboss-foundry.services.ai.azure.com` API and saved
+with source hashes. Dense reuses its verified 2,500-vector cache. All repeated
+sweeps are offline; completed cache reuse is verified to make zero embedding
+calls and leave cache bytes unchanged. Existing labels, not new LLM judges,
+provide the scoring reference.
+
+The report is still **partial (3/4 datasets)**: the local Tau2 source has 388
+trajectories but no verified expected-label mapping. Recorded benchmark rewards
+require explicit approval as a different reference-label source; they are not
+silently substituted. The [earlier dense-only bundle](outputs_matryoshka/runs/mrl-cutoff-20260914/report.html)
+is preserved unchanged.
 See the [input and execution instructions](sampling_comparison/README.md#matryoshka-prefix-cutoff).
 
 ## Agent365 Sampling V2

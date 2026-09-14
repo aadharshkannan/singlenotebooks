@@ -51,6 +51,7 @@ def validate(root: Path) -> dict:
         native_key = tuple(1536 if name == "dimension" else "end_to_end" if name == "mode" else row[name] for name in key_fields)
         np.testing.assert_allclose(row["accuracy_delta_native"], row["accuracy"] - by_key[native_key]["accuracy"], atol=1e-14)
     membership_keys = set()
+    replay_orders = {}
     with gzip.open(root / "memberships.jsonl.gz", "rt", encoding="utf-8") as stream:
         for line in stream:
             membership = json.loads(line)
@@ -59,6 +60,11 @@ def validate(root: Path) -> dict:
                 raise ValueError("missing or duplicate membership key")
             membership_keys.add(key)
             row = by_key[key]
+            replay_key = (row["dataset_id"], row["seed"], row["schedule"])
+            order_hash = membership["order_sha256"]
+            if replay_key in replay_orders and replay_orders[replay_key] != order_hash:
+                raise ValueError("arrival order is not paired across dimensions, modes or budgets")
+            replay_orders[replay_key] = order_hash
             indices = membership["selected_indices"]
             n = completed[row["dataset_id"]]["n"]
             if len(indices) != row["selected_count"] or len(set(indices)) != len(indices) or not set(indices).issubset(range(n)):
@@ -72,17 +78,27 @@ def validate(root: Path) -> dict:
                     raise ValueError("fixed membership differs from native")
     if membership_keys != set(by_key):
         raise ValueError("membership grid is incomplete")
+    unique_order_counts = {}
+    for dataset_id in completed:
+        unique_order_counts[dataset_id] = {}
+        for schedule in protocol["schedules"]:
+            orders = {digest for (dataset, _, kind), digest in replay_orders.items()
+                      if dataset == dataset_id and kind == schedule}
+            unique_order_counts[dataset_id][schedule] = len(orders)
+            if len(orders) != len(protocol["seeds"]):
+                raise ValueError("configured seeds did not produce distinct randomized source orders")
     summary, decisions = summarize(rows, protocol["accuracy_tolerance"])
     if summary != aggregate["summary"] or decisions != aggregate["decisions"]:
         raise ValueError("summary/decision does not match machine-readable cells")
     return {
         "status": "passed", "aggregate_sha256": sha256_file(aggregate_path),
         "result_rows": expected, "membership_records": len(membership_keys),
+        "unique_orders_per_dataset_schedule": unique_order_counts,
         "checks": [
             "artifact and controlling source hashes", "complete unique configured grid",
             "budget/target/provenance/confusion denominators", "combined versus unjudged-only accuracy",
             "paired native deltas", "membership indices and checksums", "fixed-membership control",
-            "summary and candidate recomputation",
+            "summary and candidate recomputation", "distinct randomized orders and dimension/budget/mode pairing",
         ],
         "scope": "Artifact consistency, not independent production validation or proof of zero accuracy loss.",
     }

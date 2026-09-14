@@ -65,10 +65,14 @@ def test_preflight_then_cached_live_batches_exclude_labels(tmp_path):
     assert result["live_judge_calls"] == 0
     restored = load_input(out / "manifest.json")
     np.testing.assert_array_equal(restored.labels, [0, 1, 0])
+    manifest_before = (out / "manifest.json").read_bytes()
+    vectors_before = (out / "vectors.npz").read_bytes()
     result = prepare_live_input(data, out, embedder=embedder, **options())
     assert len(embedder.calls) == 2
     assert result["fresh_embedding_batches_this_invocation"] == 0
     assert result["live_embedding_calls"] == 2
+    assert (out / "manifest.json").read_bytes() == manifest_before
+    assert (out / "vectors.npz").read_bytes() == vectors_before
 
 
 def test_resume_source_label_or_endpoint_mismatch_is_error(tmp_path):

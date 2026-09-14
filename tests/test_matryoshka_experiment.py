@@ -72,6 +72,16 @@ def test_paired_schedule_is_deterministic_and_complete(schedule):
     assert np.all(np.diff(first[1]) >= 0)
 
 
+@pytest.mark.parametrize("schedule", SCHEDULES)
+def test_default_thirty_seeds_give_thirty_distinct_source_orders(schedule):
+    data = fixture_data(60)
+    orders = {
+        tuple(build_schedule(data.unit_ids, data.agents, schedule, seed)[0].tolist())
+        for seed in range(13, 43)
+    }
+    assert len(orders) == 30
+
+
 def reference_predictions(data, blocks, order, selected):
     cfg = IDWConfig()
     result = np.full(len(order), cfg.prior)

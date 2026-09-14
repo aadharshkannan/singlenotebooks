@@ -207,6 +207,15 @@ def prepare_live_input(
             raise ValueError("preparation fingerprint differs; use a new input directory")
     elif output.exists() and any(output.iterdir()):
         raise FileExistsError("refusing to overwrite an input directory without matching preparation provenance")
+    manifest_path = output / "manifest.json"
+    if manifest_path.exists():
+        load_input(manifest_path)
+        for batch_path in sorted((output / "batches").glob("*.npz")):
+            ledger = json.loads(batch_path.with_suffix(".json").read_text(encoding="utf-8"))
+            if sha256_file(batch_path) != ledger["sha256"]:
+                raise ValueError(f"cached embedding batch checksum mismatch: {batch_path}")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        return {**manifest, "fresh_embedding_batches_this_invocation": 0}
     write_json(config_path, compatibility)
     write_json(output / "units.json", records)
     unique_hashes = sorted(text_by_hash)

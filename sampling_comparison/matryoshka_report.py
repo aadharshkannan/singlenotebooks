@@ -278,7 +278,7 @@ def _render_multi_series_svg(
     width = 640
     legend_rows = math.ceil(len(series) / 3)
     height = 300 + legend_rows * 20
-    margin_left = 56
+    margin_left = 76
     margin_right = 32
     margin_top = 26 + legend_rows * 20
     margin_bottom = 54
@@ -1362,6 +1362,15 @@ def _render_leading_takeaway(
         )
     else:
         metric_line = f"{focus_dataset} {focus_mode}: accuracy points unavailable for one or more key dimensions."
+    mae_lines = []
+    for dataset_id, status, _ in dataset_statuses:
+        if status != "completed":
+            continue
+        native_mae = _metric_value(summary_map, grouped_rows, dataset_id, "end_to_end", 1536, "mae")
+        small_mae = _metric_value(summary_map, grouped_rows, dataset_id, "end_to_end", 8, "mae")
+        if native_mae is not None and small_mae is not None:
+            mae_lines.append(f"{dataset_id}: native {native_mae:.4f}, 8d {small_mae:.4f}")
+    mae_note = "MAE (lower is better): " + "; ".join(mae_lines) + "." if mae_lines else "MAE is unavailable."
 
     shape_note = (
         "Curve is non-monotonic; no validated universal elbow/no-loss claim."
@@ -1395,7 +1404,8 @@ def _render_leading_takeaway(
         "<p class=\"headline-takeaway\"><strong>Qualified takeaway:</strong> "
         f"Run status {_esc(str(aggregate.get('status', 'unknown')))} "
         f"({completed}/{total} required datasets completed). "
-        f"{_esc(metric_line)} {_esc(shape_note)} {_esc(decision_note)} {_esc(blocker_note)}"
+        f"{_esc(mae_note)} Thresholded accuracy: {_esc(metric_line)} {_esc(shape_note)} "
+        f"Accuracy-based {_esc(decision_note)} {_esc(blocker_note)}"
         "</p>"
     )
 
@@ -1420,6 +1430,17 @@ def _render_charts(
                 dim: _metric_value(summary_map, grouped_rows, dataset_id, mode, dim, "accuracy")
                 for dim in EXPECTED_DIMENSIONS
             }
+            mae_values = {
+                dim: _metric_value(summary_map, grouped_rows, dataset_id, mode, dim, "mae")
+                for dim in EXPECTED_DIMENSIONS
+            }
+            native_mae = mae_values.get(1536)
+            mae_delta_values = {
+                dim: value - native_mae if value is not None and native_mae is not None else None
+                for dim, value in mae_values.items()
+            }
+            finite_mae = [value for value in mae_values.values() if value is not None]
+            mae_padding = max((max(finite_mae) - min(finite_mae)) * 0.12, 0.002) if finite_mae else 0.002
             delta_values = {
                 dim: _pp_delta(_metric_value(summary_map, grouped_rows, dataset_id, mode, dim, "accuracy_delta_native"))
                 for dim in EXPECTED_DIMENSIONS
@@ -1436,6 +1457,27 @@ def _render_charts(
                 rate_series.append((f"rate {rate:.2f}", dim_values, palette[idx % len(palette)]))
 
             card_id = _slugify(f"{dataset_id}-{mode}")
+            chart_index += 1
+            mae_svg = _render_multi_series_svg(
+                chart_id=_unique_id(card_id, chart_index),
+                title=f"{dataset_id} / {mode} unjudged-only MAE by dimension",
+                description="Continuous IDW-probability mean absolute error against expected labels, before thresholding. Lower is better; zoomed vertical scale.",
+                y_label="Unjudged MAE (fraction, zoomed)",
+                series=[("MAE", mae_values, "#5c2d91")],
+                y_min=max(0.0, min(finite_mae) - mae_padding) if finite_mae else 0.0,
+                y_max=min(1.0, max(finite_mae) + mae_padding) if finite_mae else 1.0,
+                value_formatter=lambda v: f"{v:.3f}",
+            )
+            chart_index += 1
+            mae_delta_svg = _render_multi_series_svg(
+                chart_id=_unique_id(card_id, chart_index),
+                title=f"{dataset_id} / {mode} MAE difference vs native",
+                description="MAE difference relative to full 1536 dimensions. Negative means lower error; this is not an accuracy percentage-point change.",
+                y_label="MAE difference (fraction)",
+                series=[("MAE difference", mae_delta_values, "#5c2d91")],
+                zero_line=True,
+                value_formatter=lambda v: f"{v:.4f}",
+            )
             chart_index += 1
             primary_svg = _render_multi_series_svg(
                 chart_id=_unique_id(card_id, chart_index),
@@ -1483,10 +1525,14 @@ def _render_charts(
             cards.append(
                 "<article class=\"dataset-mode-card\">"
                 f"<h3>{_esc(dataset_id)} / {_esc(mode)}</h3>"
-                "<p><strong>What this visual shows:</strong> accuracy retention under Matryoshka truncation.</p>"
+                "<p><strong>What this visual shows:</strong> continuous-probability MAE and separate thresholded accuracy under Matryoshka truncation.</p>"
                 "<p><strong>How to read it:</strong> left is 8d, right is native 1536d. Missing points are unavailable cells.</p>"
+                "<p><strong>MAE comparison:</strong> lower is better. MAE averages |IDW probability - expected label| before thresholding; accuracy applies threshold 0.5. "
+                "The MAE curve uses a labeled zoomed vertical scale. Existing cutoff-candidate tables use accuracy, not an agreed MAE tolerance.</p>"
                 f"<p><strong>{_esc(_takeaway_line(dataset_id, mode, summary_map, grouped_rows))}</strong></p>"
                 "<div class=\"small-multiples\">"
+                f"<figure><div class=\"chart-scroll\">{mae_svg}</div><figcaption>Unjudged-only MAE: directly comparable to the previous dimensionality study. Lower is better.</figcaption></figure>"
+                f"<figure><div class=\"chart-scroll\">{mae_delta_svg}</div><figcaption>Mean paired MAE difference vs native: negative is an improvement. Equal-weight replay cells; no MAE non-inferiority claim.</figcaption></figure>"
                 f"<figure><div class=\"chart-scroll\">{primary_svg}</div><figcaption>Primary unjudged-only accuracy vs dimension.</figcaption></figure>"
                 f"<figure><div class=\"chart-scroll\">{delta_svg}</div><figcaption>Paired accuracy delta (percentage points) vs native.</figcaption></figure>"
                 f"<figure><div class=\"chart-scroll\">{rate_svg}</div><figcaption>Rate-specific paired delta breakdown.</figcaption></figure>"

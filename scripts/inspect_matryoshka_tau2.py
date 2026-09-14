@@ -53,7 +53,7 @@ def inspect(source: Path) -> dict:
             if "NL_ASSERTION" in ((task.get("evaluation_criteria") or {}).get("reward_basis") or [])
         ],
         "label_source": "No verified explicit expected task-completion label mapping. Recorded reward_info is observed benchmark evaluation, not a task-design expected label.",
-        "reason": "Expected-label source/mapping required; do not substitute recorded rewards (some criteria include legacy LLM NL_ASSERTION checks) or invoke a judge. API embeddings also require configured credentials for the approved endpoint.",
+        "reason": "Expected-label source/mapping or approval to use recorded benchmark rewards is required. Recorded rewards may include legacy LLM assertion checks; keep that provenance explicit and never invoke a new judge.",
         "live_embedding_calls": 0, "live_judge_calls": 0,
     }
 

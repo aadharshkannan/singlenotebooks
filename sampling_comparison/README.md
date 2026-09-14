@@ -96,6 +96,10 @@ API batches are checkpointed and checksum-verified. Resume the same preparation
 command after an authentication interruption; a changed source or endpoint
 requires a fresh input directory. No embeddings are requested for each cutoff:
 all prefixes come from one set of full-dimensional API vectors.
+Once a complete cache is published, re-entering preparation validates its
+checksums and returns without rewriting vectors, manifests or batch files.
+The `.npz` files retain the original 1,536 coordinates, not only one shortened
+representation, so later dimensions and randomized replays can reuse them.
 
 The portable input contract also accepts `tau2_bench`: `manifest.json` version
 `matryoshka-input-v1` names the dataset, embedding model/dimensions, label source,
@@ -139,6 +143,25 @@ datasets are explicitly blocked, never zero-filled. `--resume` accepts only the
 same input hashes, protocol and controlling code. To add newly available
 datasets, use a fresh four-input run rather than relabeling an incomplete one.
 The default four-dataset experiment has 48,000 cells.
+
+The completed three-dataset run uses these retained local caches. To run another
+30 different seeds without embedding or judge calls, use a fresh output name:
+
+```powershell
+$seeds = (43..72) -join ','
+.\.venv-v3\Scripts\python.exe scripts\run_matryoshka_experiment.py `
+  --input historical_300=outputs_matryoshka\cache\live-20260914\historical_300\manifest.json `
+  --input dense_2500=outputs_matryoshka\cache\dense_2500\manifest.json `
+  --input cosmos_otel=outputs_matryoshka\cache\live-20260914\cosmos_otel\manifest.json `
+  --seeds $seeds --output outputs_matryoshka\runs\<fresh-30-seed-rerun>
+```
+
+`scripts\validate_matryoshka_run.py --run <run-directory>` checks every membership
+hash and verifies both distinct seed orders and order pairing across dimensions,
+budgets and modes. The report plots continuous unjudged-only MAE and its
+dimension-minus-native difference alongside thresholded accuracy. MAE is not
+`1 - accuracy`; the existing accuracy-based candidate table does not establish
+a MAE non-inferiority threshold.
 
 The report uses equal-weight cell means and pointwise Student-t intervals over
 30 seed means of paired dimension-minus-native accuracy differences. Those
