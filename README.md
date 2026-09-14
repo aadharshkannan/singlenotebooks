@@ -22,6 +22,31 @@ specific run's aggregate path, audience, question, and HTML/PDF requirements.
 The skill includes a report template, acceptance checklist, and local browser
 quality checker. Existing notebooks and run paths are retained for compatibility.
 
+## Matryoshka prefix-cutoff experiment
+
+The new [experiment runner](sampling_comparison/matryoshka_experiment.py) compares
+the full 1,536-dimensional `text-embedding-3-small` vector with its first
+512, 256, 128, 64, 32, 16 and 8 coordinates, re-normalized to unit length.
+It replays the earlier dimensionality study's ARM2 selection and causal IDW
+protocol, with both end-to-end selection and a native-fixed-membership diagnostic.
+There is no PCA/SVD/GRP fitting and no new LLM judge.
+
+The [2026-09-14 report](outputs_matryoshka/runs/mrl-cutoff-20260914/report.html)
+is **partial**: `dense_2500` completed 30 paired seeds, five arrival schedules,
+five session-budget rates and eight dimensions (12,000 cells across both modes).
+The other requested datasets, `historical_300`, `cosmos_otel` and `tau2_bench`,
+must not be interpreted as measured until their embedding inputs are available.
+Fresh embedding API calls were authorized. The user identified
+`https://bugboss-foundry.services.ai.azure.com` as the correct resource; its
+API-key `.env` is not present in this isolated worktree. The preparer supports
+that modern Foundry endpoint through the existing `/openai/v1/` client factory.
+Earlier corporate-tenant authentication failures involved the superseded
+endpoint, not a verified access failure against this corrected resource.
+Existing labels, not a new LLM judge, remain the scoring reference.
+The local Tau2 source has 388 trajectories but no verified expected-label
+mapping; recorded benchmark rewards are not silently substituted.
+See the [input and execution instructions](sampling_comparison/README.md#matryoshka-prefix-cutoff).
+
 ## Agent365 Sampling V2
 
 The retained sampling work has four production prototypes:

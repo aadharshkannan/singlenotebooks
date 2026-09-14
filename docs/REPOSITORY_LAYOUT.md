@@ -20,6 +20,11 @@ This repository is organized around reproducible experiment outputs, source code
 - `outputs_sampling_v6/runs/` keeps only reviewed, tracked deliverables. Raw run directories and cache-heavy scratch artifacts remain local.
 - `outputs_sampling_v7/runs/` separates canonical HTML/JSON/JSONL and manifest-referenced evidence from disposable captures. Put new captures in `validation_screenshots/`. Existing run paths remain stable.
 - `outputs_sampling_v*/cache/` and similar expensive caches remain in place; the cleanup utility never removes them.
+- `outputs_matryoshka/runs/` retains prefix-cutoff aggregates, membership evidence,
+  manifests and HTML reports. Per-run `checkpoints/` and `validation_screenshots/`
+  are local scratch. `outputs_matryoshka/cache/` retains expensive vectors and
+  source-bound preparation evidence locally; it is not a disposable screenshot
+  directory and is never covered by blanket cleanup.
 
 ## Screenshot cleanup policy
 

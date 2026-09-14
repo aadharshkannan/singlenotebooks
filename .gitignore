@@ -38,6 +38,13 @@ outputs_sampling_v6/sampling-applied-slide-05-session.png
 /external_data/
 /test-results/
 
+# Matryoshka source vectors, resumable scratch and browser captures stay local.
+/.venv-v3/
+/outputs_matryoshka/cache/
+/outputs_matryoshka/runs/*/checkpoints/
+/outputs_matryoshka/runs/*/validation_screenshots/
+/outputs_matryoshka/smoke/
+
 # Keep only the reviewed V6 HTML/PDF deliverables; raw runs and checkpoints stay local.
 outputs_sampling_v6/runs/*
 !outputs_sampling_v6/runs/full-30-20260821/
