@@ -31,7 +31,9 @@ It replays the earlier dimensionality study's ARM2 selection and causal IDW
 protocol, with both end-to-end selection and a native-fixed-membership diagnostic.
 There is no PCA/SVD/GRP fitting and no new LLM judge.
 
-The latest [three-dataset report](outputs_matryoshka/runs/mrl-three-datasets-30-seed-20260914/report.html)
+Start with the [plain-language report (three graphs)](outputs_matryoshka/reports/mrl-eight-dimensions-20260914/report.html)
+for the experiment, exact shortening method, datasets and scoped average-MAE conclusion.
+The detailed [three-dataset report](outputs_matryoshka/runs/mrl-three-datasets-30-seed-20260914/report.html)
 contains **36,000 cells**: `historical_300`, `dense_2500` and `cosmos_otel` each
 completed 30 paired seeds, five arrival schedules, five session-budget rates,
 eight dimensions and both modes. Actual membership artifacts verify 30 distinct

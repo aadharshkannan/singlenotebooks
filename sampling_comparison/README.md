@@ -172,6 +172,22 @@ good result at eight dimensions cannot by itself establish a stable elbow.
 The grid is also the evaluation set for this exploratory choice: independent
 time-forward confirmation and per-agent/budget checks are still needed.
 
+For a shorter, user-friendly HTML report, generate a separate read-only derivative:
+
+```powershell
+.\.venv-v3\Scripts\python.exe scripts\build_matryoshka_summary_report.py `
+  --input outputs_matryoshka\runs\mrl-three-datasets-30-seed-20260914\aggregate.json `
+  --output outputs_matryoshka\reports\mrl-eight-dimensions-20260914\report.html
+```
+
+This view has three graphs: native versus 8d MAE, the full dimensionality sweep,
+and a collapsible budget-level comparison. It describes the native
+`text-embedding-3-small` model and exact prefix-plus-L2-normalization operation.
+Its no-drop-off conclusion is restricted to dataset-average end-to-end MAE;
+budget, agent and other-metric regressions and untested datasets remain explicit.
+The builder verifies source hashes, refuses to write inside the source run, and
+does not call any cloud API. Use `--overwrite` only to rebuild this derivative.
+
 Keep input caches (including staged packet-derived metadata) under the source
 data's access and retention controls. Source vectors and checkpoints stay local;
 retain the run's aggregate, membership evidence, input provenance and report.

@@ -25,6 +25,10 @@ This repository is organized around reproducible experiment outputs, source code
   are local scratch. `outputs_matryoshka/cache/` retains expensive vectors and
   source-bound preparation evidence locally; it is not a disposable screenshot
   directory and is never covered by blanket cleanup.
+- `outputs_matryoshka/reports/` holds concise derivative HTML reports, plotted
+  summaries, source/output hash manifests and validation records. Their builders
+  leave canonical run bundles untouched. New screenshots stay in each report's
+  local `validation_screenshots/` directory.
 
 ## Screenshot cleanup policy
 

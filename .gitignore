@@ -43,6 +43,7 @@ outputs_sampling_v6/sampling-applied-slide-05-session.png
 /outputs_matryoshka/cache/
 /outputs_matryoshka/runs/*/checkpoints/
 /outputs_matryoshka/runs/*/validation_screenshots/
+/outputs_matryoshka/reports/*/validation_screenshots/
 /outputs_matryoshka/smoke/
 
 # Keep only the reviewed V6 HTML/PDF deliverables; raw runs and checkpoints stay local.

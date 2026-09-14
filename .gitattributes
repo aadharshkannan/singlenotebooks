@@ -5,5 +5,6 @@ sampling_v2_runbook.ipynb -text
 
 # Keep Matryoshka evidence and hash-pinned experiment sources byte-for-byte.
 outputs_matryoshka/runs/** -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+outputs_matryoshka/reports/** -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 sampling_comparison/matryoshka_*.py -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 scripts/*matryoshka*.py -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
