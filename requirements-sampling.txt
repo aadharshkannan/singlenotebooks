@@ -11,3 +11,4 @@ python-dotenv
 nbformat
 nbconvert
 ipykernel
+ijson

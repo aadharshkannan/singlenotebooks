@@ -1,0 +1,86 @@
+{
+  "html": "C:\\Users\\stangoodwin\\copilot-worktrees\\singlenotebooks\\stangoodwin-special-enigma\\outputs_matryoshka\\reports\\mrl-eight-dimensions-20260914\\report.html",
+  "print_html": null,
+  "pdf": null,
+  "browser": "auto",
+  "block_external": true,
+  "pages": [
+    {
+      "label": "desktop",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "state": {
+        "content": {
+          "title": "From 1,536 to 8 dimensions: the Matryoshka experiment",
+          "bodyTextLength": 8221,
+          "headingCount": 15,
+          "headingsPreview": [
+            "From 1,536 embedding dimensions to just 8",
+            "What did we test?",
+            "The native model and the exact shortening method",
+            "What does \u201cperformance\u201d mean here?",
+            "The datasets and the comparison",
+            "Historical"
+          ],
+          "brokenImages": []
+        },
+        "viewport": {
+          "width": 1440,
+          "height": 1000,
+          "scrollWidth": 1440,
+          "scrollHeight": 5365,
+          "overflowing": [],
+          "hiddenClipping": []
+        }
+      },
+      "network": {
+        "blocked_request_count": 0,
+        "failed_request_count": 0,
+        "bad_response_count": 0
+      },
+      "issues": [],
+      "ok": true
+    },
+    {
+      "label": "mobile",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "state": {
+        "content": {
+          "title": "From 1,536 to 8 dimensions: the Matryoshka experiment",
+          "bodyTextLength": 8221,
+          "headingCount": 15,
+          "headingsPreview": [
+            "From 1,536 embedding dimensions to just 8",
+            "What did we test?",
+            "The native model and the exact shortening method",
+            "What does \u201cperformance\u201d mean here?",
+            "The datasets and the comparison",
+            "Historical"
+          ],
+          "brokenImages": []
+        },
+        "viewport": {
+          "width": 390,
+          "height": 844,
+          "scrollWidth": 390,
+          "scrollHeight": 8903,
+          "overflowing": [],
+          "hiddenClipping": []
+        }
+      },
+      "network": {
+        "blocked_request_count": 0,
+        "failed_request_count": 0,
+        "bad_response_count": 0
+      },
+      "issues": [],
+      "ok": true
+    }
+  ],
+  "ok": true
+}

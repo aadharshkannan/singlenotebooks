@@ -22,6 +22,39 @@ specific run's aggregate path, audience, question, and HTML/PDF requirements.
 The skill includes a report template, acceptance checklist, and local browser
 quality checker. Existing notebooks and run paths are retained for compatibility.
 
+## Matryoshka prefix-cutoff experiment
+
+The new [experiment runner](sampling_comparison/matryoshka_experiment.py) compares
+the full 1,536-dimensional `text-embedding-3-small` vector with its first
+512, 256, 128, 64, 32, 16 and 8 coordinates, re-normalized to unit length.
+It replays the earlier dimensionality study's ARM2 selection and causal IDW
+protocol, with both end-to-end selection and a native-fixed-membership diagnostic.
+There is no PCA/SVD/GRP fitting and no new LLM judge.
+
+Start with the [plain-language report (three graphs)](outputs_matryoshka/reports/mrl-eight-dimensions-20260914/report.html)
+for the experiment, exact shortening method, datasets and scoped average-MAE conclusion.
+The detailed [three-dataset report](outputs_matryoshka/runs/mrl-three-datasets-30-seed-20260914/report.html)
+contains **36,000 cells**: `historical_300`, `dense_2500` and `cosmos_otel` each
+completed 30 paired seeds, five arrival schedules, five session-budget rates,
+eight dimensions and both modes. Actual membership artifacts verify 30 distinct
+source orders per dataset/schedule, paired across dimensions and budgets.
+MAE measures continuous IDW-probability error and is directly comparable to the
+earlier study; thresholded accuracy is shown separately.
+
+The 300 Historical and 205 Cosmos full-dimensional embeddings were generated
+through the user-approved `bugboss-foundry.services.ai.azure.com` API and saved
+with source hashes. Dense reuses its verified 2,500-vector cache. All repeated
+sweeps are offline; completed cache reuse is verified to make zero embedding
+calls and leave cache bytes unchanged. Existing labels, not new LLM judges,
+provide the scoring reference.
+
+The report is still **partial (3/4 datasets)**: the local Tau2 source has 388
+trajectories but no verified expected-label mapping. Recorded benchmark rewards
+require explicit approval as a different reference-label source; they are not
+silently substituted. The [earlier dense-only bundle](outputs_matryoshka/runs/mrl-cutoff-20260914/report.html)
+is preserved unchanged.
+See the [input and execution instructions](sampling_comparison/README.md#matryoshka-prefix-cutoff).
+
 ## Agent365 Sampling V2
 
 The retained sampling work has four production prototypes:

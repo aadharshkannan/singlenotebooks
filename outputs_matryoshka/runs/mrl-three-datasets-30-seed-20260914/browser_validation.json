@@ -1,0 +1,86 @@
+{
+  "html": "C:\\Users\\stangoodwin\\copilot-worktrees\\singlenotebooks\\stangoodwin-special-enigma\\outputs_matryoshka\\runs\\mrl-three-datasets-30-seed-20260914\\report.html",
+  "print_html": null,
+  "pdf": null,
+  "browser": "auto",
+  "block_external": true,
+  "pages": [
+    {
+      "label": "desktop",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "state": {
+        "content": {
+          "title": "Matryoshka Prefix Truncation Report \u2014 mrl-three-datasets-30-seed-20260914",
+          "bodyTextLength": 55527,
+          "headingCount": 36,
+          "headingsPreview": [
+            "Matryoshka Prefix Truncation Report",
+            "Source and boundary status",
+            "Input readiness and blockers",
+            "Expected-label boundary callout",
+            "Embedding preparation vs offline sweep boundary",
+            "Method scope, boundaries, and scientific notes"
+          ],
+          "brokenImages": []
+        },
+        "viewport": {
+          "width": 1440,
+          "height": 1000,
+          "scrollWidth": 1440,
+          "scrollHeight": 44733,
+          "overflowing": [],
+          "hiddenClipping": []
+        }
+      },
+      "network": {
+        "blocked_request_count": 0,
+        "failed_request_count": 0,
+        "bad_response_count": 0
+      },
+      "issues": [],
+      "ok": true
+    },
+    {
+      "label": "mobile",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "state": {
+        "content": {
+          "title": "Matryoshka Prefix Truncation Report \u2014 mrl-three-datasets-30-seed-20260914",
+          "bodyTextLength": 55527,
+          "headingCount": 36,
+          "headingsPreview": [
+            "Matryoshka Prefix Truncation Report",
+            "Source and boundary status",
+            "Input readiness and blockers",
+            "Expected-label boundary callout",
+            "Embedding preparation vs offline sweep boundary",
+            "Method scope, boundaries, and scientific notes"
+          ],
+          "brokenImages": []
+        },
+        "viewport": {
+          "width": 390,
+          "height": 844,
+          "scrollWidth": 390,
+          "scrollHeight": 51861,
+          "overflowing": [],
+          "hiddenClipping": []
+        }
+      },
+      "network": {
+        "blocked_request_count": 0,
+        "failed_request_count": 0,
+        "bad_response_count": 0
+      },
+      "issues": [],
+      "ok": true
+    }
+  ],
+  "ok": true
+}
