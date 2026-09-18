@@ -15,3 +15,15 @@ def test_coincident_native_endpoints_use_separate_visible_legend_labels():
     assert len({(node.attrib["x"], node.attrib["y"]) for node in legend}) == 5
     assert all(0 < float(node.attrib["x"]) < 500 for node in legend)
     assert 'class="direct-label"' not in svg
+
+
+def test_chart_renders_every_low_dimension_without_untested_historical_ticks():
+    dimensions = [*range(2, 33, 2), 1536]
+    svg = _render_multi_series_svg(
+        chart_id="low-dimensions", title="Low-dimensional sweep", description="Test fixture",
+        y_label="MAE", series=[("MAE", {d: 0.2 + d / 10000 for d in dimensions}, "#005a9c")],
+    )
+    root = ElementTree.fromstring(svg)
+    labels = [node.text for node in root.findall("text")]
+    assert all(str(d) in labels for d in dimensions)
+    assert all(str(d) not in labels for d in (64, 128, 256, 512))

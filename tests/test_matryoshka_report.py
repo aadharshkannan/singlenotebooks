@@ -9,6 +9,25 @@ from sampling_comparison.matryoshka_report import build_report
 from scripts.build_matryoshka_report import main
 
 
+def test_low_dimension_protocol_is_used_in_all_detailed_report_surfaces():
+    data = _build_fixture()
+    dimensions = [1536, *range(32, 1, -2)]
+    data["protocol"]["dimensions"] = dimensions
+    data["rows"] = [
+        {**row, "dimension": dimension, "mae": 0.2 + dimension / 10000}
+        for row in data["rows"] if row["dimension"] == 1536
+        for dimension in dimensions
+    ]
+    data["summary"] = []
+    html = build_report(data, "low/aggregate.json")
+    assert "left is 2d, right is native 1536d" in html
+    assert "2d point is shown explicitly" in html
+    assert "Accuracy by dimension (1536→2)" in html
+    assert all(f"<th>{d}d</th>" in html for d in dimensions)
+    assert "<th>512d</th>" not in html
+    assert "Takeaway: 2d differs from native" in html
+
+
 def _mean(values):
     if not values:
         return None

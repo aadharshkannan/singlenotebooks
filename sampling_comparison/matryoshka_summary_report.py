@@ -22,7 +22,7 @@ LABELS = {
     "tau2_bench": "Tau2 bench",
 }
 COLORS = ("#155e75", "#7c3aed", "#c2410c", "#166534")
-REPORT_VERSION = "matryoshka-summary-v1"
+REPORT_VERSION = "matryoshka-summary-v2"
 
 
 def _number(value: Any) -> float:
@@ -41,13 +41,16 @@ def _pct(value: float | None, *, signed: bool = False) -> str:
     return f"{value:+.2f}%" if signed else f"{value:.2f}%"
 
 
-def summarize_evidence(aggregate: Mapping[str, Any]) -> dict[str, Any]:
+def summarize_evidence(aggregate: Mapping[str, Any], *, focus_dimension: int = 8) -> dict[str, Any]:
     if aggregate["version"] != "matryoshka-cutoff-v1":
         raise ValueError("use a Matryoshka cutoff aggregate, not another experiment version")
     protocol = aggregate["protocol"]
     dimensions = list(protocol["dimensions"])
-    if dimensions[0] != 1536 or 8 not in dimensions or len(set(dimensions)) != len(dimensions):
-        raise ValueError("report requires unique dimensions, native 1536 first, and the 8d arm")
+    if not dimensions or dimensions[0] != 1536 or len(set(dimensions)) != len(dimensions):
+        raise ValueError("report requires unique dimensions and native 1536 first")
+    if (isinstance(focus_dimension, bool) or not isinstance(focus_dimension, int)
+            or focus_dimension == 1536 or focus_dimension not in dimensions):
+        raise ValueError("focus dimension must be a tested reduced dimension")
     for name in ("seeds", "rates", "schedules"):
         if not protocol[name] or len(set(protocol[name])) != len(protocol[name]):
             raise ValueError(f"invalid or duplicated {name}")
@@ -94,11 +97,15 @@ def summarize_evidence(aggregate: Mapping[str, Any]) -> dict[str, Any]:
     agent_metrics = {
         (r["dataset_id"], r["agent_id"], r["dimension"]): r["mae"]
         for r in aggregate.get("agent_summary", [])
-        if r["mode"] == "end_to_end" and r["dimension"] in (1536, 8) and r["mae"] is not None
+        if r["mode"] == "end_to_end" and r["dimension"] in (1536, focus_dimension) and r["mae"] is not None
+    }
+    agent_gap_counts = {
+        (row["dataset_id"], row["mode"], row["dimension"]): row
+        for row in aggregate.get("agent_gap_counts", [])
     }
     for dataset in completed:
         native = groups[(dataset, 1536)]
-        short = groups[(dataset, 8)]
+        short = groups[(dataset, focus_dimension)]
         baseline = mean(r["mae"] for r in native)
         endpoint = mean(r["mae"] for r in short)
         curve = {str(d): mean(r["mae"] for r in groups[(dataset, d)]) for d in dimensions}
@@ -110,36 +117,50 @@ def summarize_evidence(aggregate: Mapping[str, Any]) -> dict[str, Any]:
             budget_rows.append({
                 "rate": rate, "selected_count": before[0]["selected_count"],
                 "unjudged_count": before[0]["unjudged_count"],
-                "native_mae": old_mae, "eight_mae": new_mae,
+                "native_mae": old_mae, "short_mae": new_mae,
+                **({"eight_mae": new_mae} if focus_dimension == 8 else {}),
                 "change_pct": _relative(new_mae, old_mae),
                 "accuracy_delta_pp": 100 * (mean(r["accuracy"] for r in after) - mean(r["accuracy"] for r in before)),
             })
         fallback_shares = {}
-        for dimension, rows in ((1536, native), (8, short)):
+        for dimension, rows in ((1536, native), (focus_dimension, short)):
             fallback_shares[str(dimension)] = sum(
                 r["provenance_counts"].get("global_mean", 0) + r["provenance_counts"].get("prior", 0) for r in rows
             ) / sum(r["unjudged_count"] for r in rows)
         agent_differences = [
             value - agent_metrics[(key[0], key[1], 1536)]
             for key, value in agent_metrics.items()
-            if key[0] == dataset and key[2] == 8 and (key[0], key[1], 1536) in agent_metrics
+            if key[0] == dataset and key[2] == focus_dimension and (key[0], key[1], 1536) in agent_metrics
         ]
+        protected_counts = agent_gap_counts.get((dataset, "end_to_end", focus_dimension))
+        agents_compared = len(agent_differences)
+        agents_with_higher_mae = sum(delta > 0 for delta in agent_differences) if agent_differences else None
+        if not agent_metrics and protected_counts is not None:
+            agents_compared = protected_counts["agents_compared"]
+            agents_with_higher_mae = protected_counts["agents_with_higher_mae"]
         results.append({
             "dataset_id": dataset, "label": LABELS[dataset], "profile": profiles[dataset],
-            "native_mae": baseline, "eight_mae": endpoint, "change_pct": _relative(endpoint, baseline),
-            "native_accuracy": mean(r["accuracy"] for r in native), "eight_accuracy": mean(r["accuracy"] for r in short),
+            "native_mae": baseline, "short_mae": endpoint, "change_pct": _relative(endpoint, baseline),
+            "native_accuracy": mean(r["accuracy"] for r in native), "short_accuracy": mean(r["accuracy"] for r in short),
+            **({"eight_mae": endpoint, "eight_accuracy": mean(r["accuracy"] for r in short)} if focus_dimension == 8 else {}),
             "brier_change": mean(r["brier"] for r in short) - mean(r["brier"] for r in native),
             "curve": curve, "budget_rows": budget_rows, "fallback_shares": fallback_shares,
-            "agents_compared": len(agent_differences),
-            "agents_with_higher_mae": sum(delta > 0 for delta in agent_differences) if agent_differences else None,
+            "agents_compared": agents_compared,
+            "agents_with_higher_mae": agents_with_higher_mae,
         })
-    no_average_drop = all(r["eight_mae"] <= r["native_mae"] for r in results)
+    no_average_drop = all(r["short_mae"] <= r["native_mae"] for r in results)
+    grid_no_average_increase = [
+        d for d in dimensions if d != 1536
+        and all(row["curve"][str(d)] <= row["native_mae"] for row in results)
+    ]
     return {
         "version": REPORT_VERSION, "run_id": aggregate["run_id"], "protocol": protocol,
+        "focus_dimension": focus_dimension,
         "datasets": results, "not_tested": [key for key in LABELS if key not in completed],
         "session_count": sum(profiles[key]["n"] for key in completed),
         "primary_cells": len(primary), "retained_cells": len(aggregate["rows"]),
         "seed_count": len(protocol["seeds"]), "no_average_mae_drop": no_average_drop,
+        "grid_no_average_increase": grid_no_average_increase,
         "graph_count": 3, "method_diagram_count": 1,
     }
 
@@ -150,7 +171,7 @@ def _text(x: float, y: float, value: Any, *, anchor: str = "start", fill: str = 
 
 def _svg(chart_id: str, title: str, description: str, height: int, content: str) -> str:
     return (
-        f'<svg viewBox="0 0 900 {height}" role="img" aria-labelledby="{chart_id}-title {chart_id}-desc">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 {height}" role="img" aria-labelledby="{chart_id}-title {chart_id}-desc">'
         f'<title id="{chart_id}-title">{escape(title)}</title>'
         f'<desc id="{chart_id}-desc">{escape(description)}</desc>'
         f'<rect width="900" height="{height}" fill="white"/>{content}</svg>'
@@ -159,14 +180,15 @@ def _svg(chart_id: str, title: str, description: str, height: int, content: str)
 
 def endpoint_chart(evidence: Mapping[str, Any]) -> str:
     rows = evidence["datasets"]
-    maximum = max(0.1, math.ceil(max(max(r["native_mae"], r["eight_mae"]) for r in rows) * 10) / 10)
+    dimension = evidence["focus_dimension"]
+    maximum = max(0.1, math.ceil(max(max(r["native_mae"], r["short_mae"]) for r in rows) * 10) / 10)
     left, plot_width, top = 210, 580, 52
     bottom = top + len(rows) * 104
     parts = [
         '<rect x="210" y="12" width="18" height="18" rx="3" fill="#718096"/>',
         _text(237, 27, "Native: 1,536 dimensions"),
         '<rect x="510" y="12" width="18" height="18" rx="3" fill="#0f766e"/>',
-        _text(537, 27, "First 8, re-normalized"),
+        _text(537, 27, f"First {dimension}, re-normalized"),
     ]
     for tick in range(6):
         value = maximum * tick / 5
@@ -177,7 +199,7 @@ def endpoint_chart(evidence: Mapping[str, Any]) -> str:
         y = top + i * 104
         parts.append(_text(18, y + 31, row["label"], fill="#0f172a", size=19))
         parts.append(_text(18, y + 55, f'{row["profile"]["n"]:,} sessions'))
-        for offset, metric, color, name in ((8, "native_mae", "#718096", "Native"), (39, "eight_mae", "#0f766e", "8 dimensions")):
+        for offset, metric, color, name in ((8, "native_mae", "#718096", "Native"), (39, "short_mae", "#0f766e", f"{dimension} dimensions")):
             width = plot_width * row[metric] / maximum
             parts.append(
                 f'<rect x="{left}" y="{y + offset}" width="{width:.3f}" height="22" rx="3" fill="{color}">'
@@ -185,33 +207,49 @@ def endpoint_chart(evidence: Mapping[str, Any]) -> str:
             )
             parts.append(_text(left + width + 9, y + offset + 18, f'{row[metric]:.4f}'))
     parts.append(_text(500, bottom + 62, "Average prediction error (MAE): shorter bars are better", anchor="middle"))
-    return _svg("endpoints", "Average prediction error: 1,536 versus 8 dimensions",
+    return _svg("endpoints", f"Average prediction error: 1,536 versus {dimension} dimensions",
                 "Same zero-based MAE axis for every dataset. Numbers are means over all end-to-end replay settings.",
                 bottom + 82, "".join(parts))
 
 
-def trend_chart(evidence: Mapping[str, Any]) -> str:
+def trend_chart(evidence: Mapping[str, Any], *, scale: str = "relative") -> str:
+    if scale not in ("relative", "mae"):
+        raise ValueError("trend scale must be relative or mae")
+    relative = scale == "relative"
     dimensions = evidence["protocol"]["dimensions"]
     series = [
-        [_relative(row["curve"][str(d)], row["native_mae"]) for d in dimensions]
+        [
+            _relative(row["curve"][str(d)], row["native_mae"]) if relative
+            else row["curve"][str(d)] for d in dimensions
+        ]
         for row in evidence["datasets"]
     ]
-    limit = max(1, math.ceil(max((abs(v) for values in series for v in values if v is not None), default=0)))
+    available = [value for values in series for value in values if value is not None]
+    if relative:
+        limit = max(1, math.ceil(max((abs(value) for value in available), default=0)))
+        low, high = -limit, limit
+        axis_label = "Relative change in MAE versus native: below zero is better"
+        description = "Relative MAE change uses each dataset's own native baseline."
+    else:
+        low, high = 0.0, max(0.1, math.ceil(max(available, default=0.0) * 10) / 10)
+        axis_label = "Mean absolute error (MAE, 0-1 units): lower is better"
+        description = "Dataset-average unselected-session MAE on a shared zero-based axis, including mean/prior fallbacks."
     left, top, width, height = 90, 72, 755, 280
     x = lambda i: left + i * width / max(1, len(dimensions) - 1)
-    y = lambda value: top + (limit - value) * height / (2 * limit)
+    y = lambda value: top + (high - value) * height / (high - low)
     parts = []
     for index, row in enumerate(evidence["datasets"]):
         lx = 90 + index * 190
         parts.append(f'<line x1="{lx}" y1="23" x2="{lx + 25}" y2="23" stroke="{COLORS[index]}" stroke-width="4" stroke-dasharray="{index * 3} {index * 2}"/>')
         parts.append(_text(lx + 33, 29, row["label"]))
-    parts.append(_text(90, 55, "Relative change in MAE versus native: below zero is better"))
+    parts.append(_text(90, 55, axis_label))
     for tick in range(5):
-        value = -limit + tick * limit / 2
+        value = low + tick * (high - low) / 4
         yy = y(value)
         parts.append(f'<line x1="{left}" y1="{yy}" x2="{left + width}" y2="{yy}" stroke="#e2e8f0"/>')
-        parts.append(_text(left - 12, yy + 6, f"{value:+.1f}%", anchor="end"))
-    parts.append(f'<line x1="{left}" y1="{y(0)}" x2="{left + width}" y2="{y(0)}" stroke="#475569" stroke-dasharray="5 5"/>')
+        parts.append(_text(left - 12, yy + 6, f"{value:+.1f}%" if relative else f"{value:.3f}", anchor="end"))
+    if relative:
+        parts.append(f'<line x1="{left}" y1="{y(0)}" x2="{left + width}" y2="{y(0)}" stroke="#475569" stroke-dasharray="5 5"/>')
     for index, values in enumerate(series):
         segment = []
         for i, value in enumerate(values):
@@ -221,18 +259,58 @@ def trend_chart(evidence: Mapping[str, Any]) -> str:
                     segment = []
                 continue
             segment.append(f"{x(i):.3f},{y(value):.3f}")
+            tooltip_value = f"{_pct(value, signed=True)} MAE change" if relative else f"MAE {value:.6f}"
             parts.append(
-                f'<circle cx="{x(i):.3f}" cy="{y(value):.3f}" r="5" fill="{COLORS[index]}">'
-                f'<title>{escape(evidence["datasets"][index]["label"])} / {dimensions[i]} dimensions: {_pct(value, signed=True)} MAE change</title></circle>'
+                f'<circle cx="{x(i):.3f}" cy="{y(value):.3f}" r="5" fill="{COLORS[index]}" '
+                f'data-dataset="{escape(evidence["datasets"][index]["dataset_id"], quote=True)}" '
+                f'data-dimension="{dimensions[i]}" data-value="{value:.17g}">'
+                f'<title>{escape(evidence["datasets"][index]["label"])} / {dimensions[i]} dimensions: {tooltip_value}</title></circle>'
             )
         if segment:
             parts.append(f'<polyline points="{" ".join(segment)}" fill="none" stroke="{COLORS[index]}" stroke-width="3" stroke-dasharray="{index * 3} {index * 2}"/>')
     for i, dimension in enumerate(dimensions):
         parts.append(_text(x(i), top + height + 30, f"{dimension:,}", anchor="middle"))
     parts.append(_text(460, 425, "Dimensions retained: ordered tested sizes, decreasing left to right", anchor="middle"))
-    return _svg("trend", "What happens at the intermediate dimensions",
-                "Relative MAE change uses each dataset's own native baseline. Tested sizes are equally spaced categories, not a linear dimension axis.",
+    return _svg("trend", "Dimensionality sweep: " + ("relative MAE change" if relative else "mean absolute error"),
+                description + " Tested sizes are equally spaced categories, not a linear dimension axis.",
                 448, "".join(parts))
+
+
+def trend_figure(evidence: Mapping[str, Any], takeaway: str) -> str:
+    captions = {
+        "relative": "What it shows: each dataset's MAE change relative to its own 1,536-dimensional baseline. Read it: below zero is better. ",
+        "mae": "What it shows: each dataset's mean absolute error on unselected sessions, including mean/prior fallbacks. Read it: lower is better; all datasets share a zero-based MAE axis. ",
+    }
+    variants = {
+        scale: {"svg": trend_chart(evidence, scale=scale), "caption": caption + "Takeaway: " + takeaway}
+        for scale, caption in captions.items()
+    }
+    data = json.dumps(variants, ensure_ascii=True, allow_nan=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    return f"""<figure data-graph="trend"><h3 id="trend-heading">2. The full dimensionality sweep</h3>
+<div class="chart-controls"><label for="trend-scale">Y-axis</label>
+<select id="trend-scale" aria-controls="trend-chart" aria-describedby="trend-caption" disabled>
+<option value="relative" selected>Relative MAE change (%)</option><option value="mae">MAE</option>
+</select></div>
+<noscript><p>Percentage view is shown. Enable JavaScript to switch to MAE.</p></noscript>
+<div id="trend-chart" class="chart-scroll" role="region" aria-labelledby="trend-heading" tabindex="0">{variants["relative"]["svg"]}</div>
+<figcaption id="trend-caption" aria-live="polite">{escape(variants["relative"]["caption"])}</figcaption>
+<script type="application/json" id="trend-variants">{data}</script>
+<script id="trend-controls">
+(() => {{
+  const variants = JSON.parse(document.getElementById("trend-variants").textContent);
+  const select = document.getElementById("trend-scale");
+  const chart = document.getElementById("trend-chart");
+  const caption = document.getElementById("trend-caption");
+  select.value = "relative";
+  select.disabled = false;
+  select.addEventListener("change", () => {{
+    const variant = variants[select.value];
+    const svg = new DOMParser().parseFromString(variant.svg, "image/svg+xml").documentElement;
+    chart.replaceChildren(document.importNode(svg, true));
+    caption.textContent = variant.caption;
+  }});
+}})();
+</script></figure>"""
 
 
 def budget_chart(evidence: Mapping[str, Any]) -> str:
@@ -257,7 +335,7 @@ def budget_chart(evidence: Mapping[str, Any]) -> str:
     height = 75 + len(evidence["datasets"]) * 70 + 44
     parts.append(_text(210, height - 15, "Green / negative: lower MAE. Orange / positive: higher MAE."))
     return _svg("budgets", "Where sampling budgets change the result",
-                "Relative MAE change at 8 dimensions versus native, computed separately for each dataset and sampling budget.",
+                f"Relative MAE change at {evidence['focus_dimension']} dimensions versus native, computed separately for each dataset and sampling budget.",
                 height, "".join(parts))
 
 
@@ -288,7 +366,9 @@ th{background:#f3f7fa;font-weight:650}td.number{text-align:right;font-variant-nu
 figure{min-width:0;margin:24px 0 0;padding:18px;border:1px solid #dce5ec;border-radius:12px}
 .chart-scroll{width:100%;min-width:0;overflow-x:auto;overflow-y:hidden}svg{display:block;width:100%;min-width:720px;max-width:1000px;height:auto;font-family:system-ui,sans-serif}
 figcaption{font-size:.94rem;margin-top:10px}details{margin-top:18px;border-top:1px solid #dce5ec;padding-top:16px}
-summary{cursor:pointer;font-weight:650;color:#155e75}summary:focus-visible,.chart-scroll:focus-visible,a:focus-visible{outline:3px solid #b45309;outline-offset:4px}
+summary{cursor:pointer;font-weight:650;color:#155e75}summary:focus-visible,.chart-scroll:focus-visible,a:focus-visible,select:focus-visible{outline:3px solid #b45309;outline-offset:4px}
+.chart-controls{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:0 0 16px}.chart-controls label{font-weight:650}
+.chart-controls select{font:inherit;color:#172b3a;background:#fff;border:1px solid #526477;border-radius:6px;padding:8px 12px;max-width:100%}
 a{color:#155e75;text-underline-offset:3px}.badge{display:inline-block;font-size:.8rem;padding:4px 9px;border-radius:20px;background:#e1f2ed;color:#14532d;font-weight:650}
 .conclusion{background:#edf7f4;border-color:#bfddd2}footer{padding:20px 4px;color:#526477;font-size:.9rem;overflow-wrap:anywhere}
 @media(max-width:760px){main{padding:16px 12px 40px}header,section{padding:22px 18px}.kpis,.datasets,.pipeline{grid-template-columns:minmax(0,1fr)}figure{padding:12px}th,td{padding:10px}h2{font-size:1.35rem}}
@@ -298,17 +378,20 @@ a{color:#155e75;text-underline-offset:3px}.badge{display:inline-block;font-size:
 def build_report(
     aggregate: Mapping[str, Any], *, aggregate_path: str, aggregate_hash: str,
     detailed_url: str, generation_command: str = "See the report builder CLI.",
+    focus_dimension: int = 8,
 ) -> tuple[str, dict[str, Any]]:
-    evidence = summarize_evidence(aggregate)
+    evidence = summarize_evidence(aggregate, focus_dimension=focus_dimension)
     rows, protocol = evidence["datasets"], evidence["protocol"]
+    dimension = evidence["focus_dimension"]
+    payload_ratio = 1536 / dimension
     no_drop = evidence["no_average_mae_drop"]
     conclusion = (
         "Based on our results, we did not notice any meaningful performance drop-off when lowering "
-        "the embedding dimensions from 1,536 to 8, when performance is assessed by average MAE "
+        f"the embedding dimensions from 1,536 to {dimension}, when performance is assessed by average MAE "
         f"across the {len(rows)} datasets tested."
         if no_drop else
         "The results do not support a blanket no-drop-off conclusion: at least one tested dataset "
-        "has higher average MAE at 8 dimensions than at 1,536."
+        f"has higher average MAE at {dimension} dimensions than at 1,536."
     )
     cards, table_rows, audit_rows = [], [], []
     for row in rows:
@@ -333,7 +416,7 @@ def build_report(
         )
         table_rows.append(
             f'<tr><th scope="row">{escape(row["label"])}</th><td class="number">{row["native_mae"]:.6f}</td>'
-            f'<td class="number">{row["eight_mae"]:.6f}</td><td class="number">{_pct(row["change_pct"], signed=True)}</td></tr>'
+            f'<td class="number">{row["short_mae"]:.6f}</td><td class="number">{_pct(row["change_pct"], signed=True)}</td></tr>'
         )
         caps = ", ".join(str(b["selected_count"]) for b in row["budget_rows"])
         remaining = ", ".join(str(b["unjudged_count"]) for b in row["budget_rows"])
@@ -343,17 +426,17 @@ def build_report(
         )
         audit_rows.append(
             f'<tr><th scope="row">{escape(row["label"])}</th><td>{caps}</td><td>{remaining}</td>'
-            f'<td>{100 * row["fallback_shares"]["1536"]:.1f}% / {100 * row["fallback_shares"]["8"]:.1f}%</td><td>{agent_gaps}</td></tr>'
+            f'<td>{100 * row["fallback_shares"]["1536"]:.1f}% / {100 * row["fallback_shares"][str(dimension)]:.1f}%</td><td>{agent_gaps}</td></tr>'
         )
     budget_regressions = [
         (row, budget) for row in rows for budget in row["budget_rows"]
-        if budget["eight_mae"] > budget["native_mae"]
+        if budget["short_mae"] > budget["native_mae"]
     ]
     if budget_regressions:
-        row, budget = max(budget_regressions, key=lambda pair: pair[1]["eight_mae"] - pair[1]["native_mae"])
+        row, budget = max(budget_regressions, key=lambda pair: pair[1]["short_mae"] - pair[1]["native_mae"])
         caution = (
             f'For example, at a {100 * budget["rate"]:g}% sampling budget in {row["label"]}, MAE rose '
-            f'from <strong>{budget["native_mae"]:.4f} to {budget["eight_mae"]:.4f}</strong> at 8 dimensions '
+            f'from <strong>{budget["native_mae"]:.4f} to {budget["short_mae"]:.4f}</strong> at {dimension} dimensions '
             f'({_pct(budget["change_pct"], signed=True)}). The dataset-wide average therefore does not guarantee the same result at every budget.'
         )
     else:
@@ -371,25 +454,39 @@ def build_report(
     )
     budgets = ", ".join(f"{100 * rate:g}%" for rate in protocol["rates"])
     dimensions = " &rarr; ".join(f"{d:,}" for d in protocol["dimensions"])
-    better_count = sum(r["eight_mae"] < r["native_mae"] for r in rows)
+    better_count = sum(r["short_mae"] < r["native_mae"] for r in rows)
     strict_detail = (
         f'Average MAE was lower in all {len(rows)} datasets.'
         if better_count == len(rows) else f'Average MAE was lower in {better_count} of {len(rows)} datasets.'
     )
+    fallback_note = "; ".join(
+        f'{row["label"]}: {100 * row["fallback_shares"]["1536"]:.1f}% / '
+        f'{100 * row["fallback_shares"][str(dimension)]:.1f}%'
+        for row in rows
+    )
     interpretation = (
-        "These results make 8 dimensions a promising candidate for this sampling-and-IDW pipeline."
-        if no_drop else "These results do not support treating 8 dimensions as interchangeable with the native representation."
+        f"These results make {dimension} dimensions a promising candidate for this sampling-and-IDW pipeline."
+        if no_drop else f"These results do not support treating {dimension} dimensions as interchangeable with the native representation."
+    )
+    grid_takeaway = (
+        f'{min(evidence["grid_no_average_increase"])} dimensions was the smallest tested size with no '
+        f'increase in dataset-average MAE across all {len(rows)} measured datasets. '
+        if evidence["grid_no_average_increase"] else
+        "No tested reduced size avoided a dataset-average MAE increase in every measured dataset. "
+    ) + (
+        "This is a descriptive grid result, not a validated cutoff: larger prefixes are not consistently better, "
+        "and individual budgets, agents and metrics can still regress."
     )
     html = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>From 1,536 to 8 dimensions: the Matryoshka experiment</title><style>{CSS}</style></head><body><main>
+<title>From 1,536 to {dimension} dimensions: the Matryoshka experiment</title><style>{CSS}</style></head><body><main>
 <header><div class="eyebrow">Sampling experiment / plain-language report</div>
-<h1>From 1,536 embedding dimensions to just 8</h1>
+<h1>From 1,536 embedding dimensions to just {dimension}</h1>
 <p class="finding">{escape(conclusion)}</p>
 <p>{escape(strict_detail)} This is a result about the average task-completion prediction error in these tests, not a claim that every setting or metric is unchanged.</p></header>
 <div class="kpis"><div class="kpi"><strong>{len(rows)} datasets</strong>{evidence["session_count"]:,} source sessions included</div>
 <div class="kpi"><strong>{evidence["seed_count"]} randomized runs</strong>per arrival pattern and sampling setting</div>
-<div class="kpi"><strong>192&times; fewer values</strong>8 coordinates instead of 1,536; not a measured runtime or API-cost saving</div></div>
+<div class="kpi"><strong>{payload_ratio:g}&times; fewer values</strong>{dimension} coordinates instead of 1,536; not a measured runtime or API-cost saving</div></div>
 
 <section id="experiment"><h2>What did we test?</h2>
 <p>Can we make full-session embeddings much smaller without making the sampling-and-prediction result worse?
@@ -403,16 +500,16 @@ We changed <strong>only the vector representation</strong> in the comparison: th
 It converts the session evidence into a list of <strong>1,536 numbers</strong>: the vector's dimensions.
 OpenAI documents native shortening support linked to <em>Matryoshka Representation Learning</em>.
 The idea is that useful shorter representations are nested inside the larger vector; whether a particular size is sufficient still depends on the task.</p>
-<p>At 8 dimensions, we kept coordinates <strong>0 through 7</strong>, in their original order. We then divided the shortened vector by its Euclidean (L2) length:</p>
+<p>At {dimension} dimensions, we kept coordinates <strong>0 through {dimension - 1}</strong>, in their original order. We then divided the shortened vector by its Euclidean (L2) length:</p>
 <pre><code>short = full_embedding[:d]
 short = short / np.linalg.norm(short)</code></pre>
 <div class="note" id="normalization-note"><p><strong>Why divide by the length?</strong>
-&ldquo;Length&rdquo; means magnitude, not the number of dimensions: <strong>we are not dividing by 8</strong>.
+&ldquo;Length&rdquo; means magnitude, not the number of dimensions: <strong>we are not dividing by {dimension}</strong>.
 In a two-number example, <code>[0.3, 0.4]</code> has length <code>sqrt(0.3&sup2; + 0.4&sup2;) = 0.5</code>.
 Dividing by 0.5 gives <code>[0.6, 0.8]</code>: the same direction and proportions, but length 1.</p>
 <p>Cutting off coordinates removes part of the original unit-length vector.
 Re-normalizing lets dot products give correct cosine similarities for IDW's angular distances.
-Keeping the raw first-eight values is also valid if the cosine calculation normalizes internally.
+Keeping the raw first-{dimension} values is also valid if the cosine calculation normalizes internally.
 This changes scale, not direction; it is not another reduction technique or an accuracy-enhancing trick.</p></div>
 <p><strong>No PCA, SVD, Gaussian random projection, coordinate sorting or retraining was used.</strong>
 All shortened vectors came from the same saved full-dimensional embeddings. Tested sizes: {dimensions}.</p>
@@ -433,22 +530,25 @@ The charts below summarize {evidence["primary_cells"]:,} end-to-end result cells
 Selection is rerun at each dimension, so the unselected target set can change. This is not an independent deployment holdout.
 The larger bundle also contains a separate fixed-membership diagnostic; it is not mixed into these headline results.</p></section>
 
-<section id="results"><h2>Results at a glance</h2><p>{escape(strict_detail)} Negative percentage changes below mean less error at 8 dimensions.</p>
-<div class="table-wrap" tabindex="0" role="region" aria-label="Native and eight-dimensional MAE results"><table>
-<thead><tr><th>Dataset</th><th>Native MAE<br>1,536 dimensions</th><th>MAE at 8<br>dimensions</th><th>Relative change<br>in MAE</th></tr></thead><tbody>{"".join(table_rows)}</tbody></table></div>
-{_figure("endpoints", "1. Compare the starting and ending dimensions", endpoint_chart(evidence), "What it shows: native and 8-dimensional average error, on the same axis. Read it: shorter is better. Takeaway: the 8-dimensional averages show no increase in this run." if no_drop else "What it shows: native and 8-dimensional average error. Shorter is better; inspect each dataset rather than assuming no loss.")}
-{_figure("trend", "2. The full dimensionality sweep", trend_chart(evidence), "What it shows: each dataset's MAE change relative to its own 1,536-dimensional baseline. Read it: below zero is better. Takeaway: intermediate dimensions are not consistently better as dimensions increase; the curves need not be monotonic.")}
+<section id="results"><h2>Results at a glance</h2><p>{escape(strict_detail)} Negative percentage changes below mean less error at {dimension} dimensions.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Native and {dimension}-dimensional MAE results"><table>
+<thead><tr><th>Dataset</th><th>Native MAE<br>1,536 dimensions</th><th>MAE at {dimension}<br>dimensions</th><th>Relative change<br>in MAE</th></tr></thead><tbody>{"".join(table_rows)}</tbody></table></div>
+<p class="note"><strong>Not IDW-only:</strong> these headline scores include earlier-global-mean and prior fallbacks when no earlier same-agent donor exists.
+Fallback shares of unselected targets (native / {dimension}d) were {escape(fallback_note)}.
+These shares pool target counts; headline MAE gives each replay setting equal weight. A high fallback share can dilute the effect of changing embedding dimensions.</p>
+{_figure("endpoints", "1. Compare the starting and ending dimensions", endpoint_chart(evidence), f"What it shows: native and {dimension}-dimensional average error, on the same axis. Read it: shorter is better. Takeaway: the {dimension}-dimensional averages show no increase in this run." if no_drop else f"What it shows: native and {dimension}-dimensional average error. Shorter is better; inspect each dataset rather than assuming no loss.")}
+{trend_figure(evidence, grid_takeaway)}
 </section>
 
 <section id="variation"><h2>What the averages do not tell us</h2>
 <p>{caution}</p><p>{other_metrics}Individual agents can also regress.
 The conclusion is about <strong>average MAE</strong>, not unchanged performance across every budget, agent or metric.</p>
 <details id="budget-detail"><summary>Explore the sampling-budget trade-off</summary>
-{_figure("budgets", "3. Budget-by-budget: 8 dimensions versus native", budget_chart(evidence), f"Each cell compares mean MAE over {evidence['seed_count']} seeds and {len(protocol['schedules'])} arrival patterns at one budget. Percentages are relative error changes, not accuracy percentage points. Positive cells are genuine regressions, not missing data.")}
+{_figure("budgets", f"3. Budget-by-budget: {dimension} dimensions versus native", budget_chart(evidence), f"Each cell compares mean MAE over {evidence['seed_count']} seeds and {len(protocol['schedules'])} arrival patterns at one budget. Percentages are relative error changes, not accuracy percentage points. Positive cells are genuine regressions, not missing data.")}
 </details></section>
 
 <section class="conclusion" id="conclusion"><h2>Conclusion</h2><p class="finding"><strong>{escape(conclusion)}</strong></p>
-<p>The tested change is simple: <strong>take the first 8 values of the native <code>text-embedding-3-small</code> vector and L2-normalize them</strong>.
+<p>The tested change is simple: <strong>take the first {dimension} values of the native <code>text-embedding-3-small</code> vector and L2-normalize them</strong>.
 {interpretation}</p>
 <p>That does not mean all information is preserved or that every operating point is lossless. Business-use-case classification, future production data,
 new judge scores and the proposed weekly sampling policy were not evaluated here. No formal acceptable-loss threshold was pre-specified for MAE.</p></section>
@@ -467,12 +567,12 @@ when epsilon is ignored for simplicity. Normalized weights are 0.8 and 0.2, givi
 &ldquo;Full-session&rdquo; therefore does not mean unlimited verbatim text. There is no fitted reduction transform or train/test reducer fit.</p>
 <p>Budget order in the table is {budgets}; caps are max(1, floor(N &times; budget)).
 Selected sessions receive their stored labels. The unjudged denominator includes IDW estimates and explicitly counted fallback estimates.</p>
-<div class="table-wrap" tabindex="0" role="region" aria-label="Absolute budgets and fallback counts"><table><thead><tr><th>Dataset</th><th>Selected sessions</th><th>Unjudged sessions</th><th>Fallback share of unjudged<br>native / 8d</th><th>Agents with higher<br>mean MAE at 8d</th></tr></thead><tbody>{"".join(audit_rows)}</tbody></table></div>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Absolute budgets and fallback counts"><table><thead><tr><th>Dataset</th><th>Selected sessions</th><th>Unjudged sessions</th><th>Fallback share of unjudged<br>native / {dimension}d</th><th>Agents with higher<br>mean MAE at {dimension}d</th></tr></thead><tbody>{"".join(audit_rows)}</tbody></table></div>
 <p>Fallback shares pool target counts across cells; headline MAE instead gives each replay cell equal weight.
 Agent counts flag any increase in per-agent mean MAE, not statistical significance. More per-agent results and cohort-relative concept-coverage proxies are available in the detailed report;
 coverage is not a guarantee of representing every real activity.</p>
-<p>Float32 payload size is 4 &times; dimensions bytes per vector: 6,144 bytes at 1,536 dimensions versus 32 bytes at 8.
-That is a modeled vector-payload reduction only. Embedding API billing is based on input tokens; no 192&times; API-cost or wall-clock speedup was measured.</p>
+<p>Float32 payload size is 4 &times; dimensions bytes per vector: 6,144 bytes at 1,536 dimensions versus {4 * dimension} bytes at {dimension}.
+That is a modeled vector-payload reduction only. Embedding API billing is based on input tokens; no {payload_ratio:g}&times; API-cost or wall-clock speedup was measured.</p>
 </details><details id="source-detail"><summary>Sources and reproducibility</summary>
 <p>Run: <code>{escape(evidence["run_id"])}</code>. This is a read-only derivative of retained artifacts; generating it makes no embedding or judge calls.</p>
 <p>Aggregate: <code>{escape(aggregate_path)}</code><br>SHA256: <code>{escape(aggregate_hash)}</code></p>
@@ -484,7 +584,7 @@ Run environment: <code>{escape(str(aggregate.get("environment", {}).get("python"
 <p><a href="https://developers.openai.com/api/docs/guides/embeddings">OpenAI embedding model and shortening documentation</a>;
 <a href="https://arxiv.org/abs/2205.13147">Matryoshka Representation Learning paper</a>.
 OpenAI's often-cited 256-dimensional benchmark comparison concerns <code>text-embedding-3-large</code> versus <code>text-embedding-ada-002</code>,
-not a guarantee about 8-dimensional <code>text-embedding-3-small</code>.</p>
+not a guarantee about {dimension}-dimensional <code>text-embedding-3-small</code>.</p>
 <p>All figures and text are embedded in this HTML. <code>summary.json</code> contains the plotted numbers;
 the adjacent manifest records source and output hashes. Browser and test evidence is retained separately.</p>
 </details></section><footer>{escape(evidence["run_id"])} / {len(rows)} datasets measured / 3 graphs / average-MAE conclusion only</footer>
@@ -492,7 +592,7 @@ the adjacent manifest records source and output hashes. Browser and test evidenc
     return html, evidence
 
 
-def write_report(aggregate_path: Path, output: Path, *, overwrite: bool = False) -> Path:
+def write_report(aggregate_path: Path, output: Path, *, overwrite: bool = False, focus_dimension: int = 8) -> Path:
     source = aggregate_path.resolve()
     output = output.resolve()
     if output.suffix.lower() != ".html" or output.parent == source.parent:
@@ -509,12 +609,12 @@ def write_report(aggregate_path: Path, output: Path, *, overwrite: bool = False)
     detailed_url = quote(os.path.relpath(source.parent / "report.html", output.parent).replace("\\", "/"), safe="/")
     command_args = [
         sys.executable, str(Path(__file__).resolve().parents[1] / "scripts" / "build_matryoshka_summary_report.py"),
-        "--input", str(source), "--output", str(output),
+        "--input", str(source), "--output", str(output), "--focus-dimension", str(focus_dimension),
     ] + (["--overwrite"] if overwrite else [])
     command = "& " + " ".join("'" + part.replace("'", "''") + "'" for part in command_args)
     html, evidence = build_report(
         aggregate, aggregate_path=str(source), aggregate_hash=source_hash,
-        detailed_url=detailed_url, generation_command=command,
+        detailed_url=detailed_url, generation_command=command, focus_dimension=focus_dimension,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(html, encoding="utf-8")
@@ -525,6 +625,7 @@ def write_report(aggregate_path: Path, output: Path, *, overwrite: bool = False)
         "source_run": aggregate["run_id"], "source_aggregate": str(source),
         "source_aggregate_sha256": source_hash, "source_manifest_sha256": source_manifest_hash,
         "generator_sha256": sha256_file(Path(__file__)), "graph_count": 3, "method_diagram_count": 1,
+        "focus_dimension": focus_dimension,
         "generation_command": command, "report_python": sys.version,
         "conclusion_scope": "Dataset-average end-to-end unjudged MAE; not a formal non-inferiority claim.",
         "files": {p.name: {"path": str(p), "sha256": sha256_file(p)} for p in (output, summary_path)},

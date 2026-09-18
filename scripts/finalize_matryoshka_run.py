@@ -49,7 +49,7 @@ def main() -> None:
     readiness_path = root / "input_readiness.json"
     write_json(readiness_path, {
         "datasets": readiness, "authentication_blocker": args.authentication_blocker,
-        "boundary": "Prepared source/label counts are not measured sampling accuracy. Live embedding preparation is authorized; no new judge calls. Successful completed-dataset embedding totals are recorded in each preparation manifest.",
+        "boundary": "Prepared source/label counts are not measured sampling accuracy. Preparation manifests may record historical embedding calls; finalization performs and authorizes no embedding or judge calls. This run's call counts belong to its protocol.",
     })
     aggregate["files"]["input_readiness"] = str(readiness_path)
     write_json(aggregate_path, aggregate)
@@ -59,11 +59,12 @@ def main() -> None:
         "report.html", "scientific_validation.json", "browser_validation.json",
         "visual_validation.json", "protocol_parity.json", "environment-requirements.txt",
         "unit_tests.xml", "cache_reuse_validation.json",
+        "execution_environment.json", "visual_review.json",
     ):
         path = root / name
         if path.exists():
             manifest["files"][name] = {"path": str(path), "sha256": sha256_file(path)}
-    manifest["source_revision_note"] = "Git HEAD at execution; new experiment code was uncommitted then. Exact executed implementation hashes, not HEAD alone, identify the run."
+    manifest["source_revision_note"] = "Git HEAD at execution. Exact executed implementation hashes, not HEAD alone, identify the run, including any files uncommitted at execution."
     manifest["artifact_generator_hashes"] = {
         str(path): sha256_file(path) for path in (
             Path("sampling_comparison/matryoshka_report.py"),
@@ -74,6 +75,8 @@ def main() -> None:
             Path("scripts/build_matryoshka_report.py"),
             Path("scripts/finalize_matryoshka_run.py"),
             Path("scripts/validate_matryoshka_run.py"),
+            Path("scripts/validate_matryoshka_comparison.py"),
+            Path("scripts/validate_matryoshka_report_rendering.py"),
         )
     }
     write_json(manifest_path, manifest)
