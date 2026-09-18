@@ -38,6 +38,11 @@ outputs_sampling_v6/sampling-applied-slide-05-session.png
 /external_data/
 /test-results/
 
+# IMDb raw reviews, paid vectors and occurrence-level replay evidence remain local.
+/outputs_imdb/cache/
+/outputs_imdb/private_runs/
+/outputs_imdb/reports/*/validation_screenshots/
+
 # Matryoshka source vectors, resumable scratch and browser captures stay local.
 /.venv-v3/
 /outputs_matryoshka/cache/

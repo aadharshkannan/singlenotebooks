@@ -29,6 +29,17 @@ This repository is organized around reproducible experiment outputs, source code
   summaries, source/output hash manifests and validation records. Their builders
   leave canonical run bundles untouched. New screenshots stay in each report's
   local `validation_screenshots/` directory.
+- `outputs_imdb/cache/` retains source-bound public-review preparation metadata
+  and expensive native embedding batches locally. The original downloaded
+  benchmark archive stays under `external_data/imdb/`.
+  `outputs_imdb/private_runs/` retains resumable per-occurrence replay evidence,
+  memberships, score arrays and full aggregates locally. Both output trees are
+  Git-ignored and are not disposable scratch.
+  `outputs_imdb/reports/` contains aggregate-only HTML/JSON reports and validation
+  records. A preparation report must visibly say results are pending and must
+  not draw invented metric charts. Browser images stay in each report's
+  `validation_screenshots/` directory. Never publish review text, credentials,
+  endpoint configuration, per-review hashes or embedding vectors.
 - IDW threshold/envelope follow-ups also use `outputs_matryoshka/runs/`.
   Retain the report, threshold/ROC summaries, compressed per-target score
   evidence and provenance/validation manifests; these are reproducibility

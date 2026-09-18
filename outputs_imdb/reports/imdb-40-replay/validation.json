@@ -1,0 +1,86 @@
+{
+  "html": "C:\\Users\\stangoodwin\\copilot-worktrees\\singlenotebooks\\stangoodwin-urban-spoon\\outputs_imdb\\reports\\imdb-40-replay\\report.html",
+  "print_html": null,
+  "pdf": null,
+  "browser": "auto",
+  "block_external": true,
+  "pages": [
+    {
+      "label": "desktop",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "state": {
+        "content": {
+          "title": "IMDb | Full-review IDW and prefix dimensions",
+          "bodyTextLength": 2190,
+          "headingCount": 23,
+          "headingsPreview": [
+            "How far can we shorten a review embedding?",
+            "Embeddings are ready; replay results are pending.",
+            "The experiment in one minute",
+            "Analysis and conclusion",
+            "Shared pipeline, six representations",
+            "What \u201cend to end\u201d means here"
+          ],
+          "brokenImages": []
+        },
+        "viewport": {
+          "width": 1440,
+          "height": 1000,
+          "scrollWidth": 1440,
+          "scrollHeight": 1578,
+          "overflowing": [],
+          "hiddenClipping": []
+        }
+      },
+      "network": {
+        "blocked_request_count": 0,
+        "failed_request_count": 0,
+        "bad_response_count": 0
+      },
+      "issues": [],
+      "ok": true
+    },
+    {
+      "label": "mobile",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "state": {
+        "content": {
+          "title": "IMDb | Full-review IDW and prefix dimensions",
+          "bodyTextLength": 2190,
+          "headingCount": 23,
+          "headingsPreview": [
+            "How far can we shorten a review embedding?",
+            "Embeddings are ready; replay results are pending.",
+            "The experiment in one minute",
+            "Analysis and conclusion",
+            "Shared pipeline, six representations",
+            "What \u201cend to end\u201d means here"
+          ],
+          "brokenImages": []
+        },
+        "viewport": {
+          "width": 390,
+          "height": 844,
+          "scrollWidth": 390,
+          "scrollHeight": 3110,
+          "overflowing": [],
+          "hiddenClipping": []
+        }
+      },
+      "network": {
+        "blocked_request_count": 0,
+        "failed_request_count": 0,
+        "bad_response_count": 0
+      },
+      "issues": [],
+      "ok": true
+    }
+  ],
+  "ok": true
+}

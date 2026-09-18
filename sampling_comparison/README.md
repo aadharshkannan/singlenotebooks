@@ -34,7 +34,115 @@ selection to calculate pass-rate MAE, fraction saved, and concept coverage.
 No LLM judge is called by the V2 experiment. The optional compressed-evidence
 judge path remains in `trace_sampling`, disabled by default.
 
-## Matryoshka prefix-cutoff
+## IMDb 50K sentiment follow-up
+
+`imdb_inputs.py`, `imdb_experiment.py` and `imdb_report.py` provide a separate,
+single-agent full-review experiment. The request did not include a dataset
+URL; its 50K positive/negative movie-review description is interpreted as
+Stanford's original **Large Movie Review Dataset v1.0** (Maas et al., ACL 2011).
+The labeled train/test partitions are deliberately combined. This is an
+imputation/replay study, **not held-out IMDb benchmark accuracy**.
+
+Current evidence: 50,000 labeled reviews, 25,000 per class, 49,581 distinct
+normalized embedding inputs, 419 duplicate-text rows, no conflicting-label
+text groups, and no reviews exceeding the 8,191-token limit. Unique inputs
+contain 14,166,270 `cl100k_base` tokens. The archive SHA-256 is
+`c40f74a18d3b61f90feba1e17730e0d38e8b97c05fde7008942e91923d1658fe`.
+These are observed **input statistics**, not model results or billed API tokens.
+The local input cache and archive are not checked into Git.
+
+The authorized Azure preparation has now completed: **775 successful requests,
+14,166,270 reported API input tokens, zero judge calls**, with a verified
+`[50000,1536]` native `text-embedding-3-small` matrix. Vector-file SHA-256:
+`7218d733c1fafea421feb4f513f3a578cd3d2ad39c4146242764c52eb51733ba`.
+This establishes real embedding provenance, not completed replay performance.
+
+The full plan is 40 paired bootstrap seeds, two arrival schedules (uniform
+and bursty), five occurrence-label budgets (1%, 2%, 5%, 10%, 20%) and six
+dimensions (1536, 32, 24, 16, 12, 8): **2,400 cells**. Draw 50K occurrences
+with replacement per seed to change both order and review frequency. Every
+dimension/budget sees the same stream for that seed/schedule. Selection reuses
+the existing ARM2 label-blind full-schedule ranking; only IDW and calibration
+are causal. This is not strictly online membership selection.
+
+Point estimation uses normalized angular distance, eight earlier selected
+donors, inverse-square weights and epsilon `1e-6`; exact matches average all
+earlier matching donors. A source-repeat diagnostic excludes targets with an
+earlier selected occurrence of that source. Distinct source rows containing
+identical text can still match. Primary metrics exclude directly observed
+labels. Eligible-point and eligible-lower metrics/ROC use identical targets.
+All-unselected includes any prior/fallback scores separately accounted for.
+
+To avoid 50K-by-50K distance matrices, the replay implementation evaluates
+bounded target/donor blocks. The causal Lipschitz calibration uses a deterministic
+uniform reservoir of up to 128 earlier selected occurrences, q90 pair slopes,
+angular denominator floor 0.01 and sparse fallback L=1. This is a documented
+scale adaptation from the previous all-pair study, not baseline parity.
+The envelope is a conditional sensitivity construction, not a confidence
+interval. Replay percentile ranges reuse labels and are not population CIs.
+
+Prepare the public source locally (no extraction of arbitrary archive members):
+
+```powershell
+New-Item -ItemType Directory -Force external_data\imdb | Out-Null
+curl.exe --fail --location https://ai.stanford.edu/~amaas/data/sentiment/aclImdb_v1.tar.gz `
+  --output external_data\imdb\aclImdb_v1.tar.gz
+.\.venv-v3\Scripts\python.exe scripts\prepare_imdb_input.py
+```
+
+One review is one single-message session. Normalize HTML line breaks/entities
+and outer whitespace; embed the whole review text without labels, scores or
+filenames. Cap at 8,191 tokens if necessary and record truncation. Request
+native 1536 vectors once; never use PCA/SVD or a reduced-dimension API request.
+Retain all source rows while sharing embeddings for identical emitted text.
+
+The following command explicitly enables paid embedding requests using only
+this worktree's `.env` (or an explicit `--env-file`) and process environment.
+It uses the existing Azure embedding client, checks the returned model/dimension,
+and resumes only source-bound, hash-verified batches. It never calls a judge.
+Supply `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` and the
+appropriate API key or existing Entra credentials. Do not paste secrets into
+reports or source files. No Azure Search resource is needed.
+
+```powershell
+.\.venv-v3\Scripts\python.exe scripts\prepare_imdb_input.py --live --env-file .env
+.\.venv-v3\Scripts\python.exe scripts\run_imdb_experiment.py
+.\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py `
+  --input outputs_imdb\private_runs\imdb-40-replay\aggregate.json `
+  --output outputs_imdb\reports\imdb-40-replay
+```
+
+The runner defaults to four BLAS threads and records its runtime. Offline
+replays checkpoint per-cell memberships/scores and bind their configuration,
+input and method hashes. Rerun the same command to resume; incompatible evidence
+must use a new output directory. Private score arrays and expensive caches are
+retained, not disposable files. A complete aggregate is written only after
+all planned cells finish.
+
+Without embeddings, build a clearly marked preparation report instead:
+
+```powershell
+.\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py `
+  --input outputs_imdb\cache\imdb-50000\readiness.json `
+  --output outputs_imdb\reports\imdb-40-replay
+.\.venv-v3\Scripts\python.exe .github\skills\sampling-experiment-report\quality_check.py `
+  --html outputs_imdb\reports\imdb-40-replay\report.html `
+  --screenshots outputs_imdb\reports\imdb-40-replay\validation_screenshots
+.\.venv-v3\Scripts\python.exe scripts\validate_imdb_report.py `
+  --html outputs_imdb\reports\imdb-40-replay\report.html `
+  --screenshots outputs_imdb\reports\imdb-40-replay\validation_screenshots `
+  --output outputs_imdb\reports\imdb-40-replay\interaction_validation.json
+.\.venv-v3\Scripts\python.exe -m pytest tests\test_imdb_inputs.py `
+  tests\test_imdb_experiment.py tests\test_imdb_report.py -q
+```
+
+The HTML uses five tabs and no external assets. Numerical summaries average
+schedules within paired seeds before taking empirical 2.5/97.5 percentiles.
+AUROC uses exact per-cell tied scores; displayed ROC curves interpolate onto
+a shared FPR grid. Mean AUROC is not asserted equal to area under the mean
+display curve. No winner or validated dimension cutoff is inferred in advance.
+
+## Matryoshka prefix-cutoff (earlier datasets)
 
 `matryoshka_experiment.py` tests full-session first-coordinate truncation and
 re-normalization against native 1536 dimensions. Defaults match the earlier
