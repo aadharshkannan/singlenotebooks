@@ -13,9 +13,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build a three-graph, plain-language Matryoshka report from retained artifacts only.")
     parser.add_argument("--input", required=True, help="Exact Matryoshka aggregate.json path.")
     parser.add_argument("--output", required=True, help="HTML path in a separate derivative directory.")
+    parser.add_argument("--focus-dimension", type=int, default=8, help="Tested shortened endpoint to compare with native (default: 8).")
     parser.add_argument("--overwrite", action="store_true", help="Replace an existing derivative, never the source run.")
     args = parser.parse_args()
-    print(write_report(Path(args.input), Path(args.output), overwrite=args.overwrite))
+    print(write_report(Path(args.input), Path(args.output), overwrite=args.overwrite, focus_dimension=args.focus_dimension))
 
 
 if __name__ == "__main__":

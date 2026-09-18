@@ -181,12 +181,121 @@ For a shorter, user-friendly HTML report, generate a separate read-only derivati
 ```
 
 This view has three graphs: native versus 8d MAE, the full dimensionality sweep,
-and a collapsible budget-level comparison. It describes the native
+and a collapsible budget-level comparison. The second graph's **Y-axis**
+dropdown switches between relative MAE change (%) and the measured MAE values
+on a shared zero-based axis. Percentage is the default; changing the view
+updates labels, tooltips and the caption without changing the experiment data.
+It describes the native
 `text-embedding-3-small` model and exact prefix-plus-L2-normalization operation.
 Its no-drop-off conclusion is restricted to dataset-average end-to-end MAE;
 budget, agent and other-metric regressions and untested datasets remain explicit.
 The builder verifies source hashes, refuses to write inside the source run, and
 does not call any cloud API. Use `--overwrite` only to rebuild this derivative.
+
+### Fine-grained low-dimensional follow-up
+
+The follow-up grid is **32, 30, 28, ..., 2**, plus the unchanged native
+1,536-dimensional reference. It uses the same verified input manifests,
+seeds 13-42, five schedules, five budgets, selection rules and both membership
+modes as `mrl-three-datasets-30-seed-20260914`. The native reference is a
+comparison control, not an extra shortened dimension. This is **76,500 cells**
+over the same three available datasets; Tau2 remains excluded because its
+expected-label mapping is still unavailable.
+
+```powershell
+$env:OPENBLAS_NUM_THREADS = "12"
+$env:OMP_NUM_THREADS = "12"
+$env:MKL_NUM_THREADS = "12"
+.\.venv-v3\Scripts\python.exe scripts\run_matryoshka_experiment.py `
+  --input historical_300=outputs_matryoshka\cache\live-20260914\historical_300\manifest.json `
+  --input dense_2500=outputs_matryoshka\cache\dense_2500\manifest.json `
+  --input cosmos_otel=outputs_matryoshka\cache\live-20260914\cosmos_otel\manifest.json `
+  --dimensions 1536,32,30,28,26,24,22,20,18,16,14,12,10,8,6,4,2 `
+  --output outputs_matryoshka\runs\mrl-low-dimensions-30-seed-20260915-paired
+.\.venv-v3\Scripts\python.exe scripts\build_matryoshka_report.py `
+  --input outputs_matryoshka\runs\mrl-low-dimensions-30-seed-20260915-paired\aggregate.json `
+  --output outputs_matryoshka\runs\mrl-low-dimensions-30-seed-20260915-paired\report.html
+.\.venv-v3\Scripts\python.exe scripts\build_matryoshka_summary_report.py `
+  --input outputs_matryoshka\runs\mrl-low-dimensions-30-seed-20260915-paired\aggregate.json `
+  --focus-dimension 2 `
+  --output outputs_matryoshka\reports\mrl-low-dimensions-20260915\report.html
+.\.venv-v3\Scripts\python.exe scripts\validate_matryoshka_run.py `
+  --run outputs_matryoshka\runs\mrl-low-dimensions-30-seed-20260915-paired
+.\.venv-v3\Scripts\python.exe scripts\validate_matryoshka_comparison.py `
+  --run outputs_matryoshka\runs\mrl-low-dimensions-30-seed-20260915-paired `
+  --baseline outputs_matryoshka\runs\mrl-three-datasets-30-seed-20260914
+```
+
+The concise report's `--focus-dimension` chooses a tested shortened endpoint
+for its native comparison and budget breakdown; it defaults to 8 for older
+reports. The trend chart always contains the complete configured grid.
+Detailed chart axes, metric tables, replay intervals and budget tables also
+follow that grid rather than the original eight dimension choices.
+
+The comparison validator checks that **only dimensions changed** in the
+protocol, inputs and controlling implementation hashes match, and all
+overlapping 1,536/32/16/8-dimensional result cells, memberships and order hashes
+reproduce the retained baseline exactly. This is a reproducibility check, not
+independent evidence of prediction accuracy.
+
+For exact baseline parity, use **Python 3.13.13 x64**, its retained pinned
+`environment-requirements.txt`, and **12 OpenBLAS threads**. An initial
+ARM64/one-thread numerical diagnostic preserved membership but changed some
+float32 distances and a few predictions exactly at the 0.5 cutoff; it is not
+the canonical result bundle. Thread count is therefore part of numerical
+reproduction, not a performance-only setting.
+
+### IDW threshold and conditional-envelope follow-up
+
+The [threshold experiment](../docs/IDW_THRESHOLD_EXPERIMENT.md) replays the
+native and 8d end-to-end memberships on the same three datasets and 4,500
+settings. The [published refreshed report](../outputs_matryoshka/reports/idw-threshold-cosmos-refresh-20260915/report.html)
+compares point-score and conditional-lower-envelope ROC curves, with separate
+accuracy, precision, recall and F1 threshold plots. The primary comparison
+uses identical envelope-eligible targets; mean/prior fallback scores are
+shown separately. Calibration uses only earlier selected same-agent labels.
+The envelope is an empirical sensitivity construction, not a confidence
+interval or a validated threshold-selection rule.
+
+### Refreshing a sensitive Cosmos snapshot
+
+Use top-level `manifest.json` and `refresh_report.json` to bind the selected
+local export; never silently read an older `_snapshots` backup. The September
+15 export with catch-up cutoff `13:40:42 UTC` has 103,373 documents across ten
+containers, but the unchanged experiment adapter uses **755 expected-label
+units** from `labels`, linked to `spans`. Other evaluation/smoke label
+containers are not pooled into this protocol.
+
+The refreshed 755-unit input has 745 linked-span representations and ten
+label-document fallbacks. All 205 earlier canonical packets and reference
+labels are unchanged; only 550 new native vectors require preparation.
+Reuse requires an exact canonical-packet hash and verified model/vector
+provenance, not merely the same session identifier. Live preparation requires
+explicit authorization and the same `text-embedding-3-small` model; never
+substitute a different local model to make a nominally offline rerun succeed.
+
+Keep full results under `outputs_matryoshka\private_runs\` and publish
+aggregate-only reports. Native/8d reference runs can establish fresh
+memberships for the ROC experiment while the 32-to-2 sweep runs independently.
+Compare the full refreshed sweep against that same-input reference for exact
+native/8d parity. When comparing with an older corpus, explicitly pass
+`--refreshed-dataset cosmos_otel` to `validate_matryoshka_comparison.py`:
+the other two datasets must still reproduce exactly, and the changed Cosmos
+population is not subject to a false same-population parity claim.
+
+```powershell
+.\.venv-v3\Scripts\python.exe scripts\build_matryoshka_public_report.py `
+  --private-run outputs_matryoshka\private_runs\cosmos-refresh-20260915-134042\dimension-sweep `
+  --snapshot-readiness outputs_matryoshka\cache\cosmos-refresh-20260915-preflight\readiness.json `
+  --focus-dimension 2 `
+  --output outputs_matryoshka\reports\mrl-cosmos-refresh-20260915
+```
+
+This publication preserves plotted metrics and aggregate agent-regression
+counts without retaining original identifiers. The protected source remains
+unchanged, and the publication records its whole-artifact hashes. Comparisons
+with earlier reports also reflect a changed cohort and label prevalence,
+not only the embedding representation.
 
 Keep input caches (including staged packet-derived metadata) under the source
 data's access and retention controls. Source vectors and checkpoints stay local;

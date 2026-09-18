@@ -2,11 +2,13 @@ from copy import deepcopy
 import json
 import math
 from pathlib import Path
+import re
+from xml.etree import ElementTree
 
 import pytest
 
 from sampling_comparison.matryoshka_experiment import sha256_file, write_json
-from sampling_comparison.matryoshka_summary_report import build_report, summarize_evidence, write_report
+from sampling_comparison.matryoshka_summary_report import build_report, summarize_evidence, trend_chart, trend_figure, write_report
 
 
 def fixture():
@@ -102,6 +104,9 @@ def test_negative_results_cannot_receive_requested_positive_conclusion():
     assert evidence["no_average_mae_drop"] is False
     assert "do not support a blanket no-drop-off conclusion" in html
     assert "did not notice any meaningful performance drop-off" not in html
+    assert min(evidence["grid_no_average_increase"]) == 512
+    assert "512 dimensions was the smallest tested size" in html
+    assert "not a validated cutoff" in html
     assert "promising candidate" not in html
 
 
@@ -116,6 +121,14 @@ def test_primary_metrics_do_not_mix_fixed_membership_or_selected_labels():
     assert dense["eight_mae"] == pytest.approx(0.346)
     assert dense["change_pct"] == pytest.approx(100 * (0.346 / 0.35 - 1))
     assert evidence["primary_cells"] * 2 == evidence["retained_cells"]
+
+
+def test_fallback_dependency_is_visible_with_the_main_results():
+    html, _ = render()
+    start = html.index('<section id="results">')
+    end = html.index('<section id="variation">')
+    assert "Not IDW-only" in html[start:end]
+    assert "dilute the effect of changing embedding dimensions" in html[start:end]
 
 
 @pytest.mark.parametrize("change", ["duplicate", "missing", "nan", "counts", "model", "judge"])
@@ -170,3 +183,127 @@ def test_derivative_preserves_source_and_records_numeric_provenance(tmp_path: Pa
     source.write_text("{}")
     with pytest.raises(ValueError, match="manifest"):
         write_report(source, output, overwrite=True)
+
+
+def low_dimension_fixture():
+    data = fixture()
+    dimensions = [1536, *range(32, 1, -2)]
+    templates = [r for r in data["rows"] if r["dimension"] == 1536]
+    data["protocol"]["dimensions"] = dimensions
+    data["rows"] = [
+        {**row, "dimension": dimension, "mae": row["mae"] + (0.03 if dimension == 2 else 0)}
+        for row in templates for dimension in dimensions
+    ]
+    return data
+
+
+def test_two_dimension_report_uses_actual_endpoint_and_full_grid():
+    data = low_dimension_fixture()
+    html, evidence = build_report(
+        data, aggregate_path="low/aggregate.json", aggregate_hash="abc",
+        detailed_url="../../run/report.html", focus_dimension=2,
+    )
+    assert evidence["focus_dimension"] == 2
+    assert evidence["no_average_mae_drop"] is False
+    assert len(evidence["datasets"][0]["curve"]) == 17
+    assert evidence["datasets"][0]["short_mae"] == pytest.approx(0.51)
+    assert "eight_mae" not in evidence["datasets"][0]
+    for text in ("0 through 1", "768&times; fewer values", "MAE at 2",
+                 "2 dimensions versus native", "versus 8 bytes at 2",
+                 "higher average MAE at 2 dimensions"):
+        assert text in html
+    assert "192&times;" not in html
+    assert "MAE at 8" not in html
+    assert html.count("data-graph=") == 3
+    assert "did not notice any meaningful performance drop-off" not in html
+    assert min(evidence["grid_no_average_increase"]) == 4
+    assert "4 dimensions was the smallest tested size" in html
+    assert "not a validated cutoff" in html
+
+
+@pytest.mark.parametrize("dimension", [1536, 3, 0, True, 2.0])
+def test_focus_dimension_must_be_a_tested_reduced_integer(dimension):
+    with pytest.raises(ValueError, match="focus dimension"):
+        summarize_evidence(low_dimension_fixture(), focus_dimension=dimension)
+
+
+def test_focus_dimension_is_preserved_in_derivative_manifest(tmp_path: Path):
+    source = tmp_path / "run" / "aggregate.json"
+    write_json(source, low_dimension_fixture())
+    write_json(source.parent / "manifest.json", {"files": {"aggregate": {"sha256": sha256_file(source)}}})
+    output = tmp_path / "summary" / "report.html"
+    write_report(source, output, focus_dimension=2)
+    metadata = json.loads((output.parent / "manifest.json").read_text())
+    assert metadata["focus_dimension"] == 2
+    assert "'--focus-dimension' '2'" in metadata["generation_command"]
+    assert json.loads((output.parent / "summary.json").read_text())["focus_dimension"] == 2
+
+
+def test_trend_dropdown_defaults_to_percentage_and_has_two_self_contained_views():
+    html, evidence = render()
+    match = re.search(r'<script type="application/json" id="trend-variants">(.*?)</script>', html, re.S)
+    variants = json.loads(match.group(1))
+    assert set(variants) == {"relative", "mae"}
+    assert '<label for="trend-scale">Y-axis</label>' in html
+    assert '<option value="relative" selected>Relative MAE change (%)</option>' in html
+    assert '<option value="mae">MAE</option>' in html
+    assert 'aria-controls="trend-chart"' in html
+    assert 'id="trend-caption" aria-live="polite"' in html
+    assert "below zero is better" in variants["relative"]["caption"]
+    assert "zero-based MAE axis" in variants["mae"]["caption"]
+    assert "including mean/prior fallbacks" in variants["mae"]["caption"]
+    assert html.count("<svg ") == 3
+    assert html.count("data-graph=") == 3
+    assert evidence["graph_count"] == 3
+    assert "<svg " not in match.group(1)
+    assert "fetch(" not in html and "<script src=" not in html
+
+
+@pytest.mark.parametrize("scale", ["relative", "mae"])
+def test_trend_plot_uses_exact_measured_mae_or_relative_values_at_every_dimension(scale):
+    evidence = summarize_evidence(low_dimension_fixture(), focus_dimension=2)
+    svg = ElementTree.fromstring(trend_chart(evidence, scale=scale))
+    namespace = {"svg": "http://www.w3.org/2000/svg"}
+    assert svg.tag == "{http://www.w3.org/2000/svg}svg"
+    points = svg.findall("svg:circle", namespace)
+    assert len(points) == 3 * 17
+    by_dataset = {row["dataset_id"]: row for row in evidence["datasets"]}
+    for point in points:
+        row = by_dataset[point.attrib["data-dataset"]]
+        mae = row["curve"][point.attrib["data-dimension"]]
+        expected = 100 * (mae / row["native_mae"] - 1) if scale == "relative" else mae
+        assert float(point.attrib["data-value"]) == pytest.approx(expected)
+        tooltip = point.find("svg:title", namespace).text
+        if scale == "mae":
+            assert f"MAE {mae:.6f}" in tooltip and "%" not in tooltip
+            assert float(point.attrib["cy"]) == pytest.approx(72 + (0.6 - mae) * 280 / 0.6, abs=0.001)
+    text = [node.text for node in svg.findall("svg:text", namespace)]
+    if scale == "mae":
+        assert "0.000" in text and "0.600" in text
+        assert not any("%" in value for value in text)
+        assert "Mean absolute error (MAE, 0-1 units): lower is better" in text
+
+
+def test_zero_native_mae_is_missing_only_in_relative_view():
+    evidence = summarize_evidence(fixture())
+    row = evidence["datasets"][0]
+    row["native_mae"] = 0.0
+    row["curve"]["1536"] = 0.0
+    namespace = {"svg": "http://www.w3.org/2000/svg"}
+    relative = ElementTree.fromstring(trend_chart(evidence)).findall("svg:circle", namespace)
+    absolute = ElementTree.fromstring(trend_chart(evidence, scale="mae")).findall("svg:circle", namespace)
+    assert not any(point.attrib["data-dataset"] == row["dataset_id"] for point in relative)
+    assert sum(point.attrib["data-dataset"] == row["dataset_id"] for point in absolute) == 3
+
+
+def test_trend_variants_escape_script_terminators_in_all_dynamic_content():
+    evidence = summarize_evidence(fixture())
+    injected = "</script><script>alert('private')</script>"
+    evidence["datasets"][0]["label"] = injected
+    html = trend_figure(evidence, injected)
+    assert injected not in html
+    data = re.search(r'id="trend-variants">(.*?)</script>', html, re.S).group(1)
+    assert "</script>" not in data
+    assert "&lt;/script&gt;" in json.loads(data)["mae"]["svg"]
+    with pytest.raises(ValueError, match="trend scale"):
+        trend_chart(evidence, scale="accuracy")

@@ -41,10 +41,22 @@ outputs_sampling_v6/sampling-applied-slide-05-session.png
 # Matryoshka source vectors, resumable scratch and browser captures stay local.
 /.venv-v3/
 /outputs_matryoshka/cache/
+# Sensitive refreshed-corpus runs retain identifiers and per-target evidence locally only.
+/outputs_matryoshka/private_runs/
 /outputs_matryoshka/runs/*/checkpoints/
 /outputs_matryoshka/runs/*/validation_screenshots/
 /outputs_matryoshka/reports/*/validation_screenshots/
+/outputs_matryoshka/reports/*/detail/validation_screenshots/
 /outputs_matryoshka/smoke/
+# Preliminary ARM64 runtime diagnostic; canonical matched-runtime evidence is the -paired run.
+/outputs_matryoshka/runs/mrl-low-dimensions-30-seed-20260915/
+# Superseded threshold startup/runtime bundles stay local; final evidence is the -verified run.
+/outputs_matryoshka/runs/idw-threshold-envelope-20260915/
+# Preserve pre-refresh identifier-bearing runs and superseded reports locally, not in the PR.
+/outputs_matryoshka/runs/idw-threshold-envelope-20260915-verified/
+/outputs_matryoshka/runs/mrl-low-dimensions-30-seed-20260915-paired/
+/outputs_matryoshka/reports/mrl-low-dimensions-20260915/
+/outputs_matryoshka/reports/idw-runtime-audit-20260915/
 
 # Keep only the reviewed V6 HTML/PDF deliverables; raw runs and checkpoints stay local.
 outputs_sampling_v6/runs/*

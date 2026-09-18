@@ -1,6 +1,6 @@
 # Agent Evaluation Sampling Context
 
-Updated: 2026-09-07. This is the repo's working context, combining the team's
+Updated: 2026-09-16. This is the repo's working context, combining the team's
 stated direction with separately identified implementation and experiment evidence.
 It is not a production rollout claim. Preserve these distinctions in future reports.
 
@@ -125,6 +125,94 @@ These pooled summaries are neither tenant-traffic-weighted nor per-agent macro
 scores. Reports must show dataset/budget breakdowns and unjudged-only quality,
 not hide those distinctions in one headline. Directly observed labels mixed into
 judged-plus-imputed metrics make that view easier than unjudged-only prediction.
+
+## Initial Matryoshka follow-up (local evidence)
+
+The initial 2026-09-15 study
+narrows the previous prefix study to **32, 30, ..., 2 dimensions**, retaining
+1,536 dimensions as the native reference. This is prefix truncation plus L2
+normalization of `text-embedding-3-small`, **not PCA**. The
+local bundle `outputs_matryoshka/runs/mrl-low-dimensions-30-seed-20260915-paired/`
+contains 76,500 cells: three datasets, 17 representations, 30 paired seeds,
+five schedules, five session budgets and both membership modes. The original
+data, labels, selection and causal IDW rules are unchanged. Tau2 is excluded
+for the same unavailable expected-label mapping.
+
+The native/32/16/8 overlap reproduces all 18,000 previous result cells and
+memberships exactly. This required the original Python 3.13.13 x64 environment
+and 12 OpenBLAS threads: an initial ARM64 diagnostic changed a few threshold-edge
+predictions despite identical selected memberships. The matched-runtime bundle,
+not that preliminary diagnostic, is the retained local evidence. Original
+identifier-bearing bundles are not added to Git; see the refreshed
+aggregate-only reports below for the published deliverables.
+
+Dataset-average **end-to-end, unselected-only MAE**, including explicitly
+identified mean/prior fallbacks, gives the following endpoint comparison:
+
+| Dataset | Native MAE | 2d MAE | Relative MAE change |
+| --- | ---: | ---: | ---: |
+| Historical | 0.482226 | 0.484837 | +0.54% |
+| Dense | 0.347605 | 0.393629 | +13.24% |
+| Cosmos | 0.316814 | 0.322648 | +1.84% |
+
+Six dimensions is the smallest tested size whose dataset-average MAE does
+not exceed native in all three datasets. That is a descriptive grid result,
+not a validated cutoff: the curves are non-monotonic, budgets/agents can
+regress, and repeated orders reuse the same labels. Historical also has an
+83.3% native mean/prior fallback share of unselected target occurrences,
+so its headline average is not an IDW-only quality measure.
+
+## Initial IDW threshold/envelope follow-up (local evidence)
+
+The initial fresh-start verified threshold run, retained locally at
+`outputs_matryoshka/runs/idw-threshold-envelope-20260915-verified/`,
+replays 4,500 native/8d end-to-end settings with exact baseline MAE/accuracy
+parity. ROC compares recall with false-positive rate; accuracy, precision,
+recall and F1 are separate threshold curves. Point and lower-envelope methods
+share 3,744,223 eligible repeated target occurrences; 420,977 mean/prior fallback
+occurrences have no claimed envelope and are reported separately.
+
+At threshold 0.5, native lower-envelope classification raises equal-cell mean
+precision from 66.09% to 70.02%, but lowers recall from 70.52% to 40.13% and
+F1 from 65.54% to 41.85%. Mean eligible-cell AUROC falls from 0.644 to 0.599;
+8d shows the same broad tradeoff. These are not independent-session or
+production-population estimates.
+
+The envelope uses the empirical 90th percentile of earlier same-agent selected
+label slopes in normalized angular geometry, with a distance floor and
+explicit sparse-calibration fallback. It is a conditional sensitivity
+construction, not calibrated confidence. This separate prefix-space experiment
+does not validate the integrated value pipeline, PCA-V7 geometry or weekly
+policy. See the [scientific record](IDW_THRESHOLD_EXPERIMENT.md) for precision,
+calibration, eligibility and reproducibility boundaries.
+
+## Refreshed Cosmos evidence
+
+The refreshed [dimension report](../outputs_matryoshka/reports/mrl-cosmos-refresh-20260915/report.html)
+uses the September 15 export with catch-up cutoff 13:40:42 UTC and **755**
+expected-label units across seven agents. Historical and Dense are unchanged.
+All 51,000 Historical/Dense cells and memberships reproduce the earlier
+low-dimensional study exactly; the changed Cosmos population is deliberately
+excluded from that same-input parity assertion.
+
+For the refreshed Cosmos cohort, native versus 2d end-to-end unselected-only
+MAE is **0.276282 versus 0.293814** (+6.35% relative), and accuracy at 0.5 falls
+from **74.92% to 70.64%**. Mean MAE at 6d is **0.271500** and at 8d is
+**0.273882**. Six dimensions remains the smallest tested size with no increase
+in dataset-average MAE across all three datasets; this is not a validated
+cutoff or a guarantee for every budget/agent.
+
+The [threshold/envelope follow-up](../outputs_matryoshka/reports/idw-threshold-cosmos-refresh-20260915/report.html)
+uses the same refreshed inputs and verified native/8d reference memberships.
+It completes 4,500 settings with 4,492,885 matched eligible repeated target
+occurrences and 434,915 ordinary fallback occurrences. Across equal-weight
+eligible replay cells, native point versus lower-envelope AUROC is
+**0.656 versus 0.578**. At threshold 0.5, mean precision rises from
+**66.93% to 73.51%**, while mean recall falls from **66.05% to 32.16%**.
+Dataset/budget-specific behavior can differ from these cell averages.
+Only aggregate reports are published. Original identifiers and per-target
+evidence stay in protected local storage. Snapshot documents are not the
+evaluation denominator; alternate label containers are not silently combined.
 
 ## Reporting contract
 

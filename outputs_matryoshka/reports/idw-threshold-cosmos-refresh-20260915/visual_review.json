@@ -1,0 +1,14 @@
+{
+  "status": "passed",
+  "reviewed_capture": "validation_screenshots/mobile-charts.png",
+  "scope": "Refreshed Cosmos, 8 dimensions, 10% budget",
+  "observations": [
+    "Dataset, dimension and budget controls are readable and display the matching 102,000-target denominator.",
+    "The point and lower-envelope curves use distinct colors and solid/dashed styles.",
+    "All five charts retain readable axis labels at mobile size through intentional horizontal scrolling.",
+    "The visible lower-envelope curve sacrifices recall and F1 at the displayed thresholds; precision and accuracy are not presented as universally better or worse.",
+    "The report explicitly distinguishes pooled repeated occurrences from equal-cell AUROC and seed-sensitivity intervals."
+  ],
+  "scroll_validation": "interaction_validation.json verifies all five mobile charts can scroll across their full width.",
+  "pdf": "Not requested or generated."
+}

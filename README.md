@@ -24,7 +24,25 @@ quality checker. Existing notebooks and run paths are retained for compatibility
 
 ## Matryoshka prefix-cutoff experiment
 
-The new [experiment runner](sampling_comparison/matryoshka_experiment.py) compares
+**Refreshed Cosmos snapshot (September 15, cutoff 13:40:42 UTC):**
+[32-to-2 dimension report](outputs_matryoshka/reports/mrl-cosmos-refresh-20260915/report.html)
+and [IDW ROC / lower-envelope report](outputs_matryoshka/reports/idw-threshold-cosmos-refresh-20260915/report.html).
+These use 755 Cosmos expected-label units across seven agents, alongside the
+unchanged Historical and Dense corpora. Only aggregate results are published;
+raw inputs, original identifiers and per-target evidence stay local.
+The initial 205-unit follow-up bundles remain local and unchanged; the
+published deliverables are the two aggregate-only refreshed reports above.
+
+The follow-ups preserve the earlier replay design:
+
+- Every even prefix from 32 down to 2 is compared with the native 1,536-dimensional
+  reference, keeping both selection modes, 30 seeds, five schedules and five budgets.
+- Native and 8-dimensional full-session scores are compared on paired eligible
+  targets. ROC means recall versus false-positive rate; accuracy, precision,
+  recall and F1 have separate threshold curves. The lower envelope is a
+  conditional sensitivity bound, not a confidence interval.
+
+By default, the [experiment runner](sampling_comparison/matryoshka_experiment.py) compares
 the full 1,536-dimensional `text-embedding-3-small` vector with its first
 512, 256, 128, 64, 32, 16 and 8 coordinates, re-normalized to unit length.
 It replays the earlier dimensionality study's ARM2 selection and causal IDW

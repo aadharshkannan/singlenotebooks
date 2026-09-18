@@ -29,6 +29,31 @@ This repository is organized around reproducible experiment outputs, source code
   summaries, source/output hash manifests and validation records. Their builders
   leave canonical run bundles untouched. New screenshots stay in each report's
   local `validation_screenshots/` directory.
+- IDW threshold/envelope follow-ups also use `outputs_matryoshka/runs/`.
+  Retain the report, threshold/ROC summaries, compressed per-target score
+  evidence and provenance/validation manifests; these are reproducibility
+  artifacts, not disposable screenshots. Keep input embedding caches local
+  and distinguish them from retained derived score arrays.
+  The pre-refresh `idw-threshold-envelope-20260915-verified` and
+  `mrl-low-dimensions-30-seed-20260915-paired` bundles are preserved locally
+  and Git-ignored, along with their superseded report/runtime-audit derivatives.
+  They are not published because they include identifiers or per-target evidence.
+  Existing historical artifacts already tracked before this branch remain
+  unchanged; no history rewriting or blanket deletion is performed.
+- **Sensitive refreshed snapshots use a different publication boundary.**
+  `outputs_matryoshka/private_runs/` is Git-ignored and retains original
+  identifiers, memberships, per-target predictions, private aggregates and
+  complete scientific evidence locally. Native vectors and source-bound
+  preparation metadata stay in the ignored cache tree. These are retained
+  evidence, not disposable scratch.
+- For those runs, `outputs_matryoshka/reports/` contains only allowlisted
+  aggregate HTML/JSON, numerical validation summaries and whole-artifact
+  hashes. Do not publish raw telemetry, credentials, endpoint configuration,
+  session/task/agent identifiers, per-unit hashes or per-target score arrays.
+  Aggregate agent-regression counts may be published without identities.
+  Keep browser captures inside each publication's `validation_screenshots/`.
+  Authorization for necessary Azure embedding requests does not authorize
+  uploading the raw snapshot or private run bundle to GitHub.
 
 ## Screenshot cleanup policy
 

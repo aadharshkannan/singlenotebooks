@@ -284,7 +284,7 @@ def _render_multi_series_svg(
     margin_bottom = 54
     plot_w = width - margin_left - margin_right
     plot_h = height - margin_top - margin_bottom
-    dims = list(EXPECTED_DIMENSIONS)
+    dims = sorted({dimension for _, values, _ in series for dimension in values})
     points_available = [
         value
         for _, values, _ in series
@@ -588,14 +588,14 @@ def _metric_value(
     return _to_float(values)
 
 
-def _takeaway_line(dataset_id: str, mode: str, summary_map: Mapping[tuple[str, str, int], Mapping[str, Any]], grouped_rows: Mapping[tuple[str, str, int], Mapping[str, Any]]) -> str:
+def _takeaway_line(dataset_id: str, mode: str, summary_map: Mapping[tuple[str, str, int], Mapping[str, Any]], grouped_rows: Mapping[tuple[str, str, int], Mapping[str, Any]], dimension: int = 256) -> str:
     native = _metric_value(summary_map, grouped_rows, dataset_id, mode, 1536, "accuracy")
-    small = _metric_value(summary_map, grouped_rows, dataset_id, mode, 256, "accuracy")
+    small = _metric_value(summary_map, grouped_rows, dataset_id, mode, dimension, "accuracy")
     if native is None or small is None:
-        return "Takeaway: insufficient rows for a reliable 256d vs native comparison in this dataset/mode."
+        return f"Takeaway: insufficient rows for a reliable {dimension}d vs native comparison in this dataset/mode."
     delta_pp = (small - native) * 100.0
     return (
-        "Takeaway: 256d differs from native by "
+        f"Takeaway: {dimension}d differs from native by "
         f"{delta_pp:+.2f} pp on primary unjudged-only accuracy for {dataset_id} / {mode}."
     )
 
@@ -838,11 +838,12 @@ def _render_metric_matrix(
     modes: list[str],
     summary_map: Mapping[tuple[str, str, int], Mapping[str, Any]],
     grouped_rows: Mapping[tuple[str, str, int], Mapping[str, Any]],
+    dimensions: tuple[int, ...] = EXPECTED_DIMENSIONS,
 ) -> str:
     table_rows: list[str] = []
     for dataset_id in dataset_ids:
         for mode in modes:
-            for dim in EXPECTED_DIMENSIONS:
+            for dim in dimensions:
                 accuracy = _metric_value(summary_map, grouped_rows, dataset_id, mode, dim, "accuracy")
                 mae = _metric_value(summary_map, grouped_rows, dataset_id, mode, dim, "mae")
                 f1 = _metric_value(summary_map, grouped_rows, dataset_id, mode, dim, "f1")
@@ -891,11 +892,12 @@ def _render_seed_ci_table(
     modes: list[str],
     summary_map: Mapping[tuple[str, str, int], Mapping[str, Any]],
     grouped_rows: Mapping[tuple[str, str, int], Mapping[str, Any]],
+    dimensions: tuple[int, ...] = EXPECTED_DIMENSIONS,
 ) -> str:
     body_rows: list[str] = []
     for dataset_id in dataset_ids:
         for mode in modes:
-            for dim in EXPECTED_DIMENSIONS:
+            for dim in dimensions:
                 summary_row = summary_map.get((dataset_id, mode, dim), {})
                 delta = _pp_delta(_metric_value(summary_map, grouped_rows, dataset_id, mode, dim, "accuracy_delta_native"))
                 ci = summary_row.get("accuracy_delta_seed_ci95") if isinstance(summary_row, Mapping) else None
@@ -1013,7 +1015,7 @@ def _render_native_counts_table(dataset_ids: list[str], modes: list[str], groupe
     )
 
 
-def _render_rate_table(dataset_ids: list[str], modes: list[str], rate_breakdown: Mapping[tuple[str, str, float, int], list[float]]) -> str:
+def _render_rate_table(dataset_ids: list[str], modes: list[str], rate_breakdown: Mapping[tuple[str, str, float, int], list[float]], dimensions: tuple[int, ...] = EXPECTED_DIMENSIONS) -> str:
     rate_keys = sorted({round(key[2], 6) for key in rate_breakdown})
     all_rates = sorted(set(rate_keys) | set(EXPECTED_RATES))
     rows_html: list[str] = []
@@ -1021,7 +1023,7 @@ def _render_rate_table(dataset_ids: list[str], modes: list[str], rate_breakdown:
         for mode in modes:
             for rate in all_rates:
                 cells: list[str] = []
-                for dim in EXPECTED_DIMENSIONS:
+                for dim in dimensions:
                     values = rate_breakdown.get((dataset_id, mode, rate, dim), [])
                     cells.append(f"<td>{_fmt_pp(_mean(values), digits=2)}</td>")
                 rows_html.append(
@@ -1030,7 +1032,7 @@ def _render_rate_table(dataset_ids: list[str], modes: list[str], rate_breakdown:
                     + "".join(cells)
                     + "</tr>"
                 )
-    dim_headers = "".join(f"<th>{dim}d</th>" for dim in EXPECTED_DIMENSIONS)
+    dim_headers = "".join(f"<th>{dim}d</th>" for dim in dimensions)
     return (
         "<section id=\"rate-breakdown\">"
         "<h2>Rate-specific paired accuracy delta (pp) vs native</h2>"
@@ -1193,6 +1195,7 @@ def _render_curve_findings(
     summary_map: Mapping[tuple[str, str, int], Mapping[str, Any]],
     grouped_rows: Mapping[tuple[str, str, int], Mapping[str, Any]],
     decisions: Any,
+    dimensions: tuple[int, ...] = EXPECTED_DIMENSIONS,
 ) -> str:
     decision_map: dict[tuple[str, str], Mapping[str, Any]] = {}
     if isinstance(decisions, list):
@@ -1205,7 +1208,8 @@ def _render_curve_findings(
                 decision_map[(dataset_id, mode)] = row
 
     cards: list[str] = []
-    dims_desc = list(reversed(EXPECTED_DIMENSIONS))
+    dims_desc = list(reversed(dimensions))
+    smallest_dimension = dimensions[0]
     for dataset_id in dataset_ids:
         for mode in modes:
             points: list[tuple[int, float]] = []
@@ -1234,17 +1238,17 @@ def _render_curve_findings(
             non_monotonic = increases > 0 and decreases > 0
 
             native = next((value for dim, value in points if dim == 1536), None)
-            d8 = next((value for dim, value in points if dim == 8), None)
+            d8 = next((value for dim, value in points if dim == smallest_dimension), None)
             if native is not None and d8 is not None:
                 d8_delta = (d8 - native) * 100.0
                 magnitude_note = "This is a small pooled shift." if abs(d8_delta) < 0.5 else "This is a larger pooled shift."
                 d8_text = (
-                    f"8d point is shown explicitly: {d8 * 100.0:.4f}% "
+                    f"{smallest_dimension}d point is shown explicitly: {d8 * 100.0:.4f}% "
                     f"({d8_delta:+.3f} pp vs native). "
                     f"{magnitude_note} This alone does not establish a stable elbow or monotonic no-loss."
                 )
             else:
-                d8_text = "8d point unavailable for this scope."
+                d8_text = f"{smallest_dimension}d point unavailable for this scope."
 
             best_dim, best_acc = max(points, key=lambda pair: pair[1])
             decision = decision_map.get((dataset_id, mode), {})
@@ -1267,7 +1271,7 @@ def _render_curve_findings(
                 f"<p>{_esc(d8_text)}</p>"
                 f"<p>Decision rows: smallest contiguous pooled non-degrading prefix = <strong>{smallest}</strong>; "
                 f"exploratory 1pp seed-interval candidate = <strong>{candidate}</strong>.</p>"
-                f"<p class=\"muted\">Accuracy by dimension (1536→8): {points_text}</p>"
+                f"<p class=\"muted\">Accuracy by dimension (1536→{smallest_dimension}): {points_text}</p>"
                 "</article>"
             )
     return "<section id=\"curve-findings\"><h2>Curve shape and cutoff interpretation</h2>" + "".join(cards) + "</section>"
@@ -1278,9 +1282,10 @@ def _curve_points_for_scope(
     mode: str,
     summary_map: Mapping[tuple[str, str, int], Mapping[str, Any]],
     grouped_rows: Mapping[tuple[str, str, int], Mapping[str, Any]],
+    dimensions: tuple[int, ...] = EXPECTED_DIMENSIONS,
 ) -> list[tuple[int, float]]:
     points: list[tuple[int, float]] = []
-    for dim in reversed(EXPECTED_DIMENSIONS):
+    for dim in reversed(dimensions):
         value = _metric_value(summary_map, grouped_rows, dataset_id, mode, dim, "accuracy")
         if value is not None:
             points.append((dim, value))
@@ -1307,6 +1312,7 @@ def _render_leading_takeaway(
     grouped_rows: Mapping[tuple[str, str, int], Mapping[str, Any]],
     decisions: Any,
     readiness: Mapping[str, Any] | None,
+    dimensions: tuple[int, ...] = EXPECTED_DIMENSIONS,
 ) -> str:
     dataset_statuses = []
     for dataset_id in REQUIRED_DATASETS:
@@ -1326,11 +1332,11 @@ def _render_leading_takeaway(
 
     focus_dataset = "dense_2500"
     focus_mode = "end_to_end"
-    points = _curve_points_for_scope(focus_dataset, focus_mode, summary_map, grouped_rows)
+    points = _curve_points_for_scope(focus_dataset, focus_mode, summary_map, grouped_rows, dimensions)
     if not points:
         for dataset_id, _, _ in dataset_statuses:
             for mode in EXPECTED_MODES:
-                points = _curve_points_for_scope(dataset_id, mode, summary_map, grouped_rows)
+                points = _curve_points_for_scope(dataset_id, mode, summary_map, grouped_rows, dimensions)
                 if points:
                     focus_dataset = dataset_id
                     focus_mode = mode
@@ -1349,16 +1355,22 @@ def _render_leading_takeaway(
 
     native = next((value for dim, value in points if dim == 1536), None)
     d512 = next((value for dim, value in points if dim == 512), None)
-    d8 = next((value for dim, value in points if dim == 8), None)
+    smallest_dimension = dimensions[0]
+    d8 = next((value for dim, value in points if dim == smallest_dimension), None)
     if native is not None and d512 is not None and d8 is not None:
         metric_line = (
             f"{focus_dataset} {focus_mode}: native {native * 100.0:.2f}%, "
-            f"512d {d512 * 100.0:.2f}%, 8d {d8 * 100.0:.2f}%."
+            f"512d {d512 * 100.0:.2f}%, {smallest_dimension}d {d8 * 100.0:.2f}%."
         )
     elif native is not None and d512 is not None:
         metric_line = (
             f"{focus_dataset} {focus_mode}: native {native * 100.0:.2f}%, "
             f"512d {d512 * 100.0:.2f}%."
+        )
+    elif native is not None and d8 is not None:
+        metric_line = (
+            f"{focus_dataset} {focus_mode}: native {native * 100.0:.2f}%, "
+            f"{smallest_dimension}d {d8 * 100.0:.2f}%."
         )
     else:
         metric_line = f"{focus_dataset} {focus_mode}: accuracy points unavailable for one or more key dimensions."
@@ -1367,9 +1379,9 @@ def _render_leading_takeaway(
         if status != "completed":
             continue
         native_mae = _metric_value(summary_map, grouped_rows, dataset_id, "end_to_end", 1536, "mae")
-        small_mae = _metric_value(summary_map, grouped_rows, dataset_id, "end_to_end", 8, "mae")
+        small_mae = _metric_value(summary_map, grouped_rows, dataset_id, "end_to_end", smallest_dimension, "mae")
         if native_mae is not None and small_mae is not None:
-            mae_lines.append(f"{dataset_id}: native {native_mae:.4f}, 8d {small_mae:.4f}")
+            mae_lines.append(f"{dataset_id}: native {native_mae:.4f}, {smallest_dimension}d {small_mae:.4f}")
     mae_note = "MAE (lower is better): " + "; ".join(mae_lines) + "." if mae_lines else "MAE is unavailable."
 
     shape_note = (
@@ -1416,6 +1428,7 @@ def _render_charts(
     summary_map: Mapping[tuple[str, str, int], Mapping[str, Any]],
     grouped_rows: Mapping[tuple[str, str, int], Mapping[str, Any]],
     rate_breakdown: Mapping[tuple[str, str, float, int], list[float]],
+    dimensions: tuple[int, ...] = EXPECTED_DIMENSIONS,
 ) -> str:
     cards: list[str] = []
     chart_index = 0
@@ -1428,11 +1441,11 @@ def _render_charts(
                 continue
             accuracy_values = {
                 dim: _metric_value(summary_map, grouped_rows, dataset_id, mode, dim, "accuracy")
-                for dim in EXPECTED_DIMENSIONS
+                for dim in dimensions
             }
             mae_values = {
                 dim: _metric_value(summary_map, grouped_rows, dataset_id, mode, dim, "mae")
-                for dim in EXPECTED_DIMENSIONS
+                for dim in dimensions
             }
             native_mae = mae_values.get(1536)
             mae_delta_values = {
@@ -1443,16 +1456,16 @@ def _render_charts(
             mae_padding = max((max(finite_mae) - min(finite_mae)) * 0.12, 0.002) if finite_mae else 0.002
             delta_values = {
                 dim: _pp_delta(_metric_value(summary_map, grouped_rows, dataset_id, mode, dim, "accuracy_delta_native"))
-                for dim in EXPECTED_DIMENSIONS
+                for dim in dimensions
             }
             combined_values = {
                 dim: _metric_value(summary_map, grouped_rows, dataset_id, mode, dim, "combined_accuracy")
-                for dim in EXPECTED_DIMENSIONS
+                for dim in dimensions
             }
             rate_series: list[tuple[str, dict[int, float | None], str]] = []
             for idx, rate in enumerate(all_rates):
                 dim_values: dict[int, float | None] = {}
-                for dim in EXPECTED_DIMENSIONS:
+                for dim in dimensions:
                     dim_values[dim] = _mean(rate_breakdown.get((dataset_id, mode, rate, dim), []))
                 rate_series.append((f"rate {rate:.2f}", dim_values, palette[idx % len(palette)]))
 
@@ -1526,10 +1539,10 @@ def _render_charts(
                 "<article class=\"dataset-mode-card\">"
                 f"<h3>{_esc(dataset_id)} / {_esc(mode)}</h3>"
                 "<p><strong>What this visual shows:</strong> continuous-probability MAE and separate thresholded accuracy under Matryoshka truncation.</p>"
-                "<p><strong>How to read it:</strong> left is 8d, right is native 1536d. Missing points are unavailable cells.</p>"
+                f"<p><strong>How to read it:</strong> left is {dimensions[0]}d, right is native 1536d. Tested dimensions are equally spaced categories, not a linear axis. Missing points are unavailable cells.</p>"
                 "<p><strong>MAE comparison:</strong> lower is better. MAE averages |IDW probability - expected label| before thresholding; accuracy applies threshold 0.5. "
                 "The MAE curve uses a labeled zoomed vertical scale. Existing cutoff-candidate tables use accuracy, not an agreed MAE tolerance.</p>"
-                f"<p><strong>{_esc(_takeaway_line(dataset_id, mode, summary_map, grouped_rows))}</strong></p>"
+                f"<p><strong>{_esc(_takeaway_line(dataset_id, mode, summary_map, grouped_rows, dimensions[0]))}</strong></p>"
                 "<div class=\"small-multiples\">"
                 f"<figure><div class=\"chart-scroll\">{mae_svg}</div><figcaption>Unjudged-only MAE: directly comparable to the previous dimensionality study. Lower is better.</figcaption></figure>"
                 f"<figure><div class=\"chart-scroll\">{mae_delta_svg}</div><figcaption>Mean paired MAE difference vs native: negative is an improvement. Equal-weight replay cells; no MAE non-inferiority claim.</figcaption></figure>"
@@ -1582,7 +1595,10 @@ def _render_methodology(protocol: Mapping[str, Any]) -> str:
     )
 
 
-def build_report(aggregate: Mapping[str, Any], aggregate_path: str) -> str:
+def build_report(
+    aggregate: Mapping[str, Any], aggregate_path: str, *,
+    include_input_readiness: bool = True,
+) -> str:
     if not isinstance(aggregate, Mapping):
         raise TypeError("aggregate must be a mapping")
 
@@ -1605,9 +1621,20 @@ def build_report(aggregate: Mapping[str, Any], aggregate_path: str) -> str:
     generated_at = aggregate.get("generated_at", "unavailable")
     status = aggregate.get("status", "unknown")
     protocol = aggregate.get("protocol") if isinstance(aggregate.get("protocol"), Mapping) else {}
+    declared_dimensions = protocol.get("dimensions", EXPECTED_DIMENSIONS)
+    if (not declared_dimensions
+            or any(isinstance(d, bool) or not isinstance(d, int) or not 1 <= d <= 1536 for d in declared_dimensions)
+            or len(set(declared_dimensions)) != len(declared_dimensions)
+            or 1536 not in declared_dimensions):
+        raise ValueError("report dimensions must be unique tested integers including native 1536")
+    dimensions = tuple(sorted(declared_dimensions))
     files = aggregate.get("files") if isinstance(aggregate.get("files"), Mapping) else {}
     validation = aggregate.get("validation") if isinstance(aggregate.get("validation"), Mapping) else {}
-    readiness, readiness_error = _load_input_readiness(aggregate, aggregate_path)
+    readiness, readiness_error = (
+        _load_input_readiness(aggregate, aggregate_path)
+        if include_input_readiness else
+        (None, "Protected input-readiness details are intentionally excluded from this aggregate-only publication.")
+    )
     leading_takeaway = _render_leading_takeaway(
         aggregate,
         datasets,
@@ -1615,6 +1642,7 @@ def build_report(aggregate: Mapping[str, Any], aggregate_path: str) -> str:
         grouped_rows,
         aggregate.get("decisions"),
         readiness,
+        dimensions,
     )
 
     warning_html = (
@@ -1696,13 +1724,13 @@ def build_report(aggregate: Mapping[str, Any], aggregate_path: str) -> str:
         + _render_embedding_preparation_status(datasets)
         + _render_methodology(protocol)
         + _render_dataset_inventory(datasets, rows)
-        + _render_curve_findings(dataset_ids, modes, summary_map, grouped_rows, aggregate.get("decisions"))
-        + _render_charts(dataset_ids, modes, summary_map, grouped_rows, rate_breakdown)
-        + _render_metric_matrix(dataset_ids, modes, summary_map, grouped_rows)
+        + _render_curve_findings(dataset_ids, modes, summary_map, grouped_rows, aggregate.get("decisions"), dimensions)
+        + _render_charts(dataset_ids, modes, summary_map, grouped_rows, rate_breakdown, dimensions)
+        + _render_metric_matrix(dataset_ids, modes, summary_map, grouped_rows, dimensions)
         + _render_class_imbalance_reference(dataset_ids, modes, datasets, summary_map, grouped_rows)
-        + _render_seed_ci_table(dataset_ids, modes, summary_map, grouped_rows)
+        + _render_seed_ci_table(dataset_ids, modes, summary_map, grouped_rows, dimensions)
         + _render_native_counts_table(dataset_ids, modes, grouped_rows)
-        + _render_rate_table(dataset_ids, modes, rate_breakdown)
+        + _render_rate_table(dataset_ids, modes, rate_breakdown, dimensions)
         + _render_schedule_table(schedule_breakdown)
         + _render_worst_agents(native_agents)
         + _render_decisions(aggregate.get("decisions"), dataset_ids, modes)
