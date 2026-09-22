@@ -63,8 +63,9 @@ def test_completed_report_browser_numeric_and_controls(tmp_path):
     pytest.importorskip("playwright.sync_api")
     from scripts.validate_imdb_report import validate_report
 
+    dimensions = [1536, 256, 128, 64, 32, 24, 16, 12, 8]
     rows = []
-    for dimension in (1536, 8):
+    for dimension in dimensions:
         for seed in (13, 14):
             for schedule in ("uniformly_random", "bursty"):
                 for rate in (.01, .05):
@@ -85,14 +86,50 @@ def test_completed_report_browser_numeric_and_controls(tmp_path):
         "version": "imdb-sampling-v1", "status": "completed",
         "dataset": {"dataset_id": "imdb_50000", "sessions": 100, "agents": 1},
         "protocol": {
-            "dimensions": [1536, 8], "repetitions": 2, "rates": [.01, .05],
+            "dimensions": dimensions, "repetitions": 2, "rates": [.01, .05],
             "schedules": ["uniformly_random", "bursty"],
         }, "rows": rows,
+        "extension": {
+            "baseline_aggregate_sha256": "a" * 64, "baseline_manifest_sha256": "b" * 64,
+            "reused_cells": 48, "added_cells": 24,
+            "reused_dimensions": [1536, 32, 24, 16, 12, 8], "added_dimensions": [256, 128, 64],
+            "baseline_rows_unchanged": True, "replay_pairing_exact": True, "embedding_calls": 0,
+        },
     }))
     report = tmp_path / "fixture-report"
     build_report(source, report)
     result = validate_report(report / "report.html", report / "validation_screenshots")
     assert result["ok"], result["issues"]
+
+
+def test_report_extension_metadata_matches_grid(tmp_path):
+    source = tmp_path / "extended.json"
+    dimensions = [1536, 256, 128, 64, 32, 24, 16, 12, 8]
+    rows = [
+        {"dimension": dimension, "seed": 13, "schedule": "bursty", "rate": .05,
+         "all_unselected": {"n": 95, "mae": .3}}
+        for dimension in dimensions
+    ]
+    extension = {
+        "baseline_aggregate_sha256": "a" * 64, "baseline_manifest_sha256": "b" * 64,
+        "reused_cells": 6, "added_cells": 3, "reused_dimensions": [1536, 32, 24, 16, 12, 8],
+        "added_dimensions": [256, 128, 64], "baseline_rows_unchanged": True,
+        "replay_pairing_exact": True, "embedding_calls": 0, "private_path": "DO NOT PUBLISH",
+    }
+    data = {
+        "version": "imdb-sampling-v1", "status": "completed",
+        "dataset": {"dataset_id": "imdb_50000", "sessions": 100},
+        "protocol": {"dimensions": dimensions, "repetitions": 1, "rates": [.05], "schedules": ["bursty"]},
+        "rows": rows, "extension": extension,
+    }
+    source.write_text(json.dumps(data))
+    payload = public_payload(data, source)
+    assert payload["protocol"]["planned_cells"] == 9
+    assert payload["extension"]["added_cells"] == 3
+    assert "private_path" not in payload["extension"]
+    extension["baseline_rows_unchanged"] = False
+    with pytest.raises(ValueError, match="extension provenance"):
+        public_payload(data, source)
 
 
 def test_real_engine_to_report_contract_on_offline_fixture(tmp_path):

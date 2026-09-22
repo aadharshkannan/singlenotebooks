@@ -175,6 +175,40 @@ AUROC uses exact per-cell tied scores; displayed ROC curves interpolate onto
 a shared FPR grid. Mean AUROC is not asserted equal to area under the mean
 display curve. No winner or validated dimension cutoff is inferred in advance.
 
+### Adding 256, 128 and 64 dimensions without rerunning existing cells
+
+The additive runner uses the original **recorded** bootstrap draws, order and
+timestamps, all 40 seeds, both schedules and all five budgets. It evaluates
+only the three new normalized prefixes: **1,200 additional cells**. No native
+or previous low-dimensional cell is recomputed, and there are no embedding or
+judge calls. The preserved native embedding cache supplies all three prefixes.
+
+The original run remains immutable at `outputs_imdb/private_runs/imdb-40-replay`.
+The extension writes `outputs_imdb/private_runs/imdb-40-replay-extended`,
+containing new evidence and a combined 3,600-cell aggregate. Old rows reference
+their original evidence files; only relative evidence paths are rewritten.
+Input, method and four-thread runtime hashes must match the original run.
+The extension fails closed on mismatched inputs, incompatible runtime, or
+altered retained artifacts, and `--resume` explicitly enables checkpoint reuse.
+
+```powershell
+.\.venv-v3\Scripts\python.exe scripts\extend_imdb_experiment.py `
+  --baseline outputs_imdb\private_runs\imdb-40-replay `
+  --output outputs_imdb\private_runs\imdb-40-replay-extended --resume
+.\.venv-v3\Scripts\python.exe scripts\validate_imdb_experiment.py `
+  --run outputs_imdb\private_runs\imdb-40-replay-extended
+.\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py `
+  --input outputs_imdb\private_runs\imdb-40-replay-extended\aggregate.json `
+  --output outputs_imdb\reports\imdb-40-replay `
+  --numerical-validation outputs_imdb\reports\imdb-40-replay\numerical_validation.json
+```
+
+The same report URL is updated only after the full extension completes. Its
+controls, plots, tables, paired deltas and conclusions then include nine
+dimensions. The numeric checker verifies that every original measured row is
+unchanged and every added row uses the exact original replay, before recomputing
+metrics from the complete retained evidence.
+
 ## Matryoshka prefix-cutoff (earlier datasets)
 
 `matryoshka_experiment.py` tests full-session first-coordinate truncation and

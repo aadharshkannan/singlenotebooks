@@ -27,6 +27,11 @@ PROFILE_FIELDS = [
     "citation", "embedding_calls", "api_input_tokens", "live_judge_calls",
     "deduplication", "tokenizer", "input_manifest_sha256",
 ]
+EXTENSION_FIELDS = (
+    "baseline_aggregate_sha256", "baseline_manifest_sha256", "reused_cells", "added_cells",
+    "reused_dimensions", "added_dimensions", "baseline_rows_unchanged", "replay_pairing_exact",
+    "embedding_calls",
+)
 
 
 def _summary(values: list[float]) -> dict[str, Any]:
@@ -128,7 +133,7 @@ def public_payload(source: dict[str, Any], source_path: Path) -> dict[str, Any]:
         if (len(rows) != expected or len(seeds) != repetitions
                 or len(identities) != expected or identities != expected_identities):
             raise ValueError("completed report is missing or repeats planned result cells")
-    return {
+    payload = {
         "version": "imdb-public-report-v1", "status": "completed" if complete else "results_pending",
         "embeddings_ready": complete or source.get("status") == "complete",
         "dataset": {key: profile[key] for key in PROFILE_FIELDS if key in profile},
@@ -141,6 +146,20 @@ def public_payload(source: dict[str, Any], source_path: Path) -> dict[str, Any]:
         },
         "summaries": summarize_rows(source["rows"]) if complete else [],
     }
+    if "extension" in source:
+        extension = source["extension"]
+        reused, added = extension["reused_dimensions"], extension["added_dimensions"]
+        per_dimension = repetitions * len(rates) * len(schedules)
+        if (not complete or set(reused) & set(added)
+                or sorted(reused + added) != sorted(dimensions)
+                or extension["reused_cells"] != len(reused) * per_dimension
+                or extension["added_cells"] != len(added) * per_dimension
+                or extension["baseline_rows_unchanged"] is not True
+                or extension["replay_pairing_exact"] is not True
+                or extension["embedding_calls"] != 0):
+            raise ValueError("extension provenance does not match the combined study")
+        payload["extension"] = {name: extension[name] for name in EXTENSION_FIELDS}
+    return payload
 
 
 def build_report(source_path: Path, output: Path, *, numerical_validation: Path | None = None) -> dict[str, Any]:
@@ -206,7 +225,7 @@ dl{display:grid;grid-template-columns:minmax(130px,1fr) 3fr;gap:10px 18px}dt{fon
 </style></head><body>
 <header><div class="eyebrow">One agent / 50,000 movie reviews / sampling sensitivity study</div>
 <h1>How far can we shorten a review embedding?</h1>
-<p>Native 1,536-dimensional full-review embeddings versus normalized prefixes of 32, 24, 16, 12 and 8 coordinates.
+<p><span id="representation-description">Native 1,536-dimensional full-review embeddings versus normalized prefixes.</span>
 The question is prediction quality for reviews whose sentiment was not selected for observation.</p>
 <span class="badge" id="status"></span></header>
 <main><nav role="tablist" aria-label="Experiment report">
@@ -216,10 +235,10 @@ The question is prediction quality for reviews whose sentiment was not selected 
 <button id="tab-results" role="tab" aria-controls="results" aria-selected="false" tabindex="-1">Results</button>
 <button id="tab-provenance" role="tab" aria-controls="provenance" aria-selected="false" tabindex="-1">Provenance</button></nav>
 <section id="overview" role="tabpanel" aria-labelledby="tab-overview">
-<div class="card notice" id="run-status"></div>
+<div class="card notice" id="run-status"></div><div class="card" id="extension-note" hidden></div>
 <div class="grid"><div class="card stat"><span>Labeled source reviews</span><strong id="n"></strong><span>All treated as one agent</span></div>
 <div class="card stat"><span>Paired replay seeds</span><strong id="repetitions"></strong><span id="repeat-label"></span></div>
-<div class="card stat"><span>Embedding dimensions</span><strong>6</strong><span>Native plus five prefix lengths</span></div>
+<div class="card stat"><span>Embedding dimensions</span><strong id="dimension-count"></strong><span id="prefix-count"></span></div>
 <div class="card stat"><span>Session-label budgets</span><strong>1% &ndash; 20%</strong><span>Not tokens or a weekly threshold</span></div></div>
 <div class="card"><h2>The experiment in one minute</h2><div class="pipeline" aria-label="Experiment pipeline">
 <div class="step"><b>1. Read</b>One full review becomes one session. Its sentiment is hidden from selection.</div>
@@ -227,7 +246,7 @@ The question is prediction quality for reviews whose sentiment was not selected 
 <div class="step"><b>3. Sample</b>Replay semantic novelty/rarity selection under a fixed label budget.</div>
 <div class="step"><b>4. Estimate</b>Only earlier selected labels supply IDW and envelope calibration.</div>
 <div class="step"><b>5. Compare</b>Score unselected occurrences against their withheld sentiment labels.</div></div>
-<p class="takeaway">Short vectors save storage and distance-computation work, not the cost of the original 1,536-dimensional embedding call. This study tests all six end-to-end pipelines, so membership may differ across dimensions.</p></div>
+<p class="takeaway">Short vectors save storage and distance-computation work, not the cost of the original 1,536-dimensional embedding call. This study tests every configured end-to-end pipeline, so membership may differ across dimensions.</p></div>
 <div class="card"><h2>Analysis and conclusion</h2><div id="conclusion"></div>
 <p>Even a favorable result would apply to this polarized movie-review corpus, these budgets and replay settings.
 Sentiment prediction is not agent task completion. Repeated orders reuse the same labels; they do not measure new judge reliability or production generalization.</p></div>
@@ -237,7 +256,7 @@ Sentiment prediction is not agent task completion. Repeated orders reuse the sam
 <p class="takeaway" id="budget-conclusion"></p></div>
 </section>
 <section id="method" role="tabpanel" aria-labelledby="tab-method" hidden>
-<div class="card"><h2>Shared pipeline, six representations</h2><p>Every arm uses the same source pool, label mapping, paired arrival draws and label budgets.
+<div class="card"><h2>Shared pipeline, tested representations</h2><p>Every arm uses the same source pool, label mapping, paired arrival draws and label budgets.
 The only representation change is the number of retained coordinates. There is no PCA, SVD, learned projection or reduced-dimension API call.</p>
 <div class="scroll"><table><thead><tr><th>Arm</th><th>Representation</th><th>Selection</th><th>Prediction</th></tr></thead><tbody id="methods"></tbody></table></div>
 <h3>What &ldquo;end to end&rdquo; means here</h3><p>The existing ARM2 semantic selector processes each timestamped occurrence, with cosine cluster threshold 0.55, cluster TTL 90 and the existing novelty/rarity logic.
@@ -316,16 +335,16 @@ Observed label coverage is the fraction of eligible labels inside the full lower
 <div class="card"><h2>Reproducibility and evidence boundary</h2><dl id="provenance-list"></dl>
 <p>Input artifact: <code>__SOURCE__</code>. This is an explicit source, not an implicit &ldquo;latest&rdquo; run.
 Machine-readable <a href="summary.json">summary.json</a> contains the displayed aggregates; <a href="manifest.json">manifest.json</a> binds report and generator hashes.</p>
-<h3>Run from this worktree</h3><pre>.\.venv-v3\Scripts\python.exe scripts\prepare_imdb_input.py --live --env-file .env
+<h3>Run from this worktree</h3><pre id="reproduction-commands">.\.venv-v3\Scripts\python.exe scripts\prepare_imdb_input.py --live --env-file .env
 .\.venv-v3\Scripts\python.exe scripts\run_imdb_experiment.py
 .\.venv-v3\Scripts\python.exe scripts\validate_imdb_experiment.py
 .\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py --input outputs_imdb\private_runs\imdb-40-replay\aggregate.json --output outputs_imdb\reports\imdb-40-replay --numerical-validation outputs_imdb\reports\imdb-40-replay\numerical_validation.json
 .\.venv-v3\Scripts\python.exe .github\skills\sampling-experiment-report\quality_check.py --html outputs_imdb\reports\imdb-40-replay\report.html --screenshots outputs_imdb\reports\imdb-40-replay\validation_screenshots</pre>
-<p>Only the first command makes authorized embedding calls, and only for missing content-bound batches. No LLM judge or Azure Search resource is required.
+<p id="embedding-cost-note">Only the first command makes authorized embedding calls, and only for missing content-bound batches. No LLM judge or Azure Search resource is required.
 Replay work is offline and resumable. Input hash or protocol changes must not silently reuse old results. Keep raw reviews, vectors and per-target evidence in ignored local storage.</p>
 <h3>Validation</h3><p id="numeric-audit"></p><p>The report generator does not claim that tests or browser checks passed merely because this page exists.
 The separately generated <code>validation.json</code> and <code>interaction_validation.json</code> record rendering and control checks.
-The separately generated <code>numerical_validation.json</code> verifies retained artifact hashes, source-label alignment, causal positions and recomputed metrics across all 2,400 cells.
+The separately generated <code>numerical_validation.json</code> verifies retained artifact hashes, source-label alignment, causal positions and recomputed metrics across all completed cells.
 Pending input profiles cannot produce measured result charts. No PDF was requested or generated.</p>
 <h3>What is not established</h3><p>There is no independent test-label evaluation, live judge, real traffic-frequency model, production confidence interval, validated weekly policy or comparison to trained sentiment classifiers.
 Novel-source does not mean a novel movie or duplicate-free text. This study uses full-review evidence, not multi-turn tool-call traces.
@@ -346,8 +365,10 @@ function addOption(select,value,label){const o=document.createElement("option");
 function addRow(body,values){const tr=document.createElement("tr");values.forEach(v=>{const td=document.createElement(body.tagName==="THEAD"?"th":"td");td.textContent=v;tr.append(td)});body.append(tr)}
 function addDl(id,pairs){const dl=$(id);pairs.forEach(([k,v])=>{const dt=document.createElement("dt"),dd=document.createElement("dd");dt.textContent=k;dd.textContent=v;dl.append(dt,dd)})}
 text("status",complete?"COMPLETED REPLAY STUDY":"DATA READY / RESULTS NOT MEASURED");
+text("representation-description",`Native 1,536-dimensional full-review embeddings versus normalized prefixes of ${D.protocol.dimensions.filter(d=>d!==1536).join(", ")} coordinates.`);
+text("dimension-count",D.protocol.dimensions.length);text("prefix-count",`Native plus ${D.protocol.dimensions.length-1} prefix lengths`);
 text("n",count(P.sessions));text("repetitions",D.protocol.repetitions);text("repeat-label",complete?"Repeated labels, not independent data":"Planned; no replay results yet");
-$("run-status").innerHTML=complete?'<h2>Measured replay results</h2><p>Explore the six pipelines by budget and arrival schedule. Read uncertainty as replay sensitivity, not production confidence.</p>':D.embeddings_ready?'<h2>Embeddings are ready; replay results are pending.</h2><p>The input cache is complete but no completed replay aggregate was supplied. This is not a performance result.</p>':'<h2>The data is ready. The performance question is still open.</h2><p>Azure OpenAI configuration was unavailable in this isolated worktree. No embedding calls or benchmark replays were performed. This is a prepared experiment and dataset report, not a completed performance report. There are no substituted embeddings, invented metrics or placeholder ROC curves.</p>';
+$("run-status").innerHTML=complete?`<h2>Measured replay results</h2><p>Explore ${D.protocol.dimensions.length} pipelines by budget and arrival schedule. Read uncertainty as replay sensitivity, not production confidence.</p>`:D.embeddings_ready?'<h2>Embeddings are ready; replay results are pending.</h2><p>The input cache is complete but no completed replay aggregate was supplied. This is not a performance result.</p>':'<h2>The data is ready. The performance question is still open.</h2><p>Azure OpenAI configuration was unavailable in this isolated worktree. No embedding calls or benchmark replays were performed. This is a prepared experiment and dataset report, not a completed performance report. There are no substituted embeddings, invented metrics or placeholder ROC curves.</p>';
 text("replay-design",`${D.protocol.repetitions} seed draws x ${D.protocol.schedules.length} arrival schedules x ${D.protocol.rates.length} budgets x ${D.protocol.dimensions.length} dimensions = ${count(D.protocol.planned_cells)} planned replay cells. Every cell contains ${count(P.sessions)} review occurrences.`);
 D.protocol.dimensions.forEach(d=>{addRow($("methods"),[d===1536?"Native 1536":`${d}-coordinate prefix`,"First "+d+" coordinates, L2 normalized","ARM2 semantic novelty/rarity; rerun in this geometry","Causal angular IDW + conditional lower envelope"]);addOption($("dimension"),d,d===1536?"Native 1536":`${d} dimensions`)});
 D.protocol.rates.forEach(r=>{const b=Math.max(1,Math.floor(P.sessions*r));addRow($("budgets"),[`${r*100}%`,count(b),count(P.sessions-b)]);addOption($("budget"),r,`${r*100}% (${count(b)} selected)`)});
@@ -355,6 +376,18 @@ D.protocol.schedules.forEach(s=>addOption($("schedule"),s,s.replaceAll("_"," "))
 [["Positive reviews",P.positive_count],["Negative reviews",P.negative_count],["Unique embedding inputs",P.unique_texts]].forEach(([k,v])=>{const box=document.createElement("div");box.className="stat";const span=document.createElement("span"),strong=document.createElement("strong");span.textContent=k;strong.textContent=count(v);box.append(span,strong);$("data-cards").append(box)});
 addDl("profile",[["Original split",`${count(P.split_counts?.train)} train / ${count(P.split_counts?.test)} test; combined`],["Duplicate text rows",count(P.duplicate_text_rows)],["Conflicting label text groups",count(P.conflicting_label_text_groups)],["Input tokens (unique texts)",count(P.unique_embedding_input_tokens)],["Token length",`min ${count(P.token_length?.min)} / median ${count(P.token_length?.median)} / p95 ${count(P.token_length?.p95)} / max ${count(P.token_length?.max)}`],["Truncated reviews",count(P.truncated_sessions)],["Tokenizer",P.tokenizer||"Not recorded"],["Preprocessing",P.representation_policy||"Not recorded"]]);
 addDl("provenance-list",[["Report status",D.status],["Source archive SHA-256",P.source_sha256||"Not recorded"],["Input artifact SHA-256",D.source_artifact_sha256],["Generated (UTC)",D.generated_at],["Embedding model",P.model||"text-embedding-3-small"],["Recorded successful embedding calls",D.embeddings_ready?count(P.embedding_calls):"Not run"],["Observed API input tokens",D.embeddings_ready?count(P.api_input_tokens):"Not run"],["LLM judge calls",count(P.live_judge_calls)],["Citation",P.citation||"Maas et al., ACL 2011"]]);
+if(D.extension){
+const e=D.extension; $("extension-note").hidden=false;
+const heading=document.createElement("h2");heading.textContent="Additional dimensions; original results preserved";
+const detail=document.createElement("p");detail.textContent=`This extension adds ${e.added_dimensions.join(", ")} dimensions: ${count(e.added_cells)} newly evaluated cells alongside ${count(e.reused_cells)} unchanged original cells. It reuses the same native embedding cache and exact recorded arrivals, source frequencies, seeds and label budgets. No new embedding or judge calls were made.`;
+$("extension-note").append(heading,detail);
+addDl("provenance-list",[["Original aggregate SHA-256",e.baseline_aggregate_sha256],["Original manifest SHA-256",e.baseline_manifest_sha256],["Preserved / additional cells",`${count(e.reused_cells)} / ${count(e.added_cells)}`],["Extra embedding calls",e.embedding_calls]]);
+text("reproduction-commands",String.raw`.\.venv-v3\Scripts\python.exe scripts\extend_imdb_experiment.py --baseline outputs_imdb\private_runs\imdb-40-replay --output outputs_imdb\private_runs\imdb-40-replay-extended --resume
+.\.venv-v3\Scripts\python.exe scripts\validate_imdb_experiment.py --run outputs_imdb\private_runs\imdb-40-replay-extended
+.\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py --input outputs_imdb\private_runs\imdb-40-replay-extended\aggregate.json --output outputs_imdb\reports\imdb-40-replay --numerical-validation outputs_imdb\reports\imdb-40-replay\numerical_validation.json
+.\.venv-v3\Scripts\python.exe .github\skills\sampling-experiment-report\quality_check.py --html outputs_imdb\reports\imdb-40-replay\report.html --screenshots outputs_imdb\reports\imdb-40-replay\validation_screenshots`);
+text("embedding-cost-note","These commands require the preserved original run and native cache. They make no embedding, LLM judge or Azure Search calls. The extra dimensions use prefix slicing only. Completed checkpoints are source-bound and resumable; source input, method or runtime changes fail closed.");
+}
 function scopeRows(){return D.protocol.dimensions.map(dim=>D.summaries.find(r=>r.dimension===dim&&r.rate===Number($("budget").value)&&r.schedule===$("schedule").value)).filter(Boolean)}
 function svg(content,label){return `<svg viewBox="0 0 740 320" role="img" aria-label="${label}">${content}</svg>`}
 function axes(ylabel){let s='<line x1="65" y1="260" x2="715" y2="260" stroke="#9bafb5"/><line x1="65" y1="20" x2="65" y2="260" stroke="#9bafb5"/>';for(let i=0;i<=4;i++){let y=260-i*60;s+=`<line x1="65" y1="${y}" x2="715" y2="${y}" stroke="#e3eaea"/><text x="54" y="${y+5}" text-anchor="end">${(i/4).toFixed(2)}</text>`}return s+`<text x="66" y="15">${ylabel}</text>`}
@@ -382,9 +415,13 @@ if(!complete){$("conclusion").innerHTML=D.embeddings_ready?"<p><b>No performance
 }else{
 const cell=(dimension,rate)=>D.summaries.find(r=>r.dimension===dimension&&r.rate===rate&&r.schedule==="all");
 const a=cell(1536,.05),b=cell(8,.05),c=cell(32,.05);
+const added=[256,128,64].map(d=>cell(d,.05)).filter(Boolean);
+const five=D.protocol.dimensions.map(d=>cell(d,.05)).filter(Boolean);
 const wins=D.protocol.rates.filter(rate=>{const n=cell(1536,rate);return n&&D.protocol.dimensions.filter(d=>d!==1536).every(d=>cell(d,rate).cohorts.all_unselected.mae.mean>n.cohorts.all_unselected.mae.mean)}).length;
 paragraph(`Measured across budgets: native 1536d has strictly lower mean unselected MAE than every tested prefix in ${wins} of ${D.protocol.rates.length} budget averages, with both schedules averaged within each seed. This compares complete pipelines: shortening can change both selected membership and donor geometry.`);
+if(five.length){const best=Math.min(...five.map(r=>r.cohorts.all_unselected.mae.mean)),leaders=five.filter(r=>Math.abs(r.cohorts.all_unselected.mae.mean-best)<1e-12);paragraph(`At 5% budget, the lowest mean MAE across all tested dimensions is ${fmt(best)}, at ${leaders.map(r=>`${r.dimension}d`).join(", ")}. This is a descriptive replay average, not a pre-specified non-inferiority threshold or a production generalization guarantee.`)}
 if(a&&b){paragraph(`At the 5% label budget, native MAE is ${fmt(a.cohorts.all_unselected.mae.mean)} and accuracy is ${fmt(100*a.cohorts.all_unselected.accuracy.mean,1)}%. The 8d prefix has MAE ${fmt(b.cohorts.all_unselected.mae.mean)} and accuracy ${fmt(100*b.cohorts.all_unselected.accuracy.mean,1)}%; its paired MAE change is ${fmt(b.paired_mae_delta_native.mean,4)}. ${c?`The 32d compromise has MAE ${fmt(c.cohorts.all_unselected.mae.mean)} and accuracy ${fmt(100*c.cohorts.all_unselected.accuracy.mean,1)}%.`:""} Compare this measured loss with the coordinate-storage savings, not an assumed quality-neutral reduction.`);
+if(added.length)paragraph(`Additional prefix results at the same 5% label budget: ${added.map(r=>`${r.dimension}d MAE ${fmt(r.cohorts.all_unselected.mae.mean)}, accuracy ${fmt(100*r.cohorts.all_unselected.accuracy.mean,1)}%, F1 ${fmt(r.cohorts.all_unselected.f1.mean)}`).join("; ")}. Compare the paired differences and replay ranges in Results, not rounded means alone.`);
 paragraph(`For the native lower-envelope classifier at threshold 0.5, eligible precision changes from ${fmt(100*a.cohorts.eligible_point.precision.mean,1)}% to ${fmt(100*a.cohorts.eligible_lower.precision.mean,1)}%, while recall changes from ${fmt(100*a.cohorts.eligible_point.recall.mean,1)}% to ${fmt(100*a.cohorts.eligible_lower.recall.mean,1)}%. Mean exact AUROC changes from ${fmt(a.cohorts.eligible_point.auc.mean)} to ${fmt(a.cohorts.eligible_lower.auc.mean)}. Higher precision alone is not an overall improvement.${a.cohorts.eligible_lower.recall.mean<.1?" Here, very few true positives remain.":""}`);
 paragraph(`In the novel-source diagnostic at 5%, native MAE is ${fmt(a.cohorts.novel_source.mae.mean)} versus ${fmt(b.cohorts.novel_source.mae.mean)} at 8d. This excludes earlier observations of the same source row, not different rows with identical text or related movies.${b.cohorts.novel_source.mae.mean>a.cohorts.novel_source.mae.mean?" Repeated-review reuse therefore does not explain away this native/8d quality gap.":""}`);
 if(D.score_validation){const e=D.score_validation.native_5pct_equal_cell_diagnostics;paragraph(`The retained-score audit helps explain the native envelope behavior at 5%: ${fmt(100*e.lower_zero_fraction,1)}% of eligible lower scores are clipped to zero, and the mean full-envelope width is ${fmt(e.mean_envelope_width)} on the 0-1 outcome scale. Broad intervals can cover many observed labels without supplying informative classification. This is an observed diagnostic, not calibrated confidence.`)}

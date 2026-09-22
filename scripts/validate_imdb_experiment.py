@@ -12,7 +12,65 @@ import numpy as np
 
 from sampling_comparison.idw_threshold_experiment import exact_roc, threshold_metrics
 from sampling_comparison.imdb_inputs import load_input
-from sampling_comparison.matryoshka_experiment import sha256_file, write_json
+from sampling_comparison.matryoshka_experiment import canonical, sha256_file, write_json
+
+
+DIMENSION_GRIDS = (
+    (1536, 32, 24, 16, 12, 8),
+    (1536, 256, 128, 64, 32, 24, 16, 12, 8),
+)
+
+
+def validate_extension(aggregate: dict, manifest: dict, run: Path) -> dict | None:
+    if "extension" not in aggregate:
+        return None
+    extension = aggregate["extension"]
+    matching_sources = [
+        run / name for name, digest in manifest["files"].items()
+        if digest == extension["baseline_aggregate_sha256"]
+    ]
+    if len(matching_sources) != 1:
+        raise ValueError("extension must retain exactly one hash-bound original aggregate")
+    baseline_path = matching_sources[0]
+    baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+    if sha256_file(baseline_path) != extension["baseline_aggregate_sha256"]:
+        raise ValueError("original aggregate changed")
+    baseline_manifest = baseline_path.parent / "manifest.json"
+    if sha256_file(baseline_manifest) != extension["baseline_manifest_sha256"]:
+        raise ValueError("original manifest changed")
+    key = lambda row: (row["seed"], row["schedule"], row["dimension"], row["rate"])
+    original = {key(row): row for row in baseline["rows"]}
+    combined = {key(row): row for row in aggregate["rows"]}
+    if len(original) != extension["reused_cells"] or not original.keys() <= combined.keys():
+        raise ValueError("extension dropped or duplicated original cells")
+    for identity, row in original.items():
+        current = combined[identity]
+        expected_values = {k: v for k, v in row.items() if k != "evidence"}
+        current_values = {k: v for k, v in current.items() if k != "evidence"}
+        if canonical(expected_values) != canonical(current_values):
+            raise ValueError("an original measured row changed")
+        if (baseline_path.parent / row["evidence"]).resolve() != (run / current["evidence"]).resolve():
+            raise ValueError("original evidence was replaced rather than referenced")
+    native_replays = {
+        (row["seed"], row["schedule"]): row["replay_hashes"]
+        for row in baseline["rows"] if row["dimension"] == 1536
+    }
+    added = [row for identity, row in combined.items() if identity not in original]
+    if len(added) != extension["added_cells"]:
+        raise ValueError("additional cell count mismatch")
+    for row in added:
+        if row["replay_hashes"] != native_replays[(row["seed"], row["schedule"])]:
+            raise ValueError("new dimension is not paired to the original replay")
+    if (extension["baseline_rows_unchanged"] is not True
+            or extension["replay_pairing_exact"] is not True or extension["embedding_calls"] != 0):
+        raise ValueError("extension provenance claim is invalid")
+    return {
+        "baseline_rows_unchanged": True, "replay_pairing_exact": True,
+        "reused_cells": len(original), "added_cells": len(added),
+        "embedding_calls": 0,
+        "baseline_aggregate_sha256": extension["baseline_aggregate_sha256"],
+        "baseline_manifest_sha256": extension["baseline_manifest_sha256"],
+    }
 
 
 def validate_scores(row: dict, evidence: dict[str, np.ndarray], labels: np.ndarray) -> dict:
@@ -80,15 +138,20 @@ def validate_experiment(run: Path, input_manifest: Path) -> dict:
             raise ValueError(f"retained run artifact hash mismatch: {relative}")
     aggregate = json.loads((run / "aggregate.json").read_text(encoding="utf-8"))
     protocol = aggregate["protocol"]
-    if (aggregate["status"] != "completed" or manifest["completed_cells"] != 2400
-            or len(aggregate["rows"]) != 2400 or len(labels) != 50_000
-            or protocol["dimensions"] != [1536, 32, 24, 16, 12, 8]
+    planned_cells = len(protocol["dimensions"]) * 40 * 2 * 5
+    if (aggregate["status"] != "completed" or manifest["completed_cells"] != planned_cells
+            or len(aggregate["rows"]) != planned_cells or len(labels) != 50_000
+            or tuple(protocol["dimensions"]) not in DIMENSION_GRIDS
+            or protocol["planned_cells"] != planned_cells
             or protocol["repetitions"] != 40
             or protocol["rates"] != [.01, .02, .05, .1, .2]
             or protocol["schedules"] != ["uniformly_random", "bursty"]):
         raise ValueError("requested full real-data study grid is incomplete")
     if aggregate["dataset"]["input_manifest_sha256"] != profile["input_manifest_sha256"]:
         raise ValueError("study is not bound to this real input manifest")
+    extension_validation = validate_extension(aggregate, manifest, run)
+    if tuple(protocol["dimensions"]) == DIMENSION_GRIDS[1] and extension_validation is None:
+        raise ValueError("extended grid requires preserved-baseline provenance")
     fields = (
         "label", "score", "lower", "upper", "source_id", "novel_source", "position",
         "max_donor_position", "max_calibration_position", "occurrence_id", "selected_occurrence_id",
@@ -113,8 +176,9 @@ def validate_experiment(run: Path, input_manifest: Path) -> dict:
     }
     if len(seeds) != 40 or identities != expected_identities or len(native_five) != 80:
         raise ValueError("cell identities or native 5% scope mismatch")
-    return {
-        "ok": True, "cells_checked": 2400, "retained_artifacts_hash_checked": len(manifest["files"]),
+    result = {
+        "ok": True, "cells_checked": planned_cells, "retained_artifacts_hash_checked": len(manifest["files"]),
+        "dimensions": protocol["dimensions"],
         "unselected_occurrences_checked": inspected,
         "aggregate_sha256": sha256_file(run / "aggregate.json"),
         "input_manifest_sha256": profile["input_manifest_sha256"],
@@ -123,7 +187,7 @@ def validate_experiment(run: Path, input_manifest: Path) -> dict:
         "maximum_absolute_metric_difference": maximum_error,
         "validator_sha256": sha256_file(Path(__file__)),
         "checks": [
-            "Complete requested 2400-cell grid and original-label alignment",
+            f"Complete requested {planned_cells}-cell grid and original-label alignment",
             "All retained artifact hashes and immutable real native embedding cache",
             "Recomputed MAE, accuracy, precision, recall, F1 and exact AUROC in five cohorts",
             "Strict earlier-only donor and calibration positions",
@@ -135,6 +199,10 @@ def validate_experiment(run: Path, input_manifest: Path) -> dict:
             "mean_envelope_width": float(np.mean([r["mean_envelope_width"] for r in native_five])),
         },
     }
+    if extension_validation is not None:
+        result["extension"] = extension_validation
+        result["checks"].append("Unchanged original rows/evidence and exact new-dimension replay pairing")
+    return result
 
 
 def main() -> None:

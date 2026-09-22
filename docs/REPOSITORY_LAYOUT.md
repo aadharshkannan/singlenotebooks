@@ -40,6 +40,12 @@ This repository is organized around reproducible experiment outputs, source code
   not draw invented metric charts. Browser images stay in each report's
   `validation_screenshots/` directory. Never publish review text, credentials,
   endpoint configuration, per-review hashes or embedding vectors.
+  Additive dimension runs use a separate directory such as
+  `outputs_imdb/private_runs/imdb-40-replay-extended/`; their merged aggregate
+  references unchanged evidence in the original private run. Do not move either
+  bundle independently or copy/rewrite the original scores merely to extend a
+  report. Retain the original manifest and the extension's source-bound
+  row-parity/replay-pairing audit.
 - IDW threshold/envelope follow-ups also use `outputs_matryoshka/runs/`.
   Retain the report, threshold/ROC summaries, compressed per-target score
   evidence and provenance/validation manifests; these are reproducibility
