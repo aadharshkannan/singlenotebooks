@@ -1,6 +1,6 @@
 # Agent Evaluation Sampling Context
 
-Updated: 2026-09-16. This is the repo's working context, combining the team's
+Updated: 2026-09-22. This is the repo's working context, combining the team's
 stated direction with separately identified implementation and experiment evidence.
 It is not a production rollout claim. Preserve these distinctions in future reports.
 
@@ -213,6 +213,35 @@ Dataset/budget-specific behavior can differ from these cell averages.
 Only aggregate reports are published. Original identifiers and per-target
 evidence stay in protected local storage. Snapshot documents are not the
 evaluation denominator; alternate label containers are not silently combined.
+
+## Completed IMDb sentiment follow-up
+
+The [IMDb report](../outputs_imdb/reports/imdb-40-replay/report.html) evaluates
+50,000 public movie reviews as one agent, with sentiment labels replacing
+selected judge observations. All vectors are real native Azure
+`text-embedding-3-small` embeddings; 1536, 32, 24, 16, 12 and 8 dimensions use
+prefix slicing and re-normalization, not PCA. Forty paired bootstrap seeds,
+two arrival schedules and five label budgets produce 2,400 completed cells.
+Unlike the earlier unique-session permutations, this replay also changes
+source-review frequency.
+
+At 5% label budget, native/32d/8d unselected MAE is 0.2054/0.2449/0.3226,
+and accuracy is 89.60%/83.03%/74.37%. Native has the lowest mean MAE at all
+five budget averages, but prefix curves are not globally monotonic.
+The native lower-envelope classifier at threshold 0.5 raises eligible precision
+from 87.93% to 99.17% while reducing recall from 91.50% to 3.04%;
+AUROC changes from 0.9605 to 0.7580. Most lower scores are clipped to zero,
+and average full-envelope width is 0.9094, so high label coverage does not
+establish informative or calibrated bounds.
+
+Selection remains label-blind full-schedule ranking, not online admission.
+IDW and calibration use only earlier selected observations. Scaling to 50K
+uses blocked float64 distances and a 128-donor causal calibration reservoir,
+not the prior small-corpus all-pair estimator. The report separates novel-source
+targets from repeated-review reuse. Train/test reviews are combined, so these
+are neither held-out IMDb benchmark results nor agent-task-completion evidence.
+Independent retained-score checks cover every cell, verify all source/artifact
+hashes and reproduce the requested metrics with zero discrepancy.
 
 ## Reporting contract
 

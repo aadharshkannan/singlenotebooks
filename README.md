@@ -24,21 +24,30 @@ quality checker. Existing notebooks and run paths are retained for compatibility
 
 ## Matryoshka prefix-cutoff experiment
 
-### IMDb 50K follow-up (real embeddings ready; replay results pending)
+### IMDb 50K follow-up (completed)
 
 The [IMDb experiment report](outputs_imdb/reports/imdb-40-replay/report.html)
 documents a new single-agent sentiment study using the original Stanford
 50,000 labeled movie reviews. Native 1536-dimensional `text-embedding-3-small`
-vectors will be compared with normalized prefixes of 32, 24, 16, 12 and 8.
-The planned sweep has 40 paired bootstrap seeds, uniform/bursty arrivals and
+vectors are compared with normalized prefixes of 32, 24, 16, 12 and 8.
+The completed sweep has 40 paired bootstrap seeds, uniform/bursty arrivals and
 five label budgets. It measures unselected MAE, accuracy, precision, recall,
 F1 and matched-cohort point/lower-envelope ROC, with a separate novel-source
 diagnostic for review repetition.
 
-**No completed IMDb performance results are available yet.** All 50,000 reviews
-now have real native Azure embeddings: 49,581 unique inputs, 775 successful
-requests and 14,166,270 reported input tokens. The paired replay sweep is next.
-No substitute embeddings or fabricated metrics are used. See the
+**All 2,400 settings completed using real Azure embeddings.** At the 5% label
+budget, averaging both schedules within each seed, native / 32d / 8d
+unselected MAE is **0.205 / 0.245 / 0.323** and accuracy is
+**89.6% / 83.0% / 74.4%**. Native has the lowest average MAE at all five
+tested budgets; the prefix curves are not globally monotonic. At threshold
+0.5, the native lower-envelope classifier raises eligible precision from
+87.9% to 99.2% but reduces recall from 91.5% to 3.0%; it is not an overall
+classification improvement or a calibrated confidence bound.
+
+Embedding preparation used 49,581 unique inputs, 775 successful requests and
+14,166,270 reported input tokens. Replays are offline, use retained sentiment
+labels instead of a judge, and do not constitute independent-population
+confidence or held-out IMDb benchmark performance. See the
 [offline preparation and live/resume commands](sampling_comparison/README.md#imdb-50k-sentiment-follow-up).
 This larger study uses a bounded causal calibration reservoir; it does not
 claim numerical parity with the earlier all-pair envelope experiment.

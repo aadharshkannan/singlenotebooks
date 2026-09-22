@@ -13,8 +13,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build a standalone IMDb report from explicit readiness or completed replay evidence.")
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--numerical-validation", type=Path,
+                        help="Optional successful source-bound retained-score audit JSON.")
     args = parser.parse_args()
-    result = build_report(args.input, args.output)
+    result = build_report(args.input, args.output, numerical_validation=args.numerical_validation)
     print(f"{result['status']}: {args.output / 'report.html'}")
 
 

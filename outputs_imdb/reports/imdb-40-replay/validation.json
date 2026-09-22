@@ -14,15 +14,15 @@
       "state": {
         "content": {
           "title": "IMDb | Full-review IDW and prefix dimensions",
-          "bodyTextLength": 2190,
-          "headingCount": 23,
+          "bodyTextLength": 4609,
+          "headingCount": 24,
           "headingsPreview": [
             "How far can we shorten a review embedding?",
-            "Embeddings are ready; replay results are pending.",
+            "Measured replay results",
             "The experiment in one minute",
             "Analysis and conclusion",
-            "Shared pipeline, six representations",
-            "What \u201cend to end\u201d means here"
+            "The budget picture at a glance",
+            "Shared pipeline, six representations"
           ],
           "brokenImages": []
         },
@@ -30,7 +30,7 @@
           "width": 1440,
           "height": 1000,
           "scrollWidth": 1440,
-          "scrollHeight": 1578,
+          "scrollHeight": 2607,
           "overflowing": [],
           "hiddenClipping": []
         }
@@ -52,15 +52,15 @@
       "state": {
         "content": {
           "title": "IMDb | Full-review IDW and prefix dimensions",
-          "bodyTextLength": 2190,
-          "headingCount": 23,
+          "bodyTextLength": 4609,
+          "headingCount": 24,
           "headingsPreview": [
             "How far can we shorten a review embedding?",
-            "Embeddings are ready; replay results are pending.",
+            "Measured replay results",
             "The experiment in one minute",
             "Analysis and conclusion",
-            "Shared pipeline, six representations",
-            "What \u201cend to end\u201d means here"
+            "The budget picture at a glance",
+            "Shared pipeline, six representations"
           ],
           "brokenImages": []
         },
@@ -68,7 +68,7 @@
           "width": 390,
           "height": 844,
           "scrollWidth": 390,
-          "scrollHeight": 3110,
+          "scrollHeight": 5056,
           "overflowing": [],
           "hiddenClipping": []
         }

@@ -55,9 +55,34 @@ The authorized Azure preparation has now completed: **775 successful requests,
 14,166,270 reported API input tokens, zero judge calls**, with a verified
 `[50000,1536]` native `text-embedding-3-small` matrix. Vector-file SHA-256:
 `7218d733c1fafea421feb4f513f3a578cd3d2ad39c4146242764c52eb51733ba`.
-This establishes real embedding provenance, not completed replay performance.
+All **2,400 real-vector replay cells** subsequently completed. The aggregate-only
+[report](../outputs_imdb/reports/imdb-40-replay/report.html) contains every budget,
+dimension and schedule. At 5% budget (both schedules averaged within seeds):
 
-The full plan is 40 paired bootstrap seeds, two arrival schedules (uniform
+| Dimensions | Unselected MAE | Accuracy | Precision | Recall | F1 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1536 | 0.2054 | 89.60% | 87.93% | 91.50% | 0.8966 |
+| 32 | 0.2449 | 83.03% | 88.14% | 75.83% | 0.8149 |
+| 24 | 0.2585 | 81.39% | 87.46% | 72.88% | 0.7947 |
+| 16 | 0.2832 | 78.98% | 81.85% | 74.21% | 0.7782 |
+| 12 | 0.2984 | 77.16% | 78.89% | 73.97% | 0.7633 |
+| 8 | 0.3226 | 74.37% | 75.74% | 71.55% | 0.7357 |
+
+Native has lower mean MAE than every prefix at each of the five budget averages.
+The native/8d novel-source MAEs at 5% are 0.2104/0.3307, so earlier observations
+of the same review do not explain away the gap. Prefix quality is not globally
+monotonic: at 1% budget, 8d MAE is 0.3475 versus 32d 0.3565.
+
+On matched native envelope-eligible targets at 5%, lower-envelope thresholding
+raises precision from 87.93% to 99.17%, but recall falls from 91.50% to 3.04%;
+mean exact AUROC falls from 0.9605 to 0.7580. High precision with very low recall
+is not an overall classification improvement. These findings concern causal
+imputation under the replay protocol, not a deployable calibrated classifier.
+The retained-score audit finds 73.42% of native eligible lower scores clipped
+to zero at 5%; the mean full-envelope width is 0.9094 on the 0-1 scale.
+Broad envelopes can have high observed label coverage without being informative.
+
+The executed design uses 40 paired bootstrap seeds, two arrival schedules (uniform
 and bursty), five occurrence-label budgets (1%, 2%, 5%, 10%, 20%) and six
 dimensions (1536, 32, 24, 16, 12, 8): **2,400 cells**. Draw 50K occurrences
 with replacement per seed to change both order and review frequency. Every
@@ -107,9 +132,11 @@ reports or source files. No Azure Search resource is needed.
 ```powershell
 .\.venv-v3\Scripts\python.exe scripts\prepare_imdb_input.py --live --env-file .env
 .\.venv-v3\Scripts\python.exe scripts\run_imdb_experiment.py
+.\.venv-v3\Scripts\python.exe scripts\validate_imdb_experiment.py
 .\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py `
   --input outputs_imdb\private_runs\imdb-40-replay\aggregate.json `
-  --output outputs_imdb\reports\imdb-40-replay
+  --output outputs_imdb\reports\imdb-40-replay `
+  --numerical-validation outputs_imdb\reports\imdb-40-replay\numerical_validation.json
 ```
 
 The runner defaults to four BLAS threads and records its runtime. Offline
@@ -132,11 +159,17 @@ Without embeddings, build a clearly marked preparation report instead:
   --html outputs_imdb\reports\imdb-40-replay\report.html `
   --screenshots outputs_imdb\reports\imdb-40-replay\validation_screenshots `
   --output outputs_imdb\reports\imdb-40-replay\interaction_validation.json
+.\.venv-v3\Scripts\python.exe scripts\validate_imdb_experiment.py
 .\.venv-v3\Scripts\python.exe -m pytest tests\test_imdb_inputs.py `
   tests\test_imdb_experiment.py tests\test_imdb_report.py -q
 ```
 
-The HTML uses five tabs and no external assets. Numerical summaries average
+The HTML uses five tabs and no external assets. The independent numeric checker
+hash-verifies the full retained run and real input cache, then recomputes all
+requested metrics in five cohorts from every cell's retained scores. It also
+checks source-label alignment, earlier-only donor/calibration positions and
+point/lower nesting. Its aggregate-only record is `numerical_validation.json`.
+Numerical summaries average
 schedules within paired seeds before taking empirical 2.5/97.5 percentiles.
 AUROC uses exact per-cell tied scores; displayed ROC curves interpolate onto
 a shared FPR grid. Mean AUROC is not asserted equal to area under the mean

@@ -143,9 +143,21 @@ def public_payload(source: dict[str, Any], source_path: Path) -> dict[str, Any]:
     }
 
 
-def build_report(source_path: Path, output: Path) -> dict[str, Any]:
+def build_report(source_path: Path, output: Path, *, numerical_validation: Path | None = None) -> dict[str, Any]:
     source = json.loads(source_path.read_text(encoding="utf-8"))
     payload = public_payload(source, source_path)
+    if numerical_validation is not None:
+        audit = json.loads(numerical_validation.read_text(encoding="utf-8"))
+        if (payload["status"] != "completed" or audit.get("ok") is not True
+                or audit.get("aggregate_sha256") != payload["source_artifact_sha256"]
+                or audit.get("cells_checked") != payload["protocol"]["planned_cells"]):
+            raise ValueError("numerical validation does not match this completed aggregate")
+        payload["score_validation"] = {
+            "sha256": sha256_file(numerical_validation),
+            "cells_checked": audit["cells_checked"],
+            "maximum_absolute_metric_difference": audit["maximum_absolute_metric_difference"],
+            "native_5pct_equal_cell_diagnostics": audit["native_5pct_equal_cell_diagnostics"],
+        }
     output.mkdir(parents=True, exist_ok=True)
     encoded = canonical(payload).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     document = TEMPLATE.replace("__DATA__", encoded)
@@ -186,6 +198,7 @@ section[hidden]{display:none}.card{background:white;border:1px solid var(--line)
 svg{display:block;width:100%;min-width:570px;height:auto}svg text{font-family:system-ui,Arial,sans-serif;font-size:14px;fill:var(--ink)}
 .legend{display:flex;gap:20px;flex-wrap:wrap;font-size:14px}.dot{display:inline-block;width:13px;height:13px;margin-right:6px}
 a{color:#125cb0}code{font-size:13px;overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#edf3f3;padding:16px;border-radius:8px}
+#numeric-audit{overflow-wrap:anywhere}
 dl{display:grid;grid-template-columns:minmax(130px,1fr) 3fr;gap:10px 18px}dt{font-weight:650}dd{margin:0;overflow-wrap:anywhere}
 .empty{padding:35px 20px;border:2px dashed #b4c6ca;border-radius:9px;color:var(--muted)}.small{font-size:14px}
 @media(max-width:600px){main{padding:0 14px 35px}header{padding:28px 20px}.card{padding:20px}dl{grid-template-columns:1fr}dd{margin-bottom:10px}nav button{padding:8px 10px}}
@@ -218,6 +231,10 @@ The question is prediction quality for reviews whose sentiment was not selected 
 <div class="card"><h2>Analysis and conclusion</h2><div id="conclusion"></div>
 <p>Even a favorable result would apply to this polarized movie-review corpus, these budgets and replay settings.
 Sentiment prediction is not agent task completion. Repeated orders reuse the same labels; they do not measure new judge reliability or production generalization.</p></div>
+<div class="card"><h2>The budget picture at a glance</h2><p><b>What it shows:</b> mean all-unselected MAE, averaging both schedules within each seed.
+<b>How to read:</b> lower values and lighter cells are better. This overview includes every tested budget, not only the explorer's default 5% scope.</p>
+<div class="scroll"><table id="budget-overview"><thead></thead><tbody></tbody></table></div>
+<p class="takeaway" id="budget-conclusion"></p></div>
 </section>
 <section id="method" role="tabpanel" aria-labelledby="tab-method" hidden>
 <div class="card"><h2>Shared pipeline, six representations</h2><p>Every arm uses the same source pool, label mapping, paired arrival draws and label budgets.
@@ -301,12 +318,14 @@ Observed label coverage is the fraction of eligible labels inside the full lower
 Machine-readable <a href="summary.json">summary.json</a> contains the displayed aggregates; <a href="manifest.json">manifest.json</a> binds report and generator hashes.</p>
 <h3>Run from this worktree</h3><pre>.\.venv-v3\Scripts\python.exe scripts\prepare_imdb_input.py --live --env-file .env
 .\.venv-v3\Scripts\python.exe scripts\run_imdb_experiment.py
-.\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py --input outputs_imdb\private_runs\imdb-40-replay\aggregate.json --output outputs_imdb\reports\imdb-40-replay
+.\.venv-v3\Scripts\python.exe scripts\validate_imdb_experiment.py
+.\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py --input outputs_imdb\private_runs\imdb-40-replay\aggregate.json --output outputs_imdb\reports\imdb-40-replay --numerical-validation outputs_imdb\reports\imdb-40-replay\numerical_validation.json
 .\.venv-v3\Scripts\python.exe .github\skills\sampling-experiment-report\quality_check.py --html outputs_imdb\reports\imdb-40-replay\report.html --screenshots outputs_imdb\reports\imdb-40-replay\validation_screenshots</pre>
 <p>Only the first command makes authorized embedding calls, and only for missing content-bound batches. No LLM judge or Azure Search resource is required.
 Replay work is offline and resumable. Input hash or protocol changes must not silently reuse old results. Keep raw reviews, vectors and per-target evidence in ignored local storage.</p>
-<h3>Validation</h3><p>The report generator does not claim that tests or browser checks passed merely because this page exists.
+<h3>Validation</h3><p id="numeric-audit"></p><p>The report generator does not claim that tests or browser checks passed merely because this page exists.
 The separately generated <code>validation.json</code> and <code>interaction_validation.json</code> record rendering and control checks.
+The separately generated <code>numerical_validation.json</code> verifies retained artifact hashes, source-label alignment, causal positions and recomputed metrics across all 2,400 cells.
 Pending input profiles cannot produce measured result charts. No PDF was requested or generated.</p>
 <h3>What is not established</h3><p>There is no independent test-label evaluation, live judge, real traffic-frequency model, production confidence interval, validated weekly policy or comparison to trained sentiment classifiers.
 Novel-source does not mean a novel movie or duplicate-free text. This study uses full-review evidence, not multi-turn tool-call traces.
@@ -324,7 +343,7 @@ const text=(id,value)=>{$(id).textContent=value};
 function activate(tab){document.querySelectorAll('[role="tab"]').forEach(t=>{const active=t===tab;t.setAttribute("aria-selected",active);t.tabIndex=active?0:-1;$(t.getAttribute("aria-controls")).hidden=!active});}
 const tabs=[...document.querySelectorAll('[role="tab"]')];tabs.forEach((tab,i)=>{tab.addEventListener("click",()=>activate(tab));tab.addEventListener("keydown",e=>{let j=null;if(e.key==="ArrowRight")j=(i+1)%tabs.length;if(e.key==="ArrowLeft")j=(i+tabs.length-1)%tabs.length;if(e.key==="Home")j=0;if(e.key==="End")j=tabs.length-1;if(j!==null){e.preventDefault();tabs[j].focus();activate(tabs[j])}})});
 function addOption(select,value,label){const o=document.createElement("option");o.value=value;o.textContent=label;select.append(o)}
-function addRow(body,values){const tr=document.createElement("tr");values.forEach(v=>{const td=document.createElement("td");td.textContent=v;tr.append(td)});body.append(tr)}
+function addRow(body,values){const tr=document.createElement("tr");values.forEach(v=>{const td=document.createElement(body.tagName==="THEAD"?"th":"td");td.textContent=v;tr.append(td)});body.append(tr)}
 function addDl(id,pairs){const dl=$(id);pairs.forEach(([k,v])=>{const dt=document.createElement("dt"),dd=document.createElement("dd");dt.textContent=k;dd.textContent=v;dl.append(dt,dd)})}
 text("status",complete?"COMPLETED REPLAY STUDY":"DATA READY / RESULTS NOT MEASURED");
 text("n",count(P.sessions));text("repetitions",D.protocol.repetitions);text("repeat-label",complete?"Repeated labels, not independent data":"Planned; no replay results yet");
@@ -358,7 +377,26 @@ text("mae-takeaway",native&&eight?`In this scope: native MAE ${fmt(native.cohort
 if(chosen&&chosen.roc.point.tpr.length&&chosen.roc.lower.tpr.length){let roc=axes("True-positive rate / recall");for(let i=0;i<=4;i++)roc+=`<text x="${65+i/4*650}" y="282" text-anchor="middle">${(i/4).toFixed(2)}</text>`;roc+='<line x1="65" y1="260" x2="715" y2="20" stroke="#9bafb5" stroke-dasharray="5 5"/><text x="390" y="310" text-anchor="middle">False-positive rate</text>';["point","lower"].forEach((method,j)=>{const c=chosen.roc[method],path=c.fpr.map((v,i)=>`${i?"L":"M"}${65+v*650},${260-c.tpr[i]*240}`).join(" ");roc+=`<path d="${path}" fill="none" stroke="${j?'#af5215':'#007d7c'}" stroke-width="3" ${j?'stroke-dasharray="8 5"':''}/>`});$("roc-chart").innerHTML=svg(roc,"Paired eligible IDW point and lower-envelope ROC curves");text("roc-takeaway",`${dimension}d: mean exact AUROC point ${fmt(chosen.cohorts.eligible_point.auc.mean)}, lower ${fmt(chosen.cohorts.eligible_lower.auc.mean)}; eligible n ${count(chosen.cohorts.eligible_point.n.mean)} per replay cell. At threshold 0.5, recall is ${fmt(chosen.cohorts.eligible_point.recall.mean)} versus ${fmt(chosen.cohorts.eligible_lower.recall.mean)}.`)}else{empty("roc-chart");text("roc-takeaway","No defined two-class eligible ROC for this scope.")}
 }
 ["budget","schedule","dimension"].forEach(id=>$(id).addEventListener("change",draw));
-if(!complete){$("conclusion").innerHTML=D.embeddings_ready?"<p><b>No performance conclusion is justified yet.</b> All 50,000 reviews have verified real native embeddings. The full paired replay sweep is still required before comparing dimensions or estimating classification performance.</p><p>There is no evidence here yet that 8, 12, 16, 24 or 32 dimensions preserve IDW quality, or that the lower envelope improves classification. The completed report must weigh MAE, precision/recall, novel-source behavior and envelope eligibility together.</p>":"<p><b>No performance conclusion is justified yet.</b> All 50,000 source labels were prepared, but real embeddings and the replay sweep are still pending. There is no evidence here that 8, 12, 16, 24 or 32 dimensions preserve IDW quality, or that the lower envelope improves sentiment classification.</p><p>The next required action is to supply Azure configuration in this worktree and run the three commands in Provenance. The resulting report must weigh MAE, precision/recall, novel-source behavior and envelope eligibility together.</p>"}else{const a=D.summaries.find(r=>r.dimension===1536&&r.rate===.05&&r.schedule==="all"),b=D.summaries.find(r=>r.dimension===8&&r.rate===.05&&r.schedule==="all");text("conclusion",a&&b?`Measured at the 5% label budget, with both schedules averaged within seeds: native all-unselected MAE is ${fmt(a.cohorts.all_unselected.mae.mean)}, compared with ${fmt(b.cohorts.all_unselected.mae.mean)} at 8d. The paired change is ${fmt(b.paired_mae_delta_native.mean,4)}. Native eligible point recall ${fmt(a.cohorts.eligible_point.recall.mean)} becomes ${fmt(a.cohorts.eligible_lower.recall.mean)} for the lower envelope at threshold 0.5; precision changes from ${fmt(a.cohorts.eligible_point.precision.mean)} to ${fmt(a.cohorts.eligible_lower.precision.mean)}. These scoped effects, not dimensionality alone, determine the tradeoff. Inspect every budget and the novel-source diagnostic before choosing a representation.`:"Measured results are available in the explorer. The default 5% analysis scope was not included; no conclusion is substituted from a different budget.")}
+function paragraph(message){const p=document.createElement("p");p.textContent=message;$("conclusion").append(p)}
+if(!complete){$("conclusion").innerHTML=D.embeddings_ready?"<p><b>No performance conclusion is justified yet.</b> All 50,000 reviews have verified real native embeddings. The full paired replay sweep is still required before comparing dimensions or estimating classification performance.</p><p>There is no evidence here yet that 8, 12, 16, 24 or 32 dimensions preserve IDW quality, or that the lower envelope improves classification. The completed report must weigh MAE, precision/recall, novel-source behavior and envelope eligibility together.</p>":"<p><b>No performance conclusion is justified yet.</b> All 50,000 source labels were prepared, but real embeddings and the replay sweep are still pending. There is no evidence here that 8, 12, 16, 24 or 32 dimensions preserve IDW quality, or that the lower envelope improves sentiment classification.</p><p>The next required action is to supply Azure configuration in this worktree and run the three commands in Provenance. The resulting report must weigh MAE, precision/recall, novel-source behavior and envelope eligibility together.</p>";text("budget-conclusion","Budget-response metrics have not been measured.")
+}else{
+const cell=(dimension,rate)=>D.summaries.find(r=>r.dimension===dimension&&r.rate===rate&&r.schedule==="all");
+const a=cell(1536,.05),b=cell(8,.05),c=cell(32,.05);
+const wins=D.protocol.rates.filter(rate=>{const n=cell(1536,rate);return n&&D.protocol.dimensions.filter(d=>d!==1536).every(d=>cell(d,rate).cohorts.all_unselected.mae.mean>n.cohorts.all_unselected.mae.mean)}).length;
+paragraph(`Measured across budgets: native 1536d has strictly lower mean unselected MAE than every tested prefix in ${wins} of ${D.protocol.rates.length} budget averages, with both schedules averaged within each seed. This compares complete pipelines: shortening can change both selected membership and donor geometry.`);
+if(a&&b){paragraph(`At the 5% label budget, native MAE is ${fmt(a.cohorts.all_unselected.mae.mean)} and accuracy is ${fmt(100*a.cohorts.all_unselected.accuracy.mean,1)}%. The 8d prefix has MAE ${fmt(b.cohorts.all_unselected.mae.mean)} and accuracy ${fmt(100*b.cohorts.all_unselected.accuracy.mean,1)}%; its paired MAE change is ${fmt(b.paired_mae_delta_native.mean,4)}. ${c?`The 32d compromise has MAE ${fmt(c.cohorts.all_unselected.mae.mean)} and accuracy ${fmt(100*c.cohorts.all_unselected.accuracy.mean,1)}%.`:""} Compare this measured loss with the coordinate-storage savings, not an assumed quality-neutral reduction.`);
+paragraph(`For the native lower-envelope classifier at threshold 0.5, eligible precision changes from ${fmt(100*a.cohorts.eligible_point.precision.mean,1)}% to ${fmt(100*a.cohorts.eligible_lower.precision.mean,1)}%, while recall changes from ${fmt(100*a.cohorts.eligible_point.recall.mean,1)}% to ${fmt(100*a.cohorts.eligible_lower.recall.mean,1)}%. Mean exact AUROC changes from ${fmt(a.cohorts.eligible_point.auc.mean)} to ${fmt(a.cohorts.eligible_lower.auc.mean)}. Higher precision alone is not an overall improvement.${a.cohorts.eligible_lower.recall.mean<.1?" Here, very few true positives remain.":""}`);
+paragraph(`In the novel-source diagnostic at 5%, native MAE is ${fmt(a.cohorts.novel_source.mae.mean)} versus ${fmt(b.cohorts.novel_source.mae.mean)} at 8d. This excludes earlier observations of the same source row, not different rows with identical text or related movies.${b.cohorts.novel_source.mae.mean>a.cohorts.novel_source.mae.mean?" Repeated-review reuse therefore does not explain away this native/8d quality gap.":""}`);
+if(D.score_validation){const e=D.score_validation.native_5pct_equal_cell_diagnostics;paragraph(`The retained-score audit helps explain the native envelope behavior at 5%: ${fmt(100*e.lower_zero_fraction,1)}% of eligible lower scores are clipped to zero, and the mean full-envelope width is ${fmt(e.mean_envelope_width)} on the 0-1 outcome scale. Broad intervals can cover many observed labels without supplying informative classification. This is an observed diagnostic, not calibrated confidence.`)}
+}else paragraph("The default 5% analysis scope was not included; no conclusion is substituted from a different budget.");
+const low8=cell(8,.01),low32=cell(32,.01);
+if(low8&&low32)paragraph(`The prefixes are not globally monotonic: at 1% budget, 8d MAE is ${fmt(low8.cohorts.all_unselected.mae.mean)} and 32d MAE is ${fmt(low32.cohorts.all_unselected.mae.mean)}. Read each budget and metric rather than inferring that every additional coordinate must help. Novelty-based membership changes are a possible contributor, not a proven causal explanation.`);
+paragraph((wins===D.protocol.rates.length?"Conclusion: prefer native geometry when predictive quality is the priority for this evaluated corpus; accept a shorter prefix only with its observed budget-specific loss. ":"Conclusion: no universal native-preference rule follows across all tested budgets; choose by the observed budget-specific tradeoff. ")+"Treat the lower envelope as a sensitivity/abstention diagnostic, not a calibrated probability or a general replacement classifier. A time-forward, movie-disjoint evaluation and independent calibration would be needed before a deployment decision.");
+addRow($("budget-overview").tHead,["Dimensions",...D.protocol.rates.map(r=>`${100*r}% labels`)]);
+D.protocol.dimensions.forEach(d=>{const values=D.protocol.rates.map(r=>cell(d,r).cohorts.all_unselected.mae.mean);addRow($("budget-overview").tBodies[0],[d,...values.map(v=>fmt(v))]);const cells=$("budget-overview").tBodies[0].lastElementChild.children;values.forEach((v,i)=>{cells[i+1].style.backgroundColor=`hsl(30 75% ${97-Math.min(1,v)*38}%)`})});
+text("budget-conclusion",`Native has the lowest mean MAE in ${wins}/${D.protocol.rates.length} tested budget averages. Increasing label budget and increasing dimension are different decisions; neither should be summarized by one pooled winner score.`);
+}
+text("numeric-audit",D.score_validation?`Source-bound retained-score validation passed for ${count(D.score_validation.cells_checked)} cells. Maximum absolute difference across recomputed metrics: ${D.score_validation.maximum_absolute_metric_difference}. Validation artifact SHA-256: ${D.score_validation.sha256}`:"No numerical audit artifact was attached to this report build; consult the separately generated validation files.");
 draw();
 </script></body></html>
 """
