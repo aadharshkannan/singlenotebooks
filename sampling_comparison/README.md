@@ -209,6 +209,34 @@ dimensions. The numeric checker verifies that every original measured row is
 unchanged and every added row uses the exact original replay, before recomputing
 metrics from the complete retained evidence.
 
+### Parallel continuation without losing checkpoints
+
+`run_imdb_parallel.py` continues an **already registered** additive extension.
+Stop its serial writer first; never run both commands against the same output.
+The original scientific engine, extension module, CLI, preregistration and
+checkpoint binding remain unchanged. A separately hash-bound
+`parallel_transition.json` records the scheduling change and hashes every
+committed membership/score artifact present at the switch.
+
+```powershell
+.\.venv-v3\Scripts\python.exe scripts\run_imdb_parallel.py --workers 3
+```
+
+Three spawned processes own disjoint seed/schedule groups. Each preserves the
+original four-thread BLAS configuration and sequential arrivals within a group.
+Only missing memberships/cells are computed. OS-owned coordinator/group locks
+prevent duplicate writers and release on process exit; residual lock files are
+not permission to bypass an active owner. The coordinator is the only writer
+of progress and final aggregates. A recoverable publication journal protects
+the final aggregate/audit/manifest update against interruption.
+
+The same command resumes compatible partial parallel work after an interruption.
+It refuses scheduler-code, worker-count, source, method, numerical-runtime or
+checkpoint drift. `parallel_progress.jsonl` records completed groups and actual
+worker process IDs. The final numeric audit additionally verifies byte-for-byte
+preservation of all pre-transition checkpoints. Embedding and judge calls remain
+zero; parallel workers change execution order across independent replays only.
+
 ## Matryoshka prefix-cutoff (earlier datasets)
 
 `matryoshka_experiment.py` tests full-session first-coordinate truncation and

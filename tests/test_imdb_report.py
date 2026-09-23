@@ -95,6 +95,11 @@ def test_completed_report_browser_numeric_and_controls(tmp_path):
             "reused_dimensions": [1536, 32, 24, 16, 12, 8], "added_dimensions": [256, 128, 64],
             "baseline_rows_unchanged": True, "replay_pairing_exact": True, "embedding_calls": 0,
         },
+        "execution": {
+            "workers": 3, "blas_threads_per_worker": 4, "checkpoint_cells_preserved_at_switch": 2,
+            "completed_checkpoints_unchanged": True, "scientific_binding_unchanged": True,
+            "transition_sha256": "c" * 64,
+        },
     }))
     report = tmp_path / "fixture-report"
     build_report(source, report)

@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 
 from sampling_comparison.idw_threshold_experiment import exact_roc, threshold_metrics
+from sampling_comparison.imdb_experiment import _read_record
 from sampling_comparison.imdb_inputs import load_input
 from sampling_comparison.matryoshka_experiment import canonical, sha256_file, write_json
 
@@ -70,6 +71,39 @@ def validate_extension(aggregate: dict, manifest: dict, run: Path) -> dict | Non
         "embedding_calls": 0,
         "baseline_aggregate_sha256": extension["baseline_aggregate_sha256"],
         "baseline_manifest_sha256": extension["baseline_manifest_sha256"],
+    }
+
+
+def validate_execution(aggregate: dict, manifest: dict, run: Path) -> dict | None:
+    if "execution" not in aggregate:
+        return None
+    execution = aggregate["execution"]
+    transition_path = run / "parallel_transition.json"
+    transition_hash = sha256_file(transition_path)
+    transition = _read_record(transition_path)
+    if (execution != manifest.get("execution")
+            or execution["transition_sha256"] != transition_hash
+            or manifest["files"].get("parallel_transition.json") != transition_hash
+            or transition["execution"]["scientific_binding_sha256"] != aggregate["binding_sha256"]
+            or not execution["completed_checkpoints_unchanged"]
+            or not execution["scientific_binding_unchanged"]
+            or execution["workers"] != transition["execution"]["workers"]
+            or execution["blas_threads_per_worker"] != 4
+            or execution["checkpoint_cells_preserved_at_switch"] != transition["preserved_cells"]):
+        raise ValueError("parallel execution provenance mismatch")
+    preserved_cells = 0
+    for name, expected_hash in transition["preserved_files"].items():
+        if sha256_file(run / name) != expected_hash:
+            raise ValueError("checkpoint changed after parallel transition")
+        if name.startswith("cells/") and name.endswith(".json"):
+            preserved_cells += 1
+    if preserved_cells != transition["preserved_cells"]:
+        raise ValueError("parallel preserved checkpoint count mismatch")
+    return {
+        "workers": execution["workers"], "blas_threads_per_worker": 4,
+        "completed_checkpoints_unchanged": True, "scientific_binding_unchanged": True,
+        "checkpoint_cells_preserved_at_switch": preserved_cells,
+        "transition_sha256": transition_hash,
     }
 
 
@@ -150,6 +184,7 @@ def validate_experiment(run: Path, input_manifest: Path) -> dict:
     if aggregate["dataset"]["input_manifest_sha256"] != profile["input_manifest_sha256"]:
         raise ValueError("study is not bound to this real input manifest")
     extension_validation = validate_extension(aggregate, manifest, run)
+    execution_validation = validate_execution(aggregate, manifest, run)
     if tuple(protocol["dimensions"]) == DIMENSION_GRIDS[1] and extension_validation is None:
         raise ValueError("extended grid requires preserved-baseline provenance")
     fields = (
@@ -202,6 +237,9 @@ def validate_experiment(run: Path, input_manifest: Path) -> dict:
     if extension_validation is not None:
         result["extension"] = extension_validation
         result["checks"].append("Unchanged original rows/evidence and exact new-dimension replay pairing")
+    if execution_validation is not None:
+        result["execution"] = execution_validation
+        result["checks"].append("Byte-identical pre-parallel checkpoints and unchanged scientific binding")
     return result
 
 

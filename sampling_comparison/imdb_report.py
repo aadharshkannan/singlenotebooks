@@ -159,6 +159,19 @@ def public_payload(source: dict[str, Any], source_path: Path) -> dict[str, Any]:
                 or extension["embedding_calls"] != 0):
             raise ValueError("extension provenance does not match the combined study")
         payload["extension"] = {name: extension[name] for name in EXTENSION_FIELDS}
+    if "execution" in source:
+        execution = source["execution"]
+        if (not complete or "extension" not in payload
+                or execution["completed_checkpoints_unchanged"] is not True
+                or execution["scientific_binding_unchanged"] is not True
+                or not 1 <= execution["workers"] <= 3
+                or execution["blas_threads_per_worker"] != 4
+                or not 0 <= execution["checkpoint_cells_preserved_at_switch"] <= payload["extension"]["added_cells"]):
+            raise ValueError("parallel execution provenance does not match the combined study")
+        payload["execution"] = {name: execution[name] for name in (
+            "workers", "blas_threads_per_worker", "checkpoint_cells_preserved_at_switch",
+            "completed_checkpoints_unchanged", "scientific_binding_unchanged", "transition_sha256",
+        )}
     return payload
 
 
@@ -387,6 +400,11 @@ text("reproduction-commands",String.raw`.\.venv-v3\Scripts\python.exe scripts\ex
 .\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py --input outputs_imdb\private_runs\imdb-40-replay-extended\aggregate.json --output outputs_imdb\reports\imdb-40-replay --numerical-validation outputs_imdb\reports\imdb-40-replay\numerical_validation.json
 .\.venv-v3\Scripts\python.exe .github\skills\sampling-experiment-report\quality_check.py --html outputs_imdb\reports\imdb-40-replay\report.html --screenshots outputs_imdb\reports\imdb-40-replay\validation_screenshots`);
 text("embedding-cost-note","These commands require the preserved original run and native cache. They make no embedding, LLM judge or Azure Search calls. The extra dimensions use prefix slicing only. Completed checkpoints are source-bound and resumable; source input, method or runtime changes fail closed.");
+if(D.execution){const x=D.execution,p=document.createElement("p");p.textContent=`Execution was continued with ${x.workers} independent worker processes and ${x.blas_threads_per_worker} numerical threads per worker. All ${count(x.checkpoint_cells_preserved_at_switch)} additional cells completed before that switch remained byte-identical. Only scheduling changed; the scientific binding and original reference results did not.`;
+$("extension-note").append(p);
+const commands=$("reproduction-commands").textContent.split("\n");commands[0]=String.raw`.\.venv-v3\Scripts\python.exe scripts\run_imdb_parallel.py --workers 3`;text("reproduction-commands",commands.join("\n"));
+addDl("provenance-list",[["Execution workers",x.workers],["Additional checkpoints preserved at parallel switch",count(x.checkpoint_cells_preserved_at_switch)],["Parallel transition SHA-256",x.transition_sha256]]);
+}
 }
 function scopeRows(){return D.protocol.dimensions.map(dim=>D.summaries.find(r=>r.dimension===dim&&r.rate===Number($("budget").value)&&r.schedule===$("schedule").value)).filter(Boolean)}
 function svg(content,label){return `<svg viewBox="0 0 740 320" role="img" aria-label="${label}">${content}</svg>`}

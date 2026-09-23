@@ -46,6 +46,12 @@ This repository is organized around reproducible experiment outputs, source code
   bundle independently or copy/rewrite the original scores merely to extend a
   report. Retain the original manifest and the extension's source-bound
   row-parity/replay-pairing audit.
+  Parallel continuation keeps the original preregistration/checkpoints intact
+  and records its scheduling transition and preserved hashes in
+  `parallel_transition.json`. Retain `parallel_progress.jsonl`, the
+  `parallel_publication.json` recovery journal and its `execution_publication/`
+  staged final artifacts. `execution_locks/` contains OS-lock backing files,
+  not scientific evidence; do not remove them while a coordinator/worker runs.
 - IDW threshold/envelope follow-ups also use `outputs_matryoshka/runs/`.
   Retain the report, threshold/ROC summaries, compressed per-target score
   evidence and provenance/validation manifests; these are reproducibility
