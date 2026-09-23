@@ -29,23 +29,30 @@ quality checker. Existing notebooks and run paths are retained for compatibility
 The [IMDb experiment report](outputs_imdb/reports/imdb-40-replay/report.html)
 documents a new single-agent sentiment study using the original Stanford
 50,000 labeled movie reviews. Native 1536-dimensional `text-embedding-3-small`
-vectors are compared with normalized prefixes of 32, 24, 16, 12 and 8.
+vectors are compared with normalized prefixes of 256, 128, 64, 32, 24, 16, 12 and 8.
 The completed sweep has 40 paired bootstrap seeds, uniform/bursty arrivals and
 five label budgets. It measures unselected MAE, accuracy, precision, recall,
 F1 and matched-cohort point/lower-envelope ROC, with a separate novel-source
 diagnostic for review repetition.
 
-**All 2,400 settings completed using real Azure embeddings.** At the 5% label
-budget, averaging both schedules within each seed, native / 32d / 8d
-unselected MAE is **0.205 / 0.245 / 0.323** and accuracy is
-**89.6% / 83.0% / 74.4%**. Native has the lowest average MAE at all five
-tested budgets; the prefix curves are not globally monotonic. At threshold
+**All 3,600 settings completed using real Azure embeddings.** The additive
+256/128/64 study contributed 1,200 cells while preserving the original 2,400.
+At the 5% label budget, averaging both schedules within each seed,
+native / 256d / 128d / 64d unselected MAE is
+**0.2054 / 0.2242 / 0.2358 / 0.3028**, and accuracy is
+**89.60% / 87.91% / 87.09% / 80.35%**.
+Native has the lowest average MAE at four of five tested budgets. At 20%,
+128d has lower mean MAE (0.1645 versus 0.1703) but lower accuracy
+(90.55% versus 91.35%), and its paired MAE replay range crosses zero.
+The prefix curves are not globally monotonic: 64d has worse MAE than 32d
+at 5% budget. At threshold
 0.5, the native lower-envelope classifier raises eligible precision from
 87.9% to 99.2% but reduces recall from 91.5% to 3.0%; it is not an overall
 classification improvement or a calibrated confidence bound.
 
 Embedding preparation used 49,581 unique inputs, 775 successful requests and
-14,166,270 reported input tokens. Replays are offline, use retained sentiment
+14,166,270 reported input tokens; the extension made no additional API calls.
+Replays are offline, use retained sentiment
 labels instead of a judge, and do not constitute independent-population
 confidence or held-out IMDb benchmark performance. See the
 [offline preparation and live/resume commands](sampling_comparison/README.md#imdb-50k-sentiment-follow-up).

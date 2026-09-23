@@ -14,15 +14,15 @@
       "state": {
         "content": {
           "title": "IMDb | Full-review IDW and prefix dimensions",
-          "bodyTextLength": 4609,
-          "headingCount": 24,
+          "bodyTextLength": 6182,
+          "headingCount": 25,
           "headingsPreview": [
             "How far can we shorten a review embedding?",
             "Measured replay results",
+            "Additional dimensions; original results preserved",
             "The experiment in one minute",
             "Analysis and conclusion",
-            "The budget picture at a glance",
-            "Shared pipeline, six representations"
+            "The budget picture at a glance"
           ],
           "brokenImages": []
         },
@@ -30,7 +30,7 @@
           "width": 1440,
           "height": 1000,
           "scrollWidth": 1440,
-          "scrollHeight": 2607,
+          "scrollHeight": 3259,
           "overflowing": [],
           "hiddenClipping": []
         }
@@ -52,15 +52,15 @@
       "state": {
         "content": {
           "title": "IMDb | Full-review IDW and prefix dimensions",
-          "bodyTextLength": 4609,
-          "headingCount": 24,
+          "bodyTextLength": 6182,
+          "headingCount": 25,
           "headingsPreview": [
             "How far can we shorten a review embedding?",
             "Measured replay results",
+            "Additional dimensions; original results preserved",
             "The experiment in one minute",
             "Analysis and conclusion",
-            "The budget picture at a glance",
-            "Shared pipeline, six representations"
+            "The budget picture at a glance"
           ],
           "brokenImages": []
         },
@@ -68,7 +68,7 @@
           "width": 390,
           "height": 844,
           "scrollWidth": 390,
-          "scrollHeight": 5056,
+          "scrollHeight": 6384,
           "overflowing": [],
           "hiddenClipping": []
         }

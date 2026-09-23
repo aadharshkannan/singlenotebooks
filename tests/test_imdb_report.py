@@ -68,7 +68,7 @@ def test_completed_report_browser_numeric_and_controls(tmp_path):
     for dimension in dimensions:
         for seed in (13, 14):
             for schedule in ("uniformly_random", "bursty"):
-                for rate in (.01, .05):
+                for rate in (.01, .05, .2):
                     metrics = {
                         "n": 90, "mae": .2 + rate, "accuracy": .8, "precision": .8,
                         "recall": .8, "f1": .8, "auc": .85,
@@ -86,12 +86,12 @@ def test_completed_report_browser_numeric_and_controls(tmp_path):
         "version": "imdb-sampling-v1", "status": "completed",
         "dataset": {"dataset_id": "imdb_50000", "sessions": 100, "agents": 1},
         "protocol": {
-            "dimensions": dimensions, "repetitions": 2, "rates": [.01, .05],
+            "dimensions": dimensions, "repetitions": 2, "rates": [.01, .05, .2],
             "schedules": ["uniformly_random", "bursty"],
         }, "rows": rows,
         "extension": {
             "baseline_aggregate_sha256": "a" * 64, "baseline_manifest_sha256": "b" * 64,
-            "reused_cells": 48, "added_cells": 24,
+            "reused_cells": 72, "added_cells": 36,
             "reused_dimensions": [1536, 32, 24, 16, 12, 8], "added_dimensions": [256, 128, 64],
             "baseline_rows_unchanged": True, "replay_pairing_exact": True, "embedding_calls": 0,
         },

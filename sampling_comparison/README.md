@@ -55,23 +55,34 @@ The authorized Azure preparation has now completed: **775 successful requests,
 14,166,270 reported API input tokens, zero judge calls**, with a verified
 `[50000,1536]` native `text-embedding-3-small` matrix. Vector-file SHA-256:
 `7218d733c1fafea421feb4f513f3a578cd3d2ad39c4146242764c52eb51733ba`.
-All **2,400 real-vector replay cells** subsequently completed. The aggregate-only
+All **3,600 real-vector replay cells** completed: the original 2,400 plus 1,200
+added 256/128/64-dimensional cells. All original rows and published metric
+summaries are unchanged. The aggregate-only
 [report](../outputs_imdb/reports/imdb-40-replay/report.html) contains every budget,
 dimension and schedule. At 5% budget (both schedules averaged within seeds):
 
 | Dimensions | Unselected MAE | Accuracy | Precision | Recall | F1 |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | 1536 | 0.2054 | 89.60% | 87.93% | 91.50% | 0.8966 |
+| 256 | 0.2242 | 87.91% | 84.56% | 92.25% | 0.8821 |
+| 128 | 0.2358 | 87.09% | 84.65% | 90.22% | 0.8732 |
+| 64 | 0.3028 | 80.35% | 75.15% | 89.72% | 0.8173 |
 | 32 | 0.2449 | 83.03% | 88.14% | 75.83% | 0.8149 |
 | 24 | 0.2585 | 81.39% | 87.46% | 72.88% | 0.7947 |
 | 16 | 0.2832 | 78.98% | 81.85% | 74.21% | 0.7782 |
 | 12 | 0.2984 | 77.16% | 78.89% | 73.97% | 0.7633 |
 | 8 | 0.3226 | 74.37% | 75.74% | 71.55% | 0.7357 |
 
-Native has lower mean MAE than every prefix at each of the five budget averages.
+Native has lower mean MAE than every prefix at four of five budget averages.
+At 20% budget, 128d has mean MAE 0.1645 versus native 0.1703, but accuracy
+90.55% versus 91.35%. The paired MAE difference is -0.00582 with a
+2.5/97.5 replay range of [-0.01256, +0.00057]; it is not uniformly favorable,
+does not establish population confidence, and does not mean all metrics improve.
 The native/8d novel-source MAEs at 5% are 0.2104/0.3307, so earlier observations
 of the same review do not explain away the gap. Prefix quality is not globally
-monotonic: at 1% budget, 8d MAE is 0.3475 versus 32d 0.3565.
+monotonic: at 1% budget, 8d MAE is 0.3475 versus 32d 0.3565; at 5%, 64d MAE
+is 0.3028 versus 32d 0.2449. Since each representation reruns membership,
+these differences are not isolated imputation-only geometry effects.
 
 On matched native envelope-eligible targets at 5%, lower-envelope thresholding
 raises precision from 87.93% to 99.17%, but recall falls from 91.50% to 3.04%;
@@ -83,8 +94,9 @@ to zero at 5%; the mean full-envelope width is 0.9094 on the 0-1 scale.
 Broad envelopes can have high observed label coverage without being informative.
 
 The executed design uses 40 paired bootstrap seeds, two arrival schedules (uniform
-and bursty), five occurrence-label budgets (1%, 2%, 5%, 10%, 20%) and six
-dimensions (1536, 32, 24, 16, 12, 8): **2,400 cells**. Draw 50K occurrences
+and bursty), five occurrence-label budgets (1%, 2%, 5%, 10%, 20%) and nine
+dimensions (1536, 256, 128, 64, 32, 24, 16, 12, 8): **3,600 cells**.
+The original six-dimension stage contains 2,400 of these cells. Draw 50K occurrences
 with replacement per seed to change both order and review frequency. Every
 dimension/budget sees the same stream for that seed/schedule. Selection reuses
 the existing ARM2 label-blind full-schedule ranking; only IDW and calibration
@@ -203,9 +215,12 @@ altered retained artifacts, and `--resume` explicitly enables checkpoint reuse.
   --numerical-validation outputs_imdb\reports\imdb-40-replay\numerical_validation.json
 ```
 
-The same report URL is updated only after the full extension completes. Its
-controls, plots, tables, paired deltas and conclusions then include nine
-dimensions. The numeric checker verifies that every original measured row is
+The completed extension is published at the same report URL. Its controls,
+plots, tables, paired deltas and conclusions include all nine dimensions.
+The final independent audit checks 3,600 cells and 8,809 artifact hashes,
+recomputing metrics over 166,320,000 repeated unselected occurrences with
+zero discrepancy. These are repeated occurrences, not independent reviews.
+The numeric checker verifies that every original measured row is
 unchanged and every added row uses the exact original replay, before recomputing
 metrics from the complete retained evidence.
 
@@ -236,6 +251,8 @@ checkpoint drift. `parallel_progress.jsonl` records completed groups and actual
 worker process IDs. The final numeric audit additionally verifies byte-for-byte
 preservation of all pre-transition checkpoints. Embedding and judge calls remain
 zero; parallel workers change execution order across independent replays only.
+The completed run preserved all 465 pre-switch additional cell checkpoints
+byte-for-byte and computed the remaining 735 with three workers.
 
 ## Matryoshka prefix-cutoff (earlier datasets)
 
