@@ -200,6 +200,23 @@ def public_payload(source: dict[str, Any], source_path: Path) -> dict[str, Any]:
             "fit_scope", "fit_source_count", "fit_seed",
         ) if key in preparation}
         payload["pca_summaries"] = summarize_pca(pca_rows, reference_rows)
+        execution = source.get("pca_execution")
+        if execution is not None:
+            if not 1 <= execution["workers"] <= 6 or execution["blas_threads_per_worker"] != 4:
+                raise ValueError("PCA execution settings differ from the recorded design")
+            payload["pca_execution"] = {
+                "workers": execution["workers"], "blas_threads_per_worker": 4,
+            }
+            if "scaling" in execution:
+                scaling = execution["scaling"]
+                if (scaling["completed_checkpoints_unchanged"] is not True
+                        or scaling["scientific_binding_unchanged"] is not True
+                        or not 0 <= scaling["preserved_cells"] <= study["added_cells"]):
+                    raise ValueError("PCA scaling did not preserve committed progress")
+                payload["pca_execution"]["scaling"] = {key: scaling[key] for key in (
+                    "preserved_cells", "completed_checkpoints_unchanged",
+                    "scientific_binding_unchanged", "transition_sha256",
+                )}
     if "extension" in source:
         extension = source["extension"]
         reused, added = extension["reused_dimensions"], extension["added_dimensions"]
@@ -613,6 +630,10 @@ text("reproduction-commands",String.raw`.\.venv-v3\Scripts\python.exe scripts\pr
 .\.venv-v3\Scripts\python.exe scripts\validate_imdb_experiment.py --run outputs_imdb\private_runs\imdb-pca-40-replay
 .\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py --input outputs_imdb\private_runs\imdb-pca-40-replay\aggregate.json --output outputs_imdb\reports\imdb-40-replay --numerical-validation outputs_imdb\reports\imdb-40-replay\numerical_validation.json`);
 text("embedding-cost-note","These commands fit PCA and replay cached real vectors locally. They make no embedding, LLM judge or Azure Search calls. The original native/prefix run is preserved and supplies the exact paired reference streams.");
+if(D.pca_execution?.scaling){const x=D.pca_execution,lines=$("reproduction-commands").textContent.split("\n");
+lines[1]=String.raw`.\.venv-v3\Scripts\python.exe scripts\scale_imdb_pca.py --workers 6`;text("reproduction-commands",lines.join("\n"));
+addDl("provenance-list",[["PCA replay workers",x.workers],["PCA checkpoints preserved when scaling",count(x.scaling.preserved_cells)],["PCA scaling transition SHA-256",x.scaling.transition_sha256]]);
+}
 ["pca-budget","pca-schedule","pca-dimension"].forEach(id=>$(id).addEventListener("change",drawPca));drawPca();
 }
 draw();

@@ -52,6 +52,14 @@ def report_fixture(dimensions=(1536, 8)):
             "fit_seconds": 1.2, "solver": "full", "whiten": False, "fit_seed": 13,
             "private_information": "DO NOT PUBLISH",
         },
+        "pca_execution": {
+            "workers": 6, "blas_threads_per_worker": 4,
+            "scaling": {
+                "preserved_cells": 2, "completed_checkpoints_unchanged": True,
+                "scientific_binding_unchanged": True, "transition_sha256": "d" * 64,
+                "private_files": "DO NOT PUBLISH",
+            },
+        },
     }
 
 

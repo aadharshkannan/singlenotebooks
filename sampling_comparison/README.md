@@ -338,6 +338,28 @@ If a stage fails, record `--stage failed`; a saved-cell count alone is not a
 claim that validation or publication succeeded. The server exposes only the
 progress page and numeric status, never source files or credentials.
 
+#### Six-worker PCA continuation
+
+The optional `scale_imdb_pca.py` adapter continues an existing PCA registration
+on up to six disjoint replay workers without modifying the fitted model,
+original PCA runner, mathematical helpers or checkpoint binding:
+
+```powershell
+# Stop the earlier PCA coordinator first. Then:
+.\.venv-v3\Scripts\python.exe scripts\scale_imdb_pca.py --workers 6
+```
+
+It preserves four BLAS threads per worker and all existing checkpoints.
+`scaling_transition.json` records every committed artifact's pre-switch hash.
+Only recognized, uncommitted write fragments are moved into a hash-manifested
+`scaling_recovery/` archive; committed checkpoints are never rewritten.
+Coordinator/job OS locks prevent concurrent owners, and the original immutable
+worker functions do the computation. A single finalizer uses the existing
+recoverable publication protocol. Scaling provenance is embedded in the final
+aggregate/audit, and the numeric validator independently rechecks every preserved
+artifact. The same command resumes after an interruption; source/code/configuration
+drift still fails closed.
+
 ## Matryoshka prefix-cutoff (earlier datasets)
 
 `matryoshka_experiment.py` tests full-session first-coordinate truncation and

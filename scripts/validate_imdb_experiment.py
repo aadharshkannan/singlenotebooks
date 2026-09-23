@@ -249,6 +249,37 @@ def validate_pca_fit(native: np.ndarray, manifest_path: Path) -> dict:
     }
 
 
+def validate_pca_scaling(aggregate: dict, run: Path) -> dict | None:
+    execution = aggregate.get("pca_execution", {})
+    if "scaling" not in execution:
+        return None
+    scaling = execution["scaling"]
+    path = run / "scaling_transition.json"
+    transition = _read_record(path)
+    if (sha256_file(path) != scaling["transition_sha256"]
+            or transition["execution"]["scientific_binding_sha256"] != aggregate["binding_sha256"]
+            or transition["execution"]["workers"] != execution["workers"]
+            or not 1 <= execution["workers"] <= 6 or execution["blas_threads_per_worker"] != 4
+            or transition["preserved_cells"] != scaling["preserved_cells"]
+            or transition["preserved_files"] != scaling["preserved_files"]
+            or scaling["scientific_binding_unchanged"] is not True
+            or scaling["completed_checkpoints_unchanged"] is not True):
+        raise ValueError("PCA worker scaling provenance mismatch")
+    cells = 0
+    for name, digest in scaling["preserved_files"].items():
+        artifact = (run / name).resolve()
+        if not artifact.is_relative_to(run.resolve()) or sha256_file(artifact) != digest:
+            raise ValueError("PCA checkpoint changed at worker scaling")
+        cells += name.startswith("cells/") and name.endswith(".json")
+    if cells != scaling["preserved_cells"]:
+        raise ValueError("PCA scaling preserved-cell count mismatch")
+    return {
+        "workers": execution["workers"], "blas_threads_per_worker": 4,
+        "preserved_cells": cells, "completed_checkpoints_unchanged": True,
+        "scientific_binding_unchanged": True, "transition_sha256": scaling["transition_sha256"],
+    }
+
+
 def validate_scores(row: dict, evidence: dict[str, np.ndarray], labels: np.ndarray) -> dict:
     y, score = evidence["label"], evidence["score"]
     lower, upper = evidence["lower"], evidence["upper"]
@@ -330,6 +361,7 @@ def validate_experiment(run: Path, input_manifest: Path) -> dict:
     extension_validation = validate_extension(aggregate, manifest, run)
     execution_validation = validate_execution(aggregate, manifest, run)
     pca_validation = validate_pca_study(aggregate, manifest, run)
+    pca_scaling = validate_pca_scaling(aggregate, run)
     if tuple(protocol["dimensions"]) == DIMENSION_GRIDS[1] and extension_validation is None and not has_pca:
         raise ValueError("extended grid requires preserved-baseline provenance")
     if has_pca:
@@ -405,6 +437,9 @@ def validate_experiment(run: Path, input_manifest: Path) -> dict:
         result["pca_fit"] = pca_fit_validation
         result["checks"].append("Distinct centered PCA identity, preserved prefix evidence, exact stream pairing and paired deltas")
         result["checks"].append("All PCA projected rows reconstructed from frozen full-population mean/components; no whitening")
+    if pca_scaling is not None:
+        result["pca_execution"] = pca_scaling
+        result["checks"].append("Byte-identical PCA checkpoints preserved at the six-worker scheduling transition")
     return result
 
 
