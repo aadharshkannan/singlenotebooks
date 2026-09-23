@@ -32,6 +32,12 @@ EXTENSION_FIELDS = (
     "reused_dimensions", "added_dimensions", "baseline_rows_unchanged", "replay_pairing_exact",
     "embedding_calls",
 )
+PCA_STUDY_FIELDS = (
+    "baseline_aggregate_sha256", "baseline_manifest_sha256", "pca_manifest_sha256",
+    "reused_cells", "added_cells", "dimensions", "baseline_rows_unchanged",
+    "replay_pairing_exact", "embedding_calls", "judge_calls", "fit_scope",
+    "fit_source_count", "solver", "whiten", "fit_seed", "fit_once", "native_1536_control_note",
+)
 
 
 def _summary(values: list[float]) -> dict[str, Any]:
@@ -43,13 +49,14 @@ def _summary(values: list[float]) -> dict[str, Any]:
     }
 
 
-def summarize_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def summarize_rows(rows: list[dict[str, Any]], *, native_rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     """Average schedules within seeds before describing replay variability."""
     groups: dict[tuple, list[dict]] = defaultdict(list)
     for row in rows:
         for schedule in (row["schedule"], "all"):
             groups[(schedule, row["rate"], row["dimension"])].append(row)
-    native = {(r["schedule"], r["rate"], r["seed"]): r for r in rows if r["dimension"] == 1536}
+    native = {(r["schedule"], r["rate"], r["seed"]): r
+              for r in (rows if native_rows is None else native_rows) if r["dimension"] == 1536}
     output = []
     grid = np.linspace(0, 1, 101)
     for (schedule, rate, dimension), cell_rows in sorted(groups.items()):
@@ -107,6 +114,23 @@ def summarize_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return output
 
 
+def summarize_pca(rows: list[dict[str, Any]], reference_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summaries = summarize_rows(rows, native_rows=reference_rows)
+    reference = {(r["dimension"], r["schedule"], r["rate"], r["seed"]): r for r in reference_rows}
+    for summary in summaries:
+        seeds: dict[int, list[float]] = defaultdict(list)
+        for row in rows:
+            if (row["dimension"] != summary["dimension"] or row["rate"] != summary["rate"]
+                    or summary["schedule"] not in ("all", row["schedule"])):
+                continue
+            key = (row["dimension"], row["schedule"], row["rate"], row["seed"])
+            point, base = row["all_unselected"]["mae"], reference[key]["all_unselected"]["mae"]
+            if point is not None and base is not None:
+                seeds[row["seed"]].append(point - base)
+        summary["paired_mae_delta_prefix"] = _summary([float(np.mean(values)) for values in seeds.values()])
+    return summaries
+
+
 def public_payload(source: dict[str, Any], source_path: Path) -> dict[str, Any]:
     complete = source.get("status") == "completed"
     if not complete and source.get("status") not in ("prepared_without_embeddings", "complete"):
@@ -121,14 +145,24 @@ def public_payload(source: dict[str, Any], source_path: Path) -> dict[str, Any]:
     rates = protocol.get("rates", RATES)
     schedules = protocol.get("schedules", SCHEDULES)
     repetitions = protocol.get("repetitions", 40)
+    has_pca = "pca_study" in source
+    per_dimension = len(rates) * len(schedules) * repetitions
+    pca_dimensions = source["pca_study"]["dimensions"] if has_pca else []
+    expected = (len(dimensions) + len(pca_dimensions)) * per_dimension
+    reference_rows, pca_rows = [], []
     if complete:
         rows = source["rows"]
-        expected = len(dimensions) * len(rates) * len(schedules) * repetitions
-        identities = {(r["dimension"], r["rate"], r["schedule"], r["seed"]) for r in rows}
+        reference_rows = [r for r in rows if r.get("representation") != "pca"]
+        pca_rows = [r for r in rows if r.get("representation") == "pca"]
+        identities = {("pca" if r.get("representation") == "pca" else "reference",
+                       r["dimension"], r["rate"], r["schedule"], r["seed"]) for r in rows}
         seeds = {r["seed"] for r in rows}
         expected_identities = {
-            (dimension, rate, schedule, seed)
+            ("reference", dimension, rate, schedule, seed)
             for dimension in dimensions for rate in rates for schedule in schedules for seed in seeds
+        } | {
+            ("pca", dimension, rate, schedule, seed)
+            for dimension in pca_dimensions for rate in rates for schedule in schedules for seed in seeds
         }
         if (len(rows) != expected or len(seeds) != repetitions
                 or len(identities) != expected or identities != expected_identities):
@@ -142,10 +176,30 @@ def public_payload(source: dict[str, Any], source_path: Path) -> dict[str, Any]:
         "protocol": {
             "dimensions": dimensions, "rates": rates, "schedules": schedules,
             "repetitions": repetitions,
-            "planned_cells": len(dimensions) * len(rates) * len(schedules) * repetitions,
+            "planned_cells": expected,
         },
-        "summaries": summarize_rows(source["rows"]) if complete else [],
+        "summaries": summarize_rows(reference_rows) if complete else [],
     }
+    if has_pca:
+        study = source["pca_study"]
+        if (not complete or sorted(pca_dimensions) != sorted(dimensions)
+                or study["reused_cells"] != len(reference_rows)
+                or study["added_cells"] != len(pca_rows)
+                or study["baseline_rows_unchanged"] is not True or study["replay_pairing_exact"] is not True
+                or study["embedding_calls"] != 0 or study["judge_calls"] != 0
+                or study["fit_scope"] != "full_unlabeled_source_population"
+                or study["fit_source_count"] != profile["sessions"]
+                or study["solver"] != "full" or study["whiten"] is not False
+                or study["fit_once"] is not True
+                or any(row.get("representation_id") != f"pca_{row['dimension']}" for row in pca_rows)):
+            raise ValueError("PCA provenance does not match the combined study")
+        payload["pca_study"] = {key: study[key] for key in PCA_STUDY_FIELDS}
+        preparation = source["pca_preparation"]
+        payload["pca_preparation"] = {key: preparation[key] for key in (
+            "explained_variance_by_dimension", "fit_seconds", "solver", "whiten",
+            "fit_scope", "fit_source_count", "fit_seed",
+        ) if key in preparation}
+        payload["pca_summaries"] = summarize_pca(pca_rows, reference_rows)
     if "extension" in source:
         extension = source["extension"]
         reused, added = extension["reused_dimensions"], extension["added_dimensions"]
@@ -246,9 +300,11 @@ The question is prediction quality for reviews whose sentiment was not selected 
 <button id="tab-method" role="tab" aria-controls="method" aria-selected="false" tabindex="-1">Method</button>
 <button id="tab-dataset" role="tab" aria-controls="dataset" aria-selected="false" tabindex="-1">Dataset</button>
 <button id="tab-results" role="tab" aria-controls="results" aria-selected="false" tabindex="-1">Results</button>
+<button id="tab-pca" role="tab" aria-controls="pca" aria-selected="false" tabindex="-1" hidden>PCA comparison</button>
 <button id="tab-provenance" role="tab" aria-controls="provenance" aria-selected="false" tabindex="-1">Provenance</button></nav>
 <section id="overview" role="tabpanel" aria-labelledby="tab-overview">
 <div class="card notice" id="run-status"></div><div class="card" id="extension-note" hidden></div>
+<div class="card" id="pca-overview" hidden><h2>PCA added without changing the prefix results</h2><p id="pca-overview-text"></p><p id="pca-headline" class="takeaway"></p></div>
 <div class="grid"><div class="card stat"><span>Labeled source reviews</span><strong id="n"></strong><span>All treated as one agent</span></div>
 <div class="card stat"><span>Paired replay seeds</span><strong id="repetitions"></strong><span id="repeat-label"></span></div>
 <div class="card stat"><span>Embedding dimensions</span><strong id="dimension-count"></strong><span id="prefix-count"></span></div>
@@ -260,7 +316,7 @@ The question is prediction quality for reviews whose sentiment was not selected 
 <div class="step"><b>4. Estimate</b>Only earlier selected labels supply IDW and envelope calibration.</div>
 <div class="step"><b>5. Compare</b>Score unselected occurrences against their withheld sentiment labels.</div></div>
 <p class="takeaway">Short vectors save storage and distance-computation work, not the cost of the original 1,536-dimensional embedding call. This study tests every configured end-to-end pipeline, so membership may differ across dimensions.</p></div>
-<div class="card"><h2>Analysis and conclusion</h2><div id="conclusion"></div>
+<div class="card"><h2 id="reference-analysis-title">Analysis and conclusion</h2><div id="conclusion"></div>
 <p>Even a favorable result would apply to this polarized movie-review corpus, these budgets and replay settings.
 Sentiment prediction is not agent task completion. Repeated orders reuse the same labels; they do not measure new judge reliability or production generalization.</p></div>
 <div class="card"><h2>The budget picture at a glance</h2><p><b>What it shows:</b> mean all-unselected MAE, averaging both schedules within each seed.
@@ -269,8 +325,8 @@ Sentiment prediction is not agent task completion. Repeated orders reuse the sam
 <p class="takeaway" id="budget-conclusion"></p></div>
 </section>
 <section id="method" role="tabpanel" aria-labelledby="tab-method" hidden>
-<div class="card"><h2>Shared pipeline, tested representations</h2><p>Every arm uses the same source pool, label mapping, paired arrival draws and label budgets.
-The only representation change is the number of retained coordinates. There is no PCA, SVD, learned projection or reduced-dimension API call.</p>
+<div class="card"><h2>Shared pipeline, tested representations</h2><p id="representation-method-note">Every reference arm uses the same source pool, label mapping, paired arrival draws and label budgets.
+The reference arms retain native coordinates, without PCA, SVD, learned projection or reduced-dimension API calls.</p>
 <div class="scroll"><table><thead><tr><th>Arm</th><th>Representation</th><th>Selection</th><th>Prediction</th></tr></thead><tbody id="methods"></tbody></table></div>
 <h3>What &ldquo;end to end&rdquo; means here</h3><p>The existing ARM2 semantic selector processes each timestamped occurrence, with cosine cluster threshold 0.55, cluster TTL 90 and the existing novelty/rarity logic.
 Its proposed keeps rank first, then remaining occurrences; novelty, rarity and a deterministic tie-break rank each group. The first floor(N &times; budget rate) are selected.
@@ -344,6 +400,52 @@ Observed label coverage is the fraction of eligible labels inside the full lower
 <h3>Paired MAE change relative to native</h3><p>Positive means worse. Pair each seed/schedule/budget before taking replay quantiles; these describe order/frequency sensitivity, not independent-population confidence.</p>
 <div class="scroll"><table id="paired-table"><thead><tr><th>Dimension</th><th>Mean MAE difference</th><th>Replay 2.5% &ndash; 97.5%</th><th>Seeds</th></tr></thead><tbody></tbody></table></div></div>
 </section>
+<section id="pca" role="tabpanel" aria-labelledby="tab-pca" hidden>
+<div class="card"><h2>PCA versus native-coordinate prefixes</h2><p id="pca-fit-note"></p>
+<p>First normalize the native embedding, subtract the fitted corpus mean, rotate into the learned principal-component basis,
+keep its first d components and normalize each projected row to unit length. No sentiment labels enter fitting, no whitening is applied,
+and the fitted basis is reused across every replay. These are <b>learned components, not the first d original embedding coordinates</b>.</p>
+<p><b>Full-rank control:</b> PCA-1536 is centered and rotated, whereas native-1536 is uncentered. Rotation preserves centered geometry;
+centering and subsequent normalization can change cosine distances. PCA-1536 is a centering control, not a duplicate of native.</p>
+<p>The earlier PCA/SVD study used a single randomized PCA fit. Here a deterministic full-SVD PCA fit supplies all requested dimensions
+from one full-rank basis. SVD is used internally to fit PCA; a separate uncentered TruncatedSVD method is <b>not</b> being tested.</p>
+<p>This is <b>transductive</b>: PCA sees all review embeddings, including later evaluation features, but never their labels.
+IDW and Lipschitz calibration still use only earlier selected labels. This is not a held-out reducer test or independent-population validation.</p>
+<div class="controls"><label>Label budget<select id="pca-budget"></select></label>
+<label>Arrival schedule<select id="pca-schedule"><option value="all">Both schedules (paired seed mean)</option></select></label>
+<label>ROC dimension<select id="pca-dimension"></select></label></div><p id="pca-scope"></p>
+<p class="small">Membership is rerun in each geometry with the same novelty/rarity gate and hard budget.
+Comparisons share arrivals, source frequencies and seeds, not necessarily the same unselected targets.
+The existing native/prefix results are not rerun or overwritten.</p></div>
+<div class="card"><h2>1. Does PCA reduce imputation error?</h2>
+<p><b>What it shows:</b> all-unselected MAE in paired pipelines. <b>How to read:</b> lower bars are better; whiskers show the 2.5/97.5 percentiles of seed means, not population confidence intervals.</p>
+<div class="legend"><span><i class="dot" style="background:#007d7c"></i>Native / original-coordinate prefix</span><span><i class="dot" style="background:#af5215"></i>PCA components</span></div>
+<div class="scroll" id="pca-mae-chart"></div><p id="pca-mae-takeaway" class="takeaway"></p>
+<h3>Paired change from the corresponding reference</h3><p><b>What it shows:</b> PCA minus same-dimension prefix MAE (native at 1536).
+<b>How to read:</b> negative is an improvement. Pair seeds and schedules before calculating differences; crossing zero means effects vary across replay summaries.</p>
+<div class="scroll"><table id="pca-delta-table"><thead><tr><th>Dimension</th><th>Mean MAE difference</th><th>Replay 2.5% &ndash; 97.5%</th><th>Seeds</th></tr></thead><tbody></tbody></table></div></div>
+<div class="card"><h2>2. Do point and lower-envelope rankings change?</h2>
+<p><b>What it shows:</b> recall against false-positive rate. <b>How to read:</b> top-left is better; solid lines use point scores and dashed lines lower scores.
+Within each representation, both curves use identical envelope-eligible targets. The eligible sets can differ between PCA and prefix selection.</p>
+<div class="legend"><span><i class="dot" style="background:#007d7c"></i>Reference point / lower</span><span><i class="dot" style="background:#af5215"></i>PCA point / lower</span></div>
+<div class="scroll" id="pca-roc-chart"></div><p id="pca-roc-takeaway" class="takeaway"></p>
+<p class="small">Displayed curves average per-seed interpolated ROC; AUROC comes from exact tied retained scores.
+The lower envelope is a conditional sensitivity construction, not a confidence interval or calibrated probability.</p></div>
+<div class="card"><h2>3. Accuracy, precision, recall, F1 and denominators</h2>
+<p>All-unselected point scores exclude direct labels and include identified prior fallbacks. Classification uses score &gt;= 0.5.
+The novel-source diagnostic excludes earlier selected occurrences of the same source row, not related movies or duplicate text in another row.</p>
+<div class="scroll"><table id="pca-metrics-table"><thead><tr><th>Dimension</th><th>Representation</th><th>Mean n</th><th>MAE</th><th>Accuracy</th><th>Precision</th><th>Recall</th><th>F1</th><th>AUROC</th><th>Novel-source MAE</th></tr></thead><tbody></tbody></table></div>
+<h3>Matched envelope-eligible comparison</h3><div class="scroll"><table id="pca-envelope-table"><thead><tr><th>Representation</th><th>Estimator</th><th>Mean n</th><th>MAE</th><th>Accuracy</th><th>Precision</th><th>Recall</th><th>F1</th><th>AUROC</th></tr></thead><tbody></tbody></table></div>
+<h3>PCA scores: interpolation, exact matches and fallbacks</h3><div class="scroll"><table id="pca-diagnostics-table"><thead><tr><th>Dimension</th><th>Neighbor IDW</th><th>Exact match</th><th>Prior</th><th>Eligible sparse-L fallback</th><th>Observed label coverage</th></tr></thead><tbody></tbody></table></div></div>
+<div class="card"><h2>4. What PCA retained &mdash; and what the results mean</h2>
+<p><b>What it shows:</b> cumulative variance explained by the learned components before per-row normalization.
+<b>How to read:</b> this describes embedding reconstruction, not sentiment accuracy or calibrated confidence.</p>
+<div class="scroll"><table id="pca-variance-table"><thead><tr><th>Components</th><th>Explained variance</th></tr></thead><tbody></tbody></table></div>
+<p id="pca-analysis" class="takeaway"></p>
+<p>Any advantage may combine different membership, centering and reduced-space donor geometry; it cannot be attributed solely to imputation.
+The fit is fixed, so the replay intervals do not include PCA-training uncertainty. Time-forward or separate-calibration-set fitting,
+and a fixed-membership diagnostic, would be needed to separate these effects before deployment.</p></div>
+</section>
 <section id="provenance" role="tabpanel" aria-labelledby="tab-provenance" hidden>
 <div class="card"><h2>Reproducibility and evidence boundary</h2><dl id="provenance-list"></dl>
 <p>Input artifact: <code>__SOURCE__</code>. This is an explicit source, not an implicit &ldquo;latest&rdquo; run.
@@ -373,7 +475,8 @@ const fmt=(v,n=3)=>v==null?"Not measured":Number(v).toFixed(n);
 const count=v=>v==null?"Not measured":Math.round(v).toLocaleString("en-US");
 const text=(id,value)=>{$(id).textContent=value};
 function activate(tab){document.querySelectorAll('[role="tab"]').forEach(t=>{const active=t===tab;t.setAttribute("aria-selected",active);t.tabIndex=active?0:-1;$(t.getAttribute("aria-controls")).hidden=!active});}
-const tabs=[...document.querySelectorAll('[role="tab"]')];tabs.forEach((tab,i)=>{tab.addEventListener("click",()=>activate(tab));tab.addEventListener("keydown",e=>{let j=null;if(e.key==="ArrowRight")j=(i+1)%tabs.length;if(e.key==="ArrowLeft")j=(i+tabs.length-1)%tabs.length;if(e.key==="Home")j=0;if(e.key==="End")j=tabs.length-1;if(j!==null){e.preventDefault();tabs[j].focus();activate(tabs[j])}})});
+$("tab-pca").hidden=!D.pca_study;
+const tabs=[...document.querySelectorAll('[role="tab"]')].filter(t=>!t.hidden);tabs.forEach((tab,i)=>{tab.addEventListener("click",()=>activate(tab));tab.addEventListener("keydown",e=>{let j=null;if(e.key==="ArrowRight")j=(i+1)%tabs.length;if(e.key==="ArrowLeft")j=(i+tabs.length-1)%tabs.length;if(e.key==="Home")j=0;if(e.key==="End")j=tabs.length-1;if(j!==null){e.preventDefault();tabs[j].focus();activate(tabs[j])}})});
 function addOption(select,value,label){const o=document.createElement("option");o.value=value;o.textContent=label;select.append(o)}
 function addRow(body,values){const tr=document.createElement("tr");values.forEach(v=>{const td=document.createElement(body.tagName==="THEAD"?"th":"td");td.textContent=v;tr.append(td)});body.append(tr)}
 function addDl(id,pairs){const dl=$(id);pairs.forEach(([k,v])=>{const dt=document.createElement("dt"),dd=document.createElement("dd");dt.textContent=k;dd.textContent=v;dl.append(dt,dd)})}
@@ -455,6 +558,63 @@ D.protocol.dimensions.forEach(d=>{const values=D.protocol.rates.map(r=>cell(d,r)
 text("budget-conclusion",`Native has the lowest mean MAE in ${wins}/${D.protocol.rates.length} tested budget averages. Increasing label budget and increasing dimension are different decisions; neither should be summarized by one pooled winner score.`);
 }
 text("numeric-audit",D.score_validation?`Source-bound retained-score validation passed for ${count(D.score_validation.cells_checked)} cells. Maximum absolute difference across recomputed metrics: ${D.score_validation.maximum_absolute_metric_difference}. Validation artifact SHA-256: ${D.score_validation.sha256}`:"No numerical audit artifact was attached to this report build; consult the separately generated validation files.");
+function drawPca(){
+const rate=Number($("pca-budget").value),schedule=$("pca-schedule").value,dimension=Number($("pca-dimension").value);
+const rows=D.pca_study.dimensions.map(d=>D.pca_summaries.find(r=>r.dimension===d&&r.rate===rate&&r.schedule===schedule));
+const reference=d=>D.summaries.find(r=>r.dimension===d&&r.rate===rate&&r.schedule===schedule);
+const pca=rows.find(r=>r.dimension===dimension),base=reference(dimension);
+text("pca-scope",`Showing ${100*rate}% labels; ${$("pca-schedule").selectedOptions[0].textContent}. ROC compares ${dimension} components with the same-dimension reference.`);
+["pca-delta-table","pca-metrics-table","pca-envelope-table","pca-diagnostics-table"].forEach(id=>$(id).tBodies[0].replaceChildren());
+let chart=axes("All-unselected MAE (lower is better)"),step=650/rows.length;
+rows.forEach((r,i)=>{
+ const b=reference(r.dimension),x=65+step*(i+.5);
+ [b,r].forEach((item,j)=>{const m=item.cohorts.all_unselected.mae,cx=x+(j?14:-14);if(m.mean!=null){chart+=`<rect x="${cx-11}" y="${260-m.mean*240}" width="22" height="${m.mean*240}" fill="${j?'#af5215':'#007d7c'}"/><line x1="${cx}" x2="${cx}" y1="${260-m.high*240}" y2="${260-m.low*240}" stroke="#172d39" stroke-width="2"/>`}});
+ chart+=`<text x="${x}" y="287" text-anchor="middle">${r.dimension}</text>`;
+ const delta=r.paired_mae_delta_prefix;addRow($("pca-delta-table").tBodies[0],[r.dimension,fmt(delta.mean,4),`${fmt(delta.low,4)} to ${fmt(delta.high,4)}`,delta.replays]);
+ [[b,r.dimension===1536?"Native":"Prefix"],[r,"PCA"]].forEach(([item,label])=>{const m=item.cohorts.all_unselected;addRow($("pca-metrics-table").tBodies[0],[r.dimension,label,count(m.n.mean),...METRICS.map(k=>fmt(m[k].mean)),fmt(item.cohorts.novel_source.mae.mean)])});
+ const q=r.diagnostics;addRow($("pca-diagnostics-table").tBodies[0],[r.dimension,count(q.idw.mean),count(q.exact_match.mean),count(q.prior.mean),count(q.calibration_fallback_eligible.mean),fmt(q.envelope_label_coverage.mean)]);
+});
+$("pca-mae-chart").innerHTML=svg(chart,"PCA and same-dimension reference MAE with paired replay variability");
+const improvements=rows.filter(r=>r.paired_mae_delta_prefix.mean<0).length;
+text("pca-mae-takeaway",`PCA has lower mean MAE than its same-dimension reference in ${improvements}/${rows.length} comparisons in this scope. This includes the centered PCA-1536 versus uncentered native control. Negative paired differences favor PCA; inspect replay ranges before choosing a cutoff.`);
+let roc=axes("True-positive rate / recall");
+for(let i=0;i<=4;i++)roc+=`<text x="${65+i/4*650}" y="282" text-anchor="middle">${(i/4).toFixed(2)}</text>`;
+roc+='<line x1="65" y1="260" x2="715" y2="20" stroke="#9bafb5" stroke-dasharray="5 5"/><text x="390" y="310" text-anchor="middle">False-positive rate</text>';
+[[base,"Reference","#007d7c"],[pca,"PCA","#af5215"]].forEach(([item,label,color])=>{
+ ["point","lower"].forEach(method=>{const c=item.roc[method];if(c.tpr.length){const path=c.fpr.map((v,i)=>`${i?"L":"M"}${65+v*650},${260-c.tpr[i]*240}`).join(" ");roc+=`<path d="${path}" fill="none" stroke="${color}" stroke-width="3" ${method==="lower"?'stroke-dasharray="8 5"':''}/>`}
+ const m=item.cohorts[method==="point"?"eligible_point":"eligible_lower"];addRow($("pca-envelope-table").tBodies[0],[`${label} ${dimension}d`,method,count(m.n.mean),...METRICS.map(k=>fmt(m[k].mean))]);
+ });
+});
+$("pca-roc-chart").innerHTML=svg(roc,"PCA and reference point and lower-envelope ROC");
+text("pca-roc-takeaway",`${dimension}d exact eligible mean AUROC: PCA point ${fmt(pca.cohorts.eligible_point.auc.mean)} / lower ${fmt(pca.cohorts.eligible_lower.auc.mean)}; reference point ${fmt(base.cohorts.eligible_point.auc.mean)} / lower ${fmt(base.cohorts.eligible_lower.auc.mean)}. Their eligible n are ${count(pca.cohorts.eligible_point.n.mean)} and ${count(base.cohorts.eligible_point.n.mean)} per cell.`);
+const best=[...rows].sort((a,b)=>a.cohorts.all_unselected.mae.mean-b.cohorts.all_unselected.mae.mean)[0],native=reference(1536);
+text("pca-analysis",`In this scope, the lowest PCA mean MAE is ${fmt(best.cohorts.all_unselected.mae.mean)} at ${best.dimension}d, with accuracy ${fmt(100*best.cohorts.all_unselected.accuracy.mean,2)}% and F1 ${fmt(best.cohorts.all_unselected.f1.mean)}. Native MAE is ${fmt(native.cohorts.all_unselected.mae.mean)}; the same-dimension reference MAE is ${fmt(reference(best.dimension).cohorts.all_unselected.mae.mean)}. This is a descriptive grid result, not a validated optimal dimension. Lower MAE, threshold accuracy and lower-envelope precision/recall must be considered separately.`);
+}
+if(D.pca_study){
+const p=D.pca_study,prep=D.pca_preparation;
+document.title="IMDb | Native, prefix and PCA sampling";
+$("pca-overview").hidden=false;text("tab-results","Prefix results");text("reference-analysis-title","Native / prefix analysis (preserved scope)");
+text("representation-description",`Native embeddings, normalized original-coordinate prefixes and centered PCA at ${D.protocol.dimensions.join(", ")} dimensions.`);
+text("prefix-count",`${D.protocol.dimensions.length} native/prefix arms + ${p.dimensions.length} PCA arms`);
+text("pca-overview-text",`${count(p.added_cells)} PCA settings were added to ${count(p.reused_cells)} unchanged native/prefix settings, using the same real embeddings and exact paired arrival streams. A single unlabeled PCA fit on ${count(p.fit_source_count)} source reviews supplies every PCA dimension. No new embedding or judge calls were made. Full-rank PCA-1536 is a centered control, not the native vector.`);
+text("representation-method-note","The reference arms use normalized original-coordinate prefixes. Additional PCA arms center the full normalized input, project onto a single fitted component basis and normalize the retained components. Selection, budgets, causal IDW and conditional-envelope rules are unchanged. See PCA comparison for the fit scope and controls.");
+text("replay-design",`${D.protocol.repetitions} seeds x ${D.protocol.schedules.length} schedules x ${D.protocol.rates.length} budgets x ${D.protocol.dimensions.length+p.dimensions.length} representations = ${count(D.protocol.planned_cells)} cells. Each representation sees the same paired ${count(P.sessions)}-occurrence streams.`);
+$("run-status").innerHTML=`<h2>Measured native, prefix and PCA results</h2><p>${count(D.protocol.planned_cells)} completed replay cells. The original prefix results remain unchanged; the PCA comparison has a separate tab and disclosed transductive fit.</p>`;
+text("pca-fit-note",`Fit once on all ${count(p.fit_source_count)} source embeddings; solver=${p.solver}, whitening=${p.whiten}, recorded fit seed=${p.fit_seed}. Fit time: ${fmt(prep.fit_seconds,1)} seconds. The full source pool is used, including distinct rows containing duplicate text.`);
+for(const r of D.protocol.rates)addOption($("pca-budget"),r,`${100*r}% (${count(Math.floor(P.sessions*r))} selected)`);
+for(const schedule of D.protocol.schedules)addOption($("pca-schedule"),schedule,schedule.replaceAll("_"," "));
+for(const d of p.dimensions){addOption($("pca-dimension"),d,`${d} dimensions${d===1536?" (centering control)":""}`);const v=prep.explained_variance_by_dimension?.[String(d)];addRow($("pca-variance-table").tBodies[0],[d,v==null?"Not measured":`${fmt(100*v,2)}%`])}
+$("pca-budget").value=String(D.protocol.rates.includes(.05)?.05:D.protocol.rates[0]);
+const headlineRows=D.pca_summaries.filter(r=>r.rate===Number($("pca-budget").value)&&r.schedule==="all").sort((a,b)=>a.cohorts.all_unselected.mae.mean-b.cohorts.all_unselected.mae.mean);
+const best=headlineRows[0];text("pca-headline",`At ${100*Number($("pca-budget").value)}% labels across both schedules, the lowest PCA mean MAE is ${fmt(best.cohorts.all_unselected.mae.mean)} at ${best.dimension}d; accuracy ${fmt(100*best.cohorts.all_unselected.accuracy.mean,2)}%. This is a scoped mean, not a validated winner. Open PCA comparison for paired differences and all budgets.`);
+addDl("provenance-list",[["Preserved prefix aggregate SHA-256",p.baseline_aggregate_sha256],["PCA preparation manifest SHA-256",p.pca_manifest_sha256],["PCA fit scope",`${p.fit_scope}; ${count(p.fit_source_count)} rows; no labels; no whitening`]]);
+text("reproduction-commands",String.raw`.\.venv-v3\Scripts\python.exe scripts\prepare_imdb_pca.py
+.\.venv-v3\Scripts\python.exe scripts\run_imdb_pca.py --resume --workers 3
+.\.venv-v3\Scripts\python.exe scripts\validate_imdb_experiment.py --run outputs_imdb\private_runs\imdb-pca-40-replay
+.\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py --input outputs_imdb\private_runs\imdb-pca-40-replay\aggregate.json --output outputs_imdb\reports\imdb-40-replay --numerical-validation outputs_imdb\reports\imdb-40-replay\numerical_validation.json`);
+text("embedding-cost-note","These commands fit PCA and replay cached real vectors locally. They make no embedding, LLM judge or Azure Search calls. The original native/prefix run is preserved and supplies the exact paired reference streams.");
+["pca-budget","pca-schedule","pca-dimension"].forEach(id=>$(id).addEventListener("change",drawPca));drawPca();
+}
 draw();
 </script></body></html>
 """

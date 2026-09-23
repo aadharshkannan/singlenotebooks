@@ -41,7 +41,10 @@ def validate_report(report: Path, screenshots: Path) -> dict:
         payload = json.loads(data)
         for label, width, height in (("desktop", 1440, 1000), ("mobile", 390, 844)):
             page.set_viewport_size({"width": width, "height": height})
-            for tab in ("overview", "method", "dataset", "results", "provenance"):
+            tabs = ["overview", "method", "dataset", "results", "provenance"]
+            if "pca_study" in payload:
+                tabs.insert(4, "pca")
+            for tab in tabs:
                 page.locator(f"#tab-{tab}").click()
                 if not page.locator(f"#{tab}").is_visible():
                     issues.append(f"{label}/{tab}: tab did not activate")
@@ -78,6 +81,32 @@ def validate_report(report: Path, screenshots: Path) -> dict:
                         elif page.locator("#results svg").count() != 0:
                             issues.append("pending report fabricated a result chart")
             checks.append({"viewport": label, "filter_combinations": interactions})
+            if "pca_study" in payload:
+                page.locator("#tab-pca").click()
+                pca_interactions = 0
+                for rate in payload["protocol"]["rates"]:
+                    page.select_option("#pca-budget", str(rate))
+                    for schedule in ["all", *payload["protocol"]["schedules"]]:
+                        page.select_option("#pca-schedule", schedule)
+                        for dimension in payload["pca_study"]["dimensions"]:
+                            page.select_option("#pca-dimension", str(dimension))
+                            pca_interactions += 1
+                            expected = [row for row in payload["pca_summaries"]
+                                        if row["rate"] == rate and row["schedule"] == schedule]
+                            if page.locator("#pca-metrics-table tbody tr").count() != len(expected) * 2:
+                                issues.append("PCA metrics table does not match selected scope")
+                            if page.locator("#pca-delta-table tbody tr").count() != len(expected):
+                                issues.append("PCA paired-difference table scope mismatch")
+                            first = next(row for row in expected if row["dimension"] == payload["pca_study"]["dimensions"][0])
+                            expected_mae = first["cohorts"]["all_unselected"]["mae"]["mean"]
+                            shown = page.locator("#pca-metrics-table tbody tr").nth(1).locator("td").nth(3).inner_text()
+                            if shown != ("Not measured" if expected_mae is None else f"{expected_mae:.3f}"):
+                                issues.append("PCA displayed MAE differs from measured aggregate")
+                            if not page.locator("#pca-roc-takeaway").inner_text().startswith(f"{dimension}d "):
+                                issues.append("PCA ROC dimension did not update")
+                            if page.locator("#pca-envelope-table tbody tr").count() != 4:
+                                issues.append("PCA/reference point/lower cohort table incomplete")
+                checks.append({"viewport": label, "pca_filter_combinations": pca_interactions})
             page.locator("#tab-overview").focus()
             page.keyboard.press("ArrowRight")
             if page.locator("#tab-method").get_attribute("aria-selected") != "true":

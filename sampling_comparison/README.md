@@ -254,6 +254,90 @@ zero; parallel workers change execution order across independent replays only.
 The completed run preserved all 465 pre-switch additional cell checkpoints
 byte-for-byte and computed the remaining 735 with three workers.
 
+### PCA-only comparison (planned; results pending)
+
+The PCA follow-up preserves the completed 3,600-cell native/prefix study and
+adds PCA at **1536, 256, 128, 64, 32, 24, 16, 12 and 8 components**. The
+same 40 seeds, recorded bootstrap draws, two schedules and five label budgets
+give 3,600 new PCA cells and 7,200 combined cells. No new embeddings or judge
+calls are required. Three independent replay workers are used from the start.
+No PCA performance conclusion is available before this run completes.
+
+The earlier dense-corpus PCA/SVD experiment fitted a single reducer on the
+full unlabeled population (fit seed 13), then reused its leading components
+across dimensions and replays. This follow-up likewise fits on all 50K native
+review embeddings without sentiment labels, retaining duplicate-text source
+rows. The user was unavailable to clarify the fit population; matching that
+earlier full-population scope is the explicit assumption, not a held-out claim.
+
+The native vectors are L2-normalized, centered by PCA and projected once.
+For each requested dimension, retain the first d **learned principal components**
+and L2-normalize the resulting row. The full-rank shared basis uses deterministic
+`PCA(svd_solver="full", whiten=False, random_state=13)`, rather than the
+earlier study's randomized solver. The seed is recorded but does not randomize
+the full solver. Using one basis makes representations nested and avoids
+unnecessary repeated fits; it does not reuse original-coordinate prefixes.
+SVD is an internal numerical step of PCA, not a separate TruncatedSVD arm.
+
+**PCA-1536 is a centering control.** Full-rank rotation preserves the geometry
+of centered vectors, but centering and row normalization alter cosine/angular
+distances relative to the original uncentered native representation. It must
+not be relabeled as native or treated as an identical baseline.
+
+Fit once, without labels, on all source features: this is **transductive**.
+The replay intervals reflect order/frequency changes, not reducer-fit or
+independent-label uncertainty. Sampling membership is rerun in each PCA
+geometry; the comparison is end-to-end, not a fixed-membership imputation
+test. IDW donors and the 128-donor conditional Lipschitz calibration reservoir
+remain strictly earlier selected observations. PCA uses future features but
+no future labels; that distinction must stay visible.
+
+Preparation retains source-bound mean, components, singular values, explained
+variance and projected coordinates in `outputs_imdb/cache/imdb-pca-full/`.
+The original native cache and both original run bundles remain immutable.
+The new run is `outputs_imdb/private_runs/imdb-pca-40-replay/`; its rows
+identify `pca_<dimension>` explicitly to avoid collisions with prefix/native
+rows at the same dimension.
+
+```powershell
+.\.venv-v3\Scripts\python.exe scripts\prepare_imdb_pca.py
+.\.venv-v3\Scripts\python.exe scripts\run_imdb_pca.py --resume --workers 3
+.\.venv-v3\Scripts\python.exe scripts\validate_imdb_experiment.py `
+  --run outputs_imdb\private_runs\imdb-pca-40-replay
+.\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py `
+  --input outputs_imdb\private_runs\imdb-pca-40-replay\aggregate.json `
+  --output outputs_imdb\reports\imdb-40-replay `
+  --numerical-validation outputs_imdb\reports\imdb-40-replay\numerical_validation.json
+```
+
+The existing report remains on the completed prefix results until the full
+PCA comparison is ready. It will then gain a dedicated PCA tab: paired
+same-dimension MAE differences, accuracy/precision/recall/F1, point/lower ROC,
+novel-source diagnostics, explained variance and explicit fit assumptions.
+Each representation's point/lower ROC pair uses identical eligible targets;
+PCA and prefix memberships and eligible target populations may differ.
+
+The optional live progress page is a local-only display with one bar, refreshed
+every five seconds. It counts committed **new PCA** `cells/*.json` checkpoints
+out of 3,600; inherited reference cells and unfinished NPZ/temp files are excluded.
+It distinguishes fitting, replaying, final verification, completion and failure.
+The state file stays outside the experiment bundle so it cannot interfere with
+source-bound startup or immutable run artifacts.
+
+```powershell
+.\.venv-v3\Scripts\python.exe scripts\imdb_progress.py
+# The command prints its loopback URL. The workflow records stage transitions:
+.\.venv-v3\Scripts\python.exe scripts\imdb_progress.py --stage fitting
+.\.venv-v3\Scripts\python.exe scripts\imdb_progress.py --stage replaying
+.\.venv-v3\Scripts\python.exe scripts\imdb_progress.py --stage validating
+.\.venv-v3\Scripts\python.exe scripts\imdb_progress.py --stage complete
+```
+
+Only mark complete after the entire run, numeric audit and report checks finish.
+If a stage fails, record `--stage failed`; a saved-cell count alone is not a
+claim that validation or publication succeeded. The server exposes only the
+progress page and numeric status, never source files or credentials.
+
 ## Matryoshka prefix-cutoff (earlier datasets)
 
 `matryoshka_experiment.py` tests full-session first-coordinate truncation and

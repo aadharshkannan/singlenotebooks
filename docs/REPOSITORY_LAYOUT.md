@@ -52,6 +52,12 @@ This repository is organized around reproducible experiment outputs, source code
   `parallel_publication.json` recovery journal and its `execution_publication/`
   staged final artifacts. `execution_locks/` contains OS-lock backing files,
   not scientific evidence; do not remove them while a coordinator/worker runs.
+  PCA preparation remains local at `outputs_imdb/cache/imdb-pca-full/` with
+  fitted mean/components, projected vectors and provenance. Its new replay
+  bundle `outputs_imdb/private_runs/imdb-pca-40-replay/` references the preserved
+  native/prefix bundle and distinguishes representation families in row IDs.
+  Only aggregate PCA fit statistics and measured comparison summaries may
+  enter the published report; fitted per-review vectors remain local.
 - IDW threshold/envelope follow-ups also use `outputs_matryoshka/runs/`.
   Retain the report, threshold/ROC summaries, compressed per-target score
   evidence and provenance/validation manifests; these are reproducibility
