@@ -13,15 +13,15 @@
       },
       "state": {
         "content": {
-          "title": "IMDb | Full-review IDW and prefix dimensions",
-          "bodyTextLength": 6182,
-          "headingCount": 25,
+          "title": "IMDb | Native, prefix and PCA sampling",
+          "bodyTextLength": 6264,
+          "headingCount": 34,
           "headingsPreview": [
             "How far can we shorten a review embedding?",
-            "Measured replay results",
-            "Additional dimensions; original results preserved",
+            "Measured native, prefix and PCA results",
+            "PCA added without changing the prefix results",
             "The experiment in one minute",
-            "Analysis and conclusion",
+            "Native / prefix analysis (preserved scope)",
             "The budget picture at a glance"
           ],
           "brokenImages": []
@@ -30,7 +30,7 @@
           "width": 1440,
           "height": 1000,
           "scrollWidth": 1440,
-          "scrollHeight": 3259,
+          "scrollHeight": 3307,
           "overflowing": [],
           "hiddenClipping": []
         }
@@ -51,15 +51,15 @@
       },
       "state": {
         "content": {
-          "title": "IMDb | Full-review IDW and prefix dimensions",
-          "bodyTextLength": 6182,
-          "headingCount": 25,
+          "title": "IMDb | Native, prefix and PCA sampling",
+          "bodyTextLength": 6264,
+          "headingCount": 34,
           "headingsPreview": [
             "How far can we shorten a review embedding?",
-            "Measured replay results",
-            "Additional dimensions; original results preserved",
+            "Measured native, prefix and PCA results",
+            "PCA added without changing the prefix results",
             "The experiment in one minute",
-            "Analysis and conclusion",
+            "Native / prefix analysis (preserved scope)",
             "The budget picture at a glance"
           ],
           "brokenImages": []
@@ -68,7 +68,7 @@
           "width": 390,
           "height": 844,
           "scrollWidth": 390,
-          "scrollHeight": 6384,
+          "scrollHeight": 6550,
           "overflowing": [],
           "hiddenClipping": []
         }

@@ -1,6 +1,6 @@
 # Agent Evaluation Sampling Context
 
-Updated: 2026-09-23. This is the repo's working context, combining the team's
+Updated: 2026-09-24. This is the repo's working context, combining the team's
 stated direction with separately identified implementation and experiment evidence.
 It is not a production rollout claim. Preserve these distinctions in future reports.
 
@@ -232,7 +232,7 @@ source-review frequency.
 At 5% label budget, native/32d/8d unselected MAE is 0.2054/0.2449/0.3226,
 and accuracy is 89.60%/83.03%/74.37%. The added 256/128/64 MAEs at 5% are
 0.2242/0.2358/0.3028, with accuracy 87.91%/87.09%/80.35%.
-Native has the lowest mean MAE at four of five budget averages. At 20%,
+Within the native/prefix family, native has the lowest mean MAE at four of five budget averages. At 20%,
 128d mean MAE is lower (0.1645 versus 0.1703), but accuracy is lower too
 (90.55% versus 91.35%); its paired MAE replay range crosses zero.
 Prefix curves are not globally monotonic, and an MAE improvement is not
@@ -251,6 +251,39 @@ targets from repeated-review reuse. Train/test reviews are combined, so these
 are neither held-out IMDb benchmark results nor agent-task-completion evidence.
 Independent retained-score checks cover every cell, verify all source/artifact
 hashes and reproduce the requested metrics with zero discrepancy.
+
+### Completed paired PCA comparison
+
+An additive PCA-only follow-up contributes 3,600 more cells, bringing the
+combined report to 7,200 cells without changing any original native/prefix
+result. The PCA basis is fitted once on all 50K normalized native embeddings,
+without labels or whitening, using deterministic full SVD. The same nine
+dimensions use leading learned components and row normalization.
+PCA-1536 is a centered full-rank control, not the uncentered native baseline.
+This follows the earlier dimensionality study's full-unlabeled fit scope but
+uses a full rather than randomized solver.
+
+At 5% labels, PCA-8 mean MAE is 0.1186 and accuracy 92.32%, versus native
+0.2054 and 89.60%; PCA-8 mean MAE is 42.3% lower. The native-paired replay
+MAE difference is -0.0869 with 2.5/97.5 range [-0.0958, -0.0779].
+PCA-8 has the lowest PCA mean MAE at all five budgets, while PCA-12 has the
+highest mean accuracy at 20%. PCA has lower mean MAE than its same-dimension
+native/prefix reference in all 45 dimension-budget averages.
+PCA-8 novel-source MAE at 5% is 0.1217 versus native 0.2104.
+
+PCA-8 lower-envelope thresholding still trades recall for precision:
+precision 90.78% to 96.71%, recall 94.19% to 69.99%, F1 0.9245 to 0.8120.
+Neither this nor its 89.49% observed label coverage establishes a confidence
+interval or a calibrated production bound. The 21.28% variance retained by
+eight components is not an accuracy metric.
+
+These results are transductive: future evaluation features influence the
+unlabeled PCA basis, while labels remain causally restricted. Centering,
+dimensionality and changed selection membership can all contribute; the
+experiment does not establish a pure denoising effect or a universal optimum.
+The six-worker continuation preserves all 315 pre-switch PCA checkpoints.
+Independent validation covers all 7,200 cells and all fitted projections,
+with zero discrepancy in the retained metrics and no additional API calls.
 
 ## Reporting contract
 

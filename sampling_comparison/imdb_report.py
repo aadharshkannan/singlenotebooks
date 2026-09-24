@@ -462,6 +462,13 @@ The novel-source diagnostic excludes earlier selected occurrences of the same so
 <p>Any advantage may combine different membership, centering and reduced-space donor geometry; it cannot be attributed solely to imputation.
 The fit is fixed, so the replay intervals do not include PCA-training uncertainty. Time-forward or separate-calibration-set fitting,
 and a fixed-membership diagnostic, would be needed to separate these effects before deployment.</p></div>
+<div class="card"><h2>5. PCA findings across all budgets</h2>
+<p><b>What it shows:</b> both schedules averaged within each of the 40 paired seeds, independent of the controls above.
+<b>How to read:</b> compare unselected MAE and accuracy together. The best-MAE PCA dimension is a descriptive grid minimum, not a deployment guarantee.</p>
+<div class="scroll"><table id="pca-budget-table"><thead><tr><th>Label budget</th><th>Native MAE</th><th>Prefix-8 MAE</th><th>PCA-8 MAE</th><th>PCA-8 accuracy</th><th>Lowest PCA MAE dimension</th></tr></thead><tbody></tbody></table></div>
+<div id="pca-conclusion"></div>
+<p class="small">The corpus contains polarized movie reviews, not production agent traces. Sentiment labels are the reference, not new LLM judgments.
+The PCA basis was learned from all source features once, including the reviews later scored; these results must not be presented as held-out benchmark accuracy.</p></div>
 </section>
 <section id="provenance" role="tabpanel" aria-labelledby="tab-provenance" hidden>
 <div class="card"><h2>Reproducibility and evidence boundary</h2><dl id="provenance-list"></dl>
@@ -631,9 +638,31 @@ text("reproduction-commands",String.raw`.\.venv-v3\Scripts\python.exe scripts\pr
 .\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py --input outputs_imdb\private_runs\imdb-pca-40-replay\aggregate.json --output outputs_imdb\reports\imdb-40-replay --numerical-validation outputs_imdb\reports\imdb-40-replay\numerical_validation.json`);
 text("embedding-cost-note","These commands fit PCA and replay cached real vectors locally. They make no embedding, LLM judge or Azure Search calls. The original native/prefix run is preserved and supplies the exact paired reference streams.");
 if(D.pca_execution?.scaling){const x=D.pca_execution,lines=$("reproduction-commands").textContent.split("\n");
-lines[1]=String.raw`.\.venv-v3\Scripts\python.exe scripts\scale_imdb_pca.py --workers 6`;text("reproduction-commands",lines.join("\n"));
+lines[0]=String.raw`.\.venv-v3\Scripts\python.exe scripts\prepare_imdb_pca.py --resume`;lines[1]=String.raw`.\.venv-v3\Scripts\python.exe scripts\scale_imdb_pca.py --workers 6`;text("reproduction-commands",lines.join("\n"));
 addDl("provenance-list",[["PCA replay workers",x.workers],["PCA checkpoints preserved when scaling",count(x.scaling.preserved_cells)],["PCA scaling transition SHA-256",x.scaling.transition_sha256]]);
 }
+const pcaCell=(d,rate)=>D.pca_summaries.find(r=>r.dimension===d&&r.rate===rate&&r.schedule==="all");
+const refCell=(d,rate)=>D.summaries.find(r=>r.dimension===d&&r.rate===rate&&r.schedule==="all");
+let improved=0,comparisons=0,eightBest=0;
+for(const rate of D.protocol.rates){
+ const rs=p.dimensions.map(d=>pcaCell(d,rate)),minimum=Math.min(...rs.map(r=>r.cohorts.all_unselected.mae.mean));
+ const winners=rs.filter(r=>Math.abs(r.cohorts.all_unselected.mae.mean-minimum)<1e-12).map(r=>r.dimension);
+ if(winners.includes(8))eightBest++;
+ for(const r of rs){comparisons++;if(r.cohorts.all_unselected.mae.mean<refCell(r.dimension,rate).cohorts.all_unselected.mae.mean)improved++}
+ const n=refCell(1536,rate),r=refCell(8,rate),q=pcaCell(8,rate);
+ addRow($("pca-budget-table").tBodies[0],[`${100*rate}%`,fmt(n?.cohorts.all_unselected.mae.mean,4),fmt(r?.cohorts.all_unselected.mae.mean,4),fmt(q?.cohorts.all_unselected.mae.mean,4),q?`${fmt(100*q.cohorts.all_unselected.accuracy.mean,2)}%`:"Not measured",winners.join(", ")]);
+}
+function pcaConclusion(message){const paragraph=document.createElement("p");paragraph.textContent=message;$("pca-conclusion").append(paragraph)}
+pcaConclusion(`Measured: PCA has lower mean MAE than its corresponding native/prefix reference in ${improved}/${comparisons} dimension-budget averages. PCA-8 attains the lowest PCA mean MAE in ${eightBest}/${D.protocol.rates.length} budgets. These averages use the same paired source arrivals; they are not independent-label confidence estimates.`);
+const eight=pcaCell(8,.05),native=refCell(1536,.05),centered=pcaCell(1536,.05);
+if(eight&&native&&centered){
+ const e=eight.cohorts,delta=eight.paired_mae_delta_native,nativeMae=native.cohorts.all_unselected.mae.mean;
+ pcaConclusion(`At 5% labels, PCA-8 MAE is ${fmt(e.all_unselected.mae.mean,4)} versus native ${fmt(nativeMae,4)}, a ${fmt(100*(1-e.all_unselected.mae.mean/nativeMae),1)}% relative decrease. Accuracy is ${fmt(100*e.all_unselected.accuracy.mean,2)}% versus native ${fmt(100*native.cohorts.all_unselected.accuracy.mean,2)}%. The paired native-MAE difference is ${fmt(delta.mean,4)} with replay range ${fmt(delta.low,4)} to ${fmt(delta.high,4)}. Novel-source MAE remains ${fmt(e.novel_source.mae.mean,4)} versus native ${fmt(native.cohorts.novel_source.mae.mean,4)}, so reuse of the same previously selected review is not the whole explanation.`);
+ pcaConclusion(`Centering matters: the full-rank PCA-1536 control has MAE ${fmt(centered.cohorts.all_unselected.mae.mean,4)} versus native ${fmt(nativeMae,4)} despite retaining every component. PCA-8 then changes the representation further. Reduced-space selection and interpolation may concentrate useful sentiment structure, but a denoising explanation is an interpretation, not a demonstrated causal mechanism.`);
+ pcaConclusion(`PCA-8 lower-envelope thresholding at 0.5 changes eligible precision from ${fmt(100*e.eligible_point.precision.mean,2)}% to ${fmt(100*e.eligible_lower.precision.mean,2)}%, recall from ${fmt(100*e.eligible_point.recall.mean,2)}% to ${fmt(100*e.eligible_lower.recall.mean,2)}%, and F1 from ${fmt(e.eligible_point.f1.mean)} to ${fmt(e.eligible_lower.f1.mean)}. This remains a precision/recall tradeoff, not a free improvement or calibrated confidence interval. Its observed full-envelope label coverage is ${fmt(100*eight.diagnostics.envelope_label_coverage.mean,2)}%, which is descriptive rather than a coverage guarantee.`);
+}
+const endRate=D.protocol.rates[D.protocol.rates.length-1],endRows=p.dimensions.map(d=>pcaCell(d,endRate)),accuracyBest=Math.max(...endRows.map(r=>r.cohorts.all_unselected.accuracy.mean)),accuracyLeaders=endRows.filter(r=>Math.abs(r.cohorts.all_unselected.accuracy.mean-accuracyBest)<1e-12).map(r=>r.dimension);
+pcaConclusion(`Metric choice still matters: at ${100*endRate}% labels, the highest mean PCA accuracy is ${fmt(100*accuracyBest,2)}% at ${accuracyLeaders.join(", ")} components; the lowest-MAE choice need not be the highest-accuracy choice. Explained embedding variance is not task accuracy. The next discriminating check is a separate or time-forward PCA calibration set, plus fixed-membership comparisons to isolate selection effects. No universally optimal dimension or production rollout is established here.`);
 ["pca-budget","pca-schedule","pca-dimension"].forEach(id=>$(id).addEventListener("change",drawPca));drawPca();
 }
 draw();

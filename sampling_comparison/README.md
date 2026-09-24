@@ -254,14 +254,43 @@ zero; parallel workers change execution order across independent replays only.
 The completed run preserved all 465 pre-switch additional cell checkpoints
 byte-for-byte and computed the remaining 735 with three workers.
 
-### PCA-only comparison (planned; results pending)
+### PCA-only comparison (completed)
 
 The PCA follow-up preserves the completed 3,600-cell native/prefix study and
 adds PCA at **1536, 256, 128, 64, 32, 24, 16, 12 and 8 components**. The
 same 40 seeds, recorded bootstrap draws, two schedules and five label budgets
-give 3,600 new PCA cells and 7,200 combined cells. No new embeddings or judge
-calls are required. Three independent replay workers are used from the start.
-No PCA performance conclusion is available before this run completes.
+give 3,600 completed PCA cells and 7,200 combined cells. No new embedding or
+judge calls were made. Three workers started the run; a verified six-worker
+continuation preserved all 315 already-completed PCA cells byte-for-byte.
+All 135 original native/prefix public summaries remain unchanged.
+
+At 5% labels, averaging both schedules within each of 40 paired seeds:
+
+| Components | PCA MAE | Reference MAE | PCA accuracy | PCA precision | PCA recall | PCA F1 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1536 (centering control) | 0.1844 | 0.2054 | 89.42% | 87.50% | 92.01% | 0.8969 |
+| 256 | 0.1812 | 0.2242 | 89.74% | 88.13% | 91.89% | 0.8996 |
+| 128 | 0.1782 | 0.2358 | 90.14% | 88.77% | 91.92% | 0.9031 |
+| 64 | 0.1759 | 0.3028 | 90.64% | 89.68% | 91.87% | 0.9075 |
+| 32 | 0.1750 | 0.2449 | 91.12% | 90.85% | 91.48% | 0.9116 |
+| 24 | 0.1722 | 0.2585 | 91.29% | 91.16% | 91.48% | 0.9131 |
+| 16 | 0.1516 | 0.2832 | 91.97% | 91.31% | 92.80% | 0.9205 |
+| 12 | 0.1319 | 0.2984 | 92.21% | 90.89% | 93.82% | 0.9233 |
+| 8 | 0.1186 | 0.3226 | 92.32% | 90.78% | 94.19% | 0.9245 |
+
+Reference means uncentered native at 1536, original-coordinate prefix otherwise.
+PCA has lower mean MAE in all 45 dimension-budget comparisons. PCA-8 has the
+lowest PCA mean MAE at all five budgets; at 20%, PCA-12 has slightly higher
+accuracy (93.31% versus PCA-8 93.22%). At 5%, PCA-8 improves mean MAE over
+native by 42.3%; its paired difference is -0.0869 with replay 2.5/97.5 range
+[-0.0958, -0.0779]. Novel-source MAE is 0.1217 versus native 0.2104.
+This does not isolate denoising from centering, changed membership or donor geometry.
+
+PCA-8 lower-envelope classification at threshold 0.5 raises precision from
+90.78% to 96.71%, but lowers recall from 94.19% to 69.99% and F1 from 0.9245
+to 0.8120. Eligible point/lower AUROC is 0.9694/0.9571. Observed full-envelope
+label coverage is 89.49%, not calibrated confidence coverage.
+The PCA-8 variance fraction is 21.28%; variance retained is not sentiment accuracy.
 
 The earlier dense-corpus PCA/SVD experiment fitted a single reducer on the
 full unlabeled population (fit seed 13), then reused its leading components
@@ -310,12 +339,16 @@ rows at the same dimension.
   --numerical-validation outputs_imdb\reports\imdb-40-replay\numerical_validation.json
 ```
 
-The existing report remains on the completed prefix results until the full
-PCA comparison is ready. It will then gain a dedicated PCA tab: paired
+The existing report now includes the completed PCA comparison in a dedicated
+tab, while preserving the prefix result summaries. It contains paired
 same-dimension MAE differences, accuracy/precision/recall/F1, point/lower ROC,
 novel-source diagnostics, explained variance and explicit fit assumptions.
 Each representation's point/lower ROC pair uses identical eligible targets;
 PCA and prefix memberships and eligible target populations may differ.
+The final independent audit checks 7,200 cells, 17,467 artifact hashes and
+332,640,000 repeated unselected occurrences, with zero discrepancy in
+recomputed metrics. Every projected PCA row also matches the frozen
+unwhitened transform; full-rank reconstruction verifies the centered control.
 
 The optional live progress page is a local-only display with one bar, refreshed
 every five seconds. It counts committed **new PCA** `cells/*.json` checkpoints
