@@ -29,6 +29,35 @@ This repository is organized around reproducible experiment outputs, source code
   summaries, source/output hash manifests and validation records. Their builders
   leave canonical run bundles untouched. New screenshots stay in each report's
   local `validation_screenshots/` directory.
+- `outputs_imdb/cache/` retains source-bound public-review preparation metadata
+  and expensive native embedding batches locally. The original downloaded
+  benchmark archive stays under `external_data/imdb/`.
+  `outputs_imdb/private_runs/` retains resumable per-occurrence replay evidence,
+  memberships, score arrays and full aggregates locally. Both output trees are
+  Git-ignored and are not disposable scratch.
+  `outputs_imdb/reports/` contains aggregate-only HTML/JSON reports and validation
+  records. A preparation report must visibly say results are pending and must
+  not draw invented metric charts. Browser images stay in each report's
+  `validation_screenshots/` directory. Never publish review text, credentials,
+  endpoint configuration, per-review hashes or embedding vectors.
+  Additive dimension runs use a separate directory such as
+  `outputs_imdb/private_runs/imdb-40-replay-extended/`; their merged aggregate
+  references unchanged evidence in the original private run. Do not move either
+  bundle independently or copy/rewrite the original scores merely to extend a
+  report. Retain the original manifest and the extension's source-bound
+  row-parity/replay-pairing audit.
+  Parallel continuation keeps the original preregistration/checkpoints intact
+  and records its scheduling transition and preserved hashes in
+  `parallel_transition.json`. Retain `parallel_progress.jsonl`, the
+  `parallel_publication.json` recovery journal and its `execution_publication/`
+  staged final artifacts. `execution_locks/` contains OS-lock backing files,
+  not scientific evidence; do not remove them while a coordinator/worker runs.
+  PCA preparation remains local at `outputs_imdb/cache/imdb-pca-full/` with
+  fitted mean/components, projected vectors and provenance. Its new replay
+  bundle `outputs_imdb/private_runs/imdb-pca-40-replay/` references the preserved
+  native/prefix bundle and distinguishes representation families in row IDs.
+  Only aggregate PCA fit statistics and measured comparison summaries may
+  enter the published report; fitted per-review vectors remain local.
 - IDW threshold/envelope follow-ups also use `outputs_matryoshka/runs/`.
   Retain the report, threshold/ROC summaries, compressed per-target score
   evidence and provenance/validation manifests; these are reproducibility

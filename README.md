@@ -24,6 +24,55 @@ quality checker. Existing notebooks and run paths are retained for compatibility
 
 ## Matryoshka prefix-cutoff experiment
 
+### IMDb 50K follow-up (completed)
+
+The [IMDb experiment report](outputs_imdb/reports/imdb-40-replay/report.html)
+documents a new single-agent sentiment study using the original Stanford
+50,000 labeled movie reviews. Native 1536-dimensional `text-embedding-3-small`
+vectors are compared with normalized prefixes of 256, 128, 64, 32, 24, 16, 12 and 8.
+The same dimensions also have a separate centered PCA comparison, including
+a full-rank PCA-1536 centering control.
+The completed sweep has 40 paired bootstrap seeds, uniform/bursty arrivals and
+five label budgets. It measures unselected MAE, accuracy, precision, recall,
+F1 and matched-cohort point/lower-envelope ROC, with a separate novel-source
+diagnostic for review repetition.
+
+**All 7,200 settings completed using real Azure embeddings:** 3,600 native/prefix
+settings plus 3,600 PCA settings. The original native/prefix results remain
+unchanged; no new embedding or judge calls were required for PCA.
+At 5% labels, **PCA-8 MAE is 0.1186 and accuracy 92.32%**, versus native
+0.2054 and 89.60%: **42.3% lower mean MAE** in this replay study.
+PCA-8 has the lowest PCA mean MAE at all five budgets, but not always the
+highest accuracy. PCA is fitted once on all 50K unlabeled embeddings, so this
+is a **transductive, not held-out** result. The dedicated PCA tab shows paired
+differences, centering effects, variance, ROC and limitations.
+
+**Preserved native/prefix results:** the additive
+256/128/64 study contributed 1,200 cells while preserving the original 2,400.
+At the 5% label budget, averaging both schedules within each seed,
+native / 256d / 128d / 64d unselected MAE is
+**0.2054 / 0.2242 / 0.2358 / 0.3028**, and accuracy is
+**89.60% / 87.91% / 87.09% / 80.35%**.
+Within that family, native has the lowest average MAE at four of five tested budgets. At 20%,
+128d has lower mean MAE (0.1645 versus 0.1703) but lower accuracy
+(90.55% versus 91.35%), and its paired MAE replay range crosses zero.
+The prefix curves are not globally monotonic: 64d has worse MAE than 32d
+at 5% budget. At threshold
+0.5, the native lower-envelope classifier raises eligible precision from
+87.9% to 99.2% but reduces recall from 91.5% to 3.0%; it is not an overall
+classification improvement or a calibrated confidence bound.
+
+Embedding preparation used 49,581 unique inputs, 775 successful requests and
+14,166,270 reported input tokens; the extensions made no additional API calls.
+Replays are offline, use retained sentiment
+labels instead of a judge, and do not constitute independent-population
+confidence or held-out IMDb benchmark performance. See the
+[offline preparation and live/resume commands](sampling_comparison/README.md#imdb-50k-sentiment-follow-up).
+This larger study uses a bounded causal calibration reservoir; it does not
+claim numerical parity with the earlier all-pair envelope experiment.
+
+### Retained previous corpora
+
 **Refreshed Cosmos snapshot (September 15, cutoff 13:40:42 UTC):**
 [32-to-2 dimension report](outputs_matryoshka/reports/mrl-cosmos-refresh-20260915/report.html)
 and [IDW ROC / lower-envelope report](outputs_matryoshka/reports/idw-threshold-cosmos-refresh-20260915/report.html).

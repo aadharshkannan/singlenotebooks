@@ -34,7 +34,366 @@ selection to calculate pass-rate MAE, fraction saved, and concept coverage.
 No LLM judge is called by the V2 experiment. The optional compressed-evidence
 judge path remains in `trace_sampling`, disabled by default.
 
-## Matryoshka prefix-cutoff
+## IMDb 50K sentiment follow-up
+
+`imdb_inputs.py`, `imdb_experiment.py` and `imdb_report.py` provide a separate,
+single-agent full-review experiment. The request did not include a dataset
+URL; its 50K positive/negative movie-review description is interpreted as
+Stanford's original **Large Movie Review Dataset v1.0** (Maas et al., ACL 2011).
+The labeled train/test partitions are deliberately combined. This is an
+imputation/replay study, **not held-out IMDb benchmark accuracy**.
+
+Current evidence: 50,000 labeled reviews, 25,000 per class, 49,581 distinct
+normalized embedding inputs, 419 duplicate-text rows, no conflicting-label
+text groups, and no reviews exceeding the 8,191-token limit. Unique inputs
+contain 14,166,270 `cl100k_base` tokens. The archive SHA-256 is
+`c40f74a18d3b61f90feba1e17730e0d38e8b97c05fde7008942e91923d1658fe`.
+These are observed **input statistics**, not model results or billed API tokens.
+The local input cache and archive are not checked into Git.
+
+The authorized Azure preparation has now completed: **775 successful requests,
+14,166,270 reported API input tokens, zero judge calls**, with a verified
+`[50000,1536]` native `text-embedding-3-small` matrix. Vector-file SHA-256:
+`7218d733c1fafea421feb4f513f3a578cd3d2ad39c4146242764c52eb51733ba`.
+All **3,600 real-vector replay cells** completed: the original 2,400 plus 1,200
+added 256/128/64-dimensional cells. All original rows and published metric
+summaries are unchanged. The aggregate-only
+[report](../outputs_imdb/reports/imdb-40-replay/report.html) contains every budget,
+dimension and schedule. At 5% budget (both schedules averaged within seeds):
+
+| Dimensions | Unselected MAE | Accuracy | Precision | Recall | F1 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1536 | 0.2054 | 89.60% | 87.93% | 91.50% | 0.8966 |
+| 256 | 0.2242 | 87.91% | 84.56% | 92.25% | 0.8821 |
+| 128 | 0.2358 | 87.09% | 84.65% | 90.22% | 0.8732 |
+| 64 | 0.3028 | 80.35% | 75.15% | 89.72% | 0.8173 |
+| 32 | 0.2449 | 83.03% | 88.14% | 75.83% | 0.8149 |
+| 24 | 0.2585 | 81.39% | 87.46% | 72.88% | 0.7947 |
+| 16 | 0.2832 | 78.98% | 81.85% | 74.21% | 0.7782 |
+| 12 | 0.2984 | 77.16% | 78.89% | 73.97% | 0.7633 |
+| 8 | 0.3226 | 74.37% | 75.74% | 71.55% | 0.7357 |
+
+Native has lower mean MAE than every prefix at four of five budget averages.
+At 20% budget, 128d has mean MAE 0.1645 versus native 0.1703, but accuracy
+90.55% versus 91.35%. The paired MAE difference is -0.00582 with a
+2.5/97.5 replay range of [-0.01256, +0.00057]; it is not uniformly favorable,
+does not establish population confidence, and does not mean all metrics improve.
+The native/8d novel-source MAEs at 5% are 0.2104/0.3307, so earlier observations
+of the same review do not explain away the gap. Prefix quality is not globally
+monotonic: at 1% budget, 8d MAE is 0.3475 versus 32d 0.3565; at 5%, 64d MAE
+is 0.3028 versus 32d 0.2449. Since each representation reruns membership,
+these differences are not isolated imputation-only geometry effects.
+
+On matched native envelope-eligible targets at 5%, lower-envelope thresholding
+raises precision from 87.93% to 99.17%, but recall falls from 91.50% to 3.04%;
+mean exact AUROC falls from 0.9605 to 0.7580. High precision with very low recall
+is not an overall classification improvement. These findings concern causal
+imputation under the replay protocol, not a deployable calibrated classifier.
+The retained-score audit finds 73.42% of native eligible lower scores clipped
+to zero at 5%; the mean full-envelope width is 0.9094 on the 0-1 scale.
+Broad envelopes can have high observed label coverage without being informative.
+
+The executed design uses 40 paired bootstrap seeds, two arrival schedules (uniform
+and bursty), five occurrence-label budgets (1%, 2%, 5%, 10%, 20%) and nine
+dimensions (1536, 256, 128, 64, 32, 24, 16, 12, 8): **3,600 cells**.
+The original six-dimension stage contains 2,400 of these cells. Draw 50K occurrences
+with replacement per seed to change both order and review frequency. Every
+dimension/budget sees the same stream for that seed/schedule. Selection reuses
+the existing ARM2 label-blind full-schedule ranking; only IDW and calibration
+are causal. This is not strictly online membership selection.
+
+Point estimation uses normalized angular distance, eight earlier selected
+donors, inverse-square weights and epsilon `1e-6`; exact matches average all
+earlier matching donors. A source-repeat diagnostic excludes targets with an
+earlier selected occurrence of that source. Distinct source rows containing
+identical text can still match. Primary metrics exclude directly observed
+labels. Eligible-point and eligible-lower metrics/ROC use identical targets.
+All-unselected includes any prior/fallback scores separately accounted for.
+
+To avoid 50K-by-50K distance matrices, the replay implementation evaluates
+bounded target/donor blocks. The causal Lipschitz calibration uses a deterministic
+uniform reservoir of up to 128 earlier selected occurrences, q90 pair slopes,
+angular denominator floor 0.01 and sparse fallback L=1. This is a documented
+scale adaptation from the previous all-pair study, not baseline parity.
+The envelope is a conditional sensitivity construction, not a confidence
+interval. Replay percentile ranges reuse labels and are not population CIs.
+
+Prepare the public source locally (no extraction of arbitrary archive members):
+
+```powershell
+New-Item -ItemType Directory -Force external_data\imdb | Out-Null
+curl.exe --fail --location https://ai.stanford.edu/~amaas/data/sentiment/aclImdb_v1.tar.gz `
+  --output external_data\imdb\aclImdb_v1.tar.gz
+.\.venv-v3\Scripts\python.exe scripts\prepare_imdb_input.py
+```
+
+One review is one single-message session. Normalize HTML line breaks/entities
+and outer whitespace; embed the whole review text without labels, scores or
+filenames. Cap at 8,191 tokens if necessary and record truncation. Request
+native 1536 vectors once; never use PCA/SVD or a reduced-dimension API request.
+Retain all source rows while sharing embeddings for identical emitted text.
+
+The following command explicitly enables paid embedding requests using only
+this worktree's `.env` (or an explicit `--env-file`) and process environment.
+It uses the existing Azure embedding client, checks the returned model/dimension,
+and resumes only source-bound, hash-verified batches. It never calls a judge.
+Supply `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` and the
+appropriate API key or existing Entra credentials. Do not paste secrets into
+reports or source files. No Azure Search resource is needed.
+
+```powershell
+.\.venv-v3\Scripts\python.exe scripts\prepare_imdb_input.py --live --env-file .env
+.\.venv-v3\Scripts\python.exe scripts\run_imdb_experiment.py
+.\.venv-v3\Scripts\python.exe scripts\validate_imdb_experiment.py
+.\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py `
+  --input outputs_imdb\private_runs\imdb-40-replay\aggregate.json `
+  --output outputs_imdb\reports\imdb-40-replay `
+  --numerical-validation outputs_imdb\reports\imdb-40-replay\numerical_validation.json
+```
+
+The runner defaults to four BLAS threads and records its runtime. Offline
+replays checkpoint per-cell memberships/scores and bind their configuration,
+input and method hashes. Rerun the same command to resume; incompatible evidence
+must use a new output directory. Private score arrays and expensive caches are
+retained, not disposable files. A complete aggregate is written only after
+all planned cells finish.
+
+Without embeddings, build a clearly marked preparation report instead:
+
+```powershell
+.\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py `
+  --input outputs_imdb\cache\imdb-50000\readiness.json `
+  --output outputs_imdb\reports\imdb-40-replay
+.\.venv-v3\Scripts\python.exe .github\skills\sampling-experiment-report\quality_check.py `
+  --html outputs_imdb\reports\imdb-40-replay\report.html `
+  --screenshots outputs_imdb\reports\imdb-40-replay\validation_screenshots
+.\.venv-v3\Scripts\python.exe scripts\validate_imdb_report.py `
+  --html outputs_imdb\reports\imdb-40-replay\report.html `
+  --screenshots outputs_imdb\reports\imdb-40-replay\validation_screenshots `
+  --output outputs_imdb\reports\imdb-40-replay\interaction_validation.json
+.\.venv-v3\Scripts\python.exe scripts\validate_imdb_experiment.py
+.\.venv-v3\Scripts\python.exe -m pytest tests\test_imdb_inputs.py `
+  tests\test_imdb_experiment.py tests\test_imdb_report.py -q
+```
+
+The HTML uses five tabs and no external assets. The independent numeric checker
+hash-verifies the full retained run and real input cache, then recomputes all
+requested metrics in five cohorts from every cell's retained scores. It also
+checks source-label alignment, earlier-only donor/calibration positions and
+point/lower nesting. Its aggregate-only record is `numerical_validation.json`.
+Numerical summaries average
+schedules within paired seeds before taking empirical 2.5/97.5 percentiles.
+AUROC uses exact per-cell tied scores; displayed ROC curves interpolate onto
+a shared FPR grid. Mean AUROC is not asserted equal to area under the mean
+display curve. No winner or validated dimension cutoff is inferred in advance.
+
+### Adding 256, 128 and 64 dimensions without rerunning existing cells
+
+The additive runner uses the original **recorded** bootstrap draws, order and
+timestamps, all 40 seeds, both schedules and all five budgets. It evaluates
+only the three new normalized prefixes: **1,200 additional cells**. No native
+or previous low-dimensional cell is recomputed, and there are no embedding or
+judge calls. The preserved native embedding cache supplies all three prefixes.
+
+The original run remains immutable at `outputs_imdb/private_runs/imdb-40-replay`.
+The extension writes `outputs_imdb/private_runs/imdb-40-replay-extended`,
+containing new evidence and a combined 3,600-cell aggregate. Old rows reference
+their original evidence files; only relative evidence paths are rewritten.
+Input, method and four-thread runtime hashes must match the original run.
+The extension fails closed on mismatched inputs, incompatible runtime, or
+altered retained artifacts, and `--resume` explicitly enables checkpoint reuse.
+
+```powershell
+.\.venv-v3\Scripts\python.exe scripts\extend_imdb_experiment.py `
+  --baseline outputs_imdb\private_runs\imdb-40-replay `
+  --output outputs_imdb\private_runs\imdb-40-replay-extended --resume
+.\.venv-v3\Scripts\python.exe scripts\validate_imdb_experiment.py `
+  --run outputs_imdb\private_runs\imdb-40-replay-extended
+.\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py `
+  --input outputs_imdb\private_runs\imdb-40-replay-extended\aggregate.json `
+  --output outputs_imdb\reports\imdb-40-replay `
+  --numerical-validation outputs_imdb\reports\imdb-40-replay\numerical_validation.json
+```
+
+The completed extension is published at the same report URL. Its controls,
+plots, tables, paired deltas and conclusions include all nine dimensions.
+The final independent audit checks 3,600 cells and 8,809 artifact hashes,
+recomputing metrics over 166,320,000 repeated unselected occurrences with
+zero discrepancy. These are repeated occurrences, not independent reviews.
+The numeric checker verifies that every original measured row is
+unchanged and every added row uses the exact original replay, before recomputing
+metrics from the complete retained evidence.
+
+### Parallel continuation without losing checkpoints
+
+`run_imdb_parallel.py` continues an **already registered** additive extension.
+Stop its serial writer first; never run both commands against the same output.
+The original scientific engine, extension module, CLI, preregistration and
+checkpoint binding remain unchanged. A separately hash-bound
+`parallel_transition.json` records the scheduling change and hashes every
+committed membership/score artifact present at the switch.
+
+```powershell
+.\.venv-v3\Scripts\python.exe scripts\run_imdb_parallel.py --workers 3
+```
+
+Three spawned processes own disjoint seed/schedule groups. Each preserves the
+original four-thread BLAS configuration and sequential arrivals within a group.
+Only missing memberships/cells are computed. OS-owned coordinator/group locks
+prevent duplicate writers and release on process exit; residual lock files are
+not permission to bypass an active owner. The coordinator is the only writer
+of progress and final aggregates. A recoverable publication journal protects
+the final aggregate/audit/manifest update against interruption.
+
+The same command resumes compatible partial parallel work after an interruption.
+It refuses scheduler-code, worker-count, source, method, numerical-runtime or
+checkpoint drift. `parallel_progress.jsonl` records completed groups and actual
+worker process IDs. The final numeric audit additionally verifies byte-for-byte
+preservation of all pre-transition checkpoints. Embedding and judge calls remain
+zero; parallel workers change execution order across independent replays only.
+The completed run preserved all 465 pre-switch additional cell checkpoints
+byte-for-byte and computed the remaining 735 with three workers.
+
+### PCA-only comparison (completed)
+
+The PCA follow-up preserves the completed 3,600-cell native/prefix study and
+adds PCA at **1536, 256, 128, 64, 32, 24, 16, 12 and 8 components**. The
+same 40 seeds, recorded bootstrap draws, two schedules and five label budgets
+give 3,600 completed PCA cells and 7,200 combined cells. No new embedding or
+judge calls were made. Three workers started the run; a verified six-worker
+continuation preserved all 315 already-completed PCA cells byte-for-byte.
+All 135 original native/prefix public summaries remain unchanged.
+
+At 5% labels, averaging both schedules within each of 40 paired seeds:
+
+| Components | PCA MAE | Reference MAE | PCA accuracy | PCA precision | PCA recall | PCA F1 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1536 (centering control) | 0.1844 | 0.2054 | 89.42% | 87.50% | 92.01% | 0.8969 |
+| 256 | 0.1812 | 0.2242 | 89.74% | 88.13% | 91.89% | 0.8996 |
+| 128 | 0.1782 | 0.2358 | 90.14% | 88.77% | 91.92% | 0.9031 |
+| 64 | 0.1759 | 0.3028 | 90.64% | 89.68% | 91.87% | 0.9075 |
+| 32 | 0.1750 | 0.2449 | 91.12% | 90.85% | 91.48% | 0.9116 |
+| 24 | 0.1722 | 0.2585 | 91.29% | 91.16% | 91.48% | 0.9131 |
+| 16 | 0.1516 | 0.2832 | 91.97% | 91.31% | 92.80% | 0.9205 |
+| 12 | 0.1319 | 0.2984 | 92.21% | 90.89% | 93.82% | 0.9233 |
+| 8 | 0.1186 | 0.3226 | 92.32% | 90.78% | 94.19% | 0.9245 |
+
+Reference means uncentered native at 1536, original-coordinate prefix otherwise.
+PCA has lower mean MAE in all 45 dimension-budget comparisons. PCA-8 has the
+lowest PCA mean MAE at all five budgets; at 20%, PCA-12 has slightly higher
+accuracy (93.31% versus PCA-8 93.22%). At 5%, PCA-8 improves mean MAE over
+native by 42.3%; its paired difference is -0.0869 with replay 2.5/97.5 range
+[-0.0958, -0.0779]. Novel-source MAE is 0.1217 versus native 0.2104.
+This does not isolate denoising from centering, changed membership or donor geometry.
+
+PCA-8 lower-envelope classification at threshold 0.5 raises precision from
+90.78% to 96.71%, but lowers recall from 94.19% to 69.99% and F1 from 0.9245
+to 0.8120. Eligible point/lower AUROC is 0.9694/0.9571. Observed full-envelope
+label coverage is 89.49%, not calibrated confidence coverage.
+The PCA-8 variance fraction is 21.28%; variance retained is not sentiment accuracy.
+
+The earlier dense-corpus PCA/SVD experiment fitted a single reducer on the
+full unlabeled population (fit seed 13), then reused its leading components
+across dimensions and replays. This follow-up likewise fits on all 50K native
+review embeddings without sentiment labels, retaining duplicate-text source
+rows. The user was unavailable to clarify the fit population; matching that
+earlier full-population scope is the explicit assumption, not a held-out claim.
+
+The native vectors are L2-normalized, centered by PCA and projected once.
+For each requested dimension, retain the first d **learned principal components**
+and L2-normalize the resulting row. The full-rank shared basis uses deterministic
+`PCA(svd_solver="full", whiten=False, random_state=13)`, rather than the
+earlier study's randomized solver. The seed is recorded but does not randomize
+the full solver. Using one basis makes representations nested and avoids
+unnecessary repeated fits; it does not reuse original-coordinate prefixes.
+SVD is an internal numerical step of PCA, not a separate TruncatedSVD arm.
+
+**PCA-1536 is a centering control.** Full-rank rotation preserves the geometry
+of centered vectors, but centering and row normalization alter cosine/angular
+distances relative to the original uncentered native representation. It must
+not be relabeled as native or treated as an identical baseline.
+
+Fit once, without labels, on all source features: this is **transductive**.
+The replay intervals reflect order/frequency changes, not reducer-fit or
+independent-label uncertainty. Sampling membership is rerun in each PCA
+geometry; the comparison is end-to-end, not a fixed-membership imputation
+test. IDW donors and the 128-donor conditional Lipschitz calibration reservoir
+remain strictly earlier selected observations. PCA uses future features but
+no future labels; that distinction must stay visible.
+
+Preparation retains source-bound mean, components, singular values, explained
+variance and projected coordinates in `outputs_imdb/cache/imdb-pca-full/`.
+The original native cache and both original run bundles remain immutable.
+The new run is `outputs_imdb/private_runs/imdb-pca-40-replay/`; its rows
+identify `pca_<dimension>` explicitly to avoid collisions with prefix/native
+rows at the same dimension.
+
+```powershell
+.\.venv-v3\Scripts\python.exe scripts\prepare_imdb_pca.py
+.\.venv-v3\Scripts\python.exe scripts\run_imdb_pca.py --resume --workers 3
+.\.venv-v3\Scripts\python.exe scripts\validate_imdb_experiment.py `
+  --run outputs_imdb\private_runs\imdb-pca-40-replay
+.\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py `
+  --input outputs_imdb\private_runs\imdb-pca-40-replay\aggregate.json `
+  --output outputs_imdb\reports\imdb-40-replay `
+  --numerical-validation outputs_imdb\reports\imdb-40-replay\numerical_validation.json
+```
+
+The existing report now includes the completed PCA comparison in a dedicated
+tab, while preserving the prefix result summaries. It contains paired
+same-dimension MAE differences, accuracy/precision/recall/F1, point/lower ROC,
+novel-source diagnostics, explained variance and explicit fit assumptions.
+Each representation's point/lower ROC pair uses identical eligible targets;
+PCA and prefix memberships and eligible target populations may differ.
+The final independent audit checks 7,200 cells, 17,467 artifact hashes and
+332,640,000 repeated unselected occurrences, with zero discrepancy in
+recomputed metrics. Every projected PCA row also matches the frozen
+unwhitened transform; full-rank reconstruction verifies the centered control.
+
+The optional live progress page is a local-only display with one bar, refreshed
+every five seconds. It counts committed **new PCA** `cells/*.json` checkpoints
+out of 3,600; inherited reference cells and unfinished NPZ/temp files are excluded.
+It distinguishes fitting, replaying, final verification, completion and failure.
+The state file stays outside the experiment bundle so it cannot interfere with
+source-bound startup or immutable run artifacts.
+
+```powershell
+.\.venv-v3\Scripts\python.exe scripts\imdb_progress.py
+# The command prints its loopback URL. The workflow records stage transitions:
+.\.venv-v3\Scripts\python.exe scripts\imdb_progress.py --stage fitting
+.\.venv-v3\Scripts\python.exe scripts\imdb_progress.py --stage replaying
+.\.venv-v3\Scripts\python.exe scripts\imdb_progress.py --stage validating
+.\.venv-v3\Scripts\python.exe scripts\imdb_progress.py --stage complete
+```
+
+Only mark complete after the entire run, numeric audit and report checks finish.
+If a stage fails, record `--stage failed`; a saved-cell count alone is not a
+claim that validation or publication succeeded. The server exposes only the
+progress page and numeric status, never source files or credentials.
+
+#### Six-worker PCA continuation
+
+The optional `scale_imdb_pca.py` adapter continues an existing PCA registration
+on up to six disjoint replay workers without modifying the fitted model,
+original PCA runner, mathematical helpers or checkpoint binding:
+
+```powershell
+# Stop the earlier PCA coordinator first. Then:
+.\.venv-v3\Scripts\python.exe scripts\scale_imdb_pca.py --workers 6
+```
+
+It preserves four BLAS threads per worker and all existing checkpoints.
+`scaling_transition.json` records every committed artifact's pre-switch hash.
+Only recognized, uncommitted write fragments are moved into a hash-manifested
+`scaling_recovery/` archive; committed checkpoints are never rewritten.
+Coordinator/job OS locks prevent concurrent owners, and the original immutable
+worker functions do the computation. A single finalizer uses the existing
+recoverable publication protocol. Scaling provenance is embedded in the final
+aggregate/audit, and the numeric validator independently rechecks every preserved
+artifact. The same command resumes after an interruption; source/code/configuration
+drift still fails closed.
+
+## Matryoshka prefix-cutoff (earlier datasets)
 
 `matryoshka_experiment.py` tests full-session first-coordinate truncation and
 re-normalization against native 1536 dimensions. Defaults match the earlier
