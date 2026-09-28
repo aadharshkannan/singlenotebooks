@@ -280,7 +280,7 @@ def build_report(source_path: Path, output: Path, *, numerical_validation: Path 
 
 TEMPLATE = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>IMDb | Full-review IDW and prefix dimensions</title>
+<title>IMDb | Full-review IDW and MRL dimensions</title>
 <style>
 :root{--ink:#172d39;--muted:#49616d;--teal:#007d7c;--blue:#235fba;--orange:#af5215;--paper:#f3f5f3;--line:#d4dfdf}
 *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 system-ui,Arial,sans-serif}
@@ -309,41 +309,47 @@ dl{display:grid;grid-template-columns:minmax(130px,1fr) 3fr;gap:10px 18px}dt{fon
 </style></head><body>
 <header><div class="eyebrow">One agent / 50,000 movie reviews / sampling sensitivity study</div>
 <h1>How far can we shorten a review embedding?</h1>
-<p><span id="representation-description">Native 1,536-dimensional full-review embeddings versus normalized prefixes.</span>
+<p><span id="representation-description">Native 1,536-dimensional full-review embeddings versus MRL dimensionality reduction.</span>
 The question is prediction quality for reviews whose sentiment was not selected for observation.</p>
 <span class="badge" id="status"></span></header>
 <main><nav role="tablist" aria-label="Experiment report">
 <button id="tab-overview" role="tab" aria-controls="overview" aria-selected="true">Overview</button>
 <button id="tab-method" role="tab" aria-controls="method" aria-selected="false" tabindex="-1">Method</button>
 <button id="tab-dataset" role="tab" aria-controls="dataset" aria-selected="false" tabindex="-1">Dataset</button>
-<button id="tab-results" role="tab" aria-controls="results" aria-selected="false" tabindex="-1">Results</button>
+<button id="tab-results" role="tab" aria-controls="results" aria-selected="false" tabindex="-1">MRL results</button>
 <button id="tab-pca" role="tab" aria-controls="pca" aria-selected="false" tabindex="-1" hidden>PCA comparison</button>
 <button id="tab-provenance" role="tab" aria-controls="provenance" aria-selected="false" tabindex="-1">Provenance</button></nav>
 <section id="overview" role="tabpanel" aria-labelledby="tab-overview">
 <div class="card notice" id="run-status"></div><div class="card" id="extension-note" hidden></div>
-<div class="card" id="pca-overview" hidden><h2>PCA added without changing the prefix results</h2><p id="pca-overview-text"></p><p id="pca-headline" class="takeaway"></p></div>
+<div class="card" id="pca-overview" hidden><h2>PCA added without changing the MRL results</h2><p id="pca-overview-text"></p><p id="pca-headline" class="takeaway"></p></div>
 <div class="grid"><div class="card stat"><span>Labeled source reviews</span><strong id="n"></strong><span>All treated as one agent</span></div>
 <div class="card stat"><span>Paired replay seeds</span><strong id="repetitions"></strong><span id="repeat-label"></span></div>
 <div class="card stat"><span>Embedding dimensions</span><strong id="dimension-count"></strong><span id="prefix-count"></span></div>
 <div class="card stat"><span>Session-label budgets</span><strong>1% &ndash; 20%</strong><span>Not tokens or a weekly threshold</span></div></div>
 <div class="card"><h2>The experiment in one minute</h2><div class="pipeline" aria-label="Experiment pipeline">
 <div class="step"><b>1. Read</b>One full review becomes one session. Its sentiment is hidden from selection.</div>
-<div class="step"><b>2. Embed</b>Generate native vectors once. Slice the first n values and re-normalize.</div>
+<div class="step"><b>2. Represent</b>Generate native vectors once. MRL keeps leading original coordinates; PCA keeps learned principal components. Normalize the shortened rows.</div>
 <div class="step"><b>3. Sample</b>Replay semantic novelty/rarity selection under a fixed label budget.</div>
 <div class="step"><b>4. Estimate</b>Only earlier selected labels supply IDW and envelope calibration.</div>
 <div class="step"><b>5. Compare</b>Score unselected occurrences against their withheld sentiment labels.</div></div>
 <p class="takeaway">Short vectors save storage and distance-computation work, not the cost of the original 1,536-dimensional embedding call. This study tests every configured end-to-end pipeline, so membership may differ across dimensions.</p></div>
-<div class="card"><h2 id="reference-analysis-title">Analysis and conclusion</h2><div id="conclusion"></div>
+<div class="card"><h2>Three names, three distinct representations</h2>
+<div class="grid" id="method-key">
+<div><h3>Native 1536</h3><p>The full, uncentered embedding. This is the shared baseline, not a reduced-dimension method.</p></div>
+<div><h3>Matryoshka Representation Learning (MRL)</h3><p>Keep the first d original embedding coordinates and L2-normalize. Previously labeled &ldquo;prefix&rdquo; in this report. We use the embedding model's existing representation; no MRL model is trained in this experiment.</p></div>
+<div id="pca-method-key" hidden><h3>Principal Component Analysis (PCA)</h3><p>Fit a centered basis once on all unlabeled review embeddings, keep d learned components and L2-normalize. PCA-1536 is a centering control, distinct from native 1536.</p></div>
+</div></div>
+<div class="card"><h2 id="reference-analysis-title">Native / MRL analysis</h2><div id="conclusion"></div>
 <p>Even a favorable result would apply to this polarized movie-review corpus, these budgets and replay settings.
 Sentiment prediction is not agent task completion. Repeated orders reuse the same labels; they do not measure new judge reliability or production generalization.</p></div>
-<div class="card"><h2>The budget picture at a glance</h2><p><b>What it shows:</b> mean all-unselected MAE, averaging both schedules within each seed.
+<div class="card"><h2>Native / MRL budget picture</h2><p><b>What it shows:</b> native and MRL mean all-unselected MAE, averaging both schedules within each seed. PCA results are not included in this table.
 <b>How to read:</b> lower values and lighter cells are better. This overview includes every tested budget, not only the explorer's default 5% scope.</p>
 <div class="scroll"><table id="budget-overview"><thead></thead><tbody></tbody></table></div>
 <p class="takeaway" id="budget-conclusion"></p></div>
 </section>
 <section id="method" role="tabpanel" aria-labelledby="tab-method" hidden>
-<div class="card"><h2>Shared pipeline, tested representations</h2><p id="representation-method-note">Every reference arm uses the same source pool, label mapping, paired arrival draws and label budgets.
-The reference arms retain native coordinates, without PCA, SVD, learned projection or reduced-dimension API calls.</p>
+<div class="card"><h2>Shared pipeline, tested representations</h2><p id="representation-method-note">Every native/MRL arm uses the same source pool, label mapping, paired arrival draws and label budgets.
+MRL retains leading original coordinates and normalizes them, without fitting a reducer or requesting a reduced-dimension embedding from the API.</p>
 <div class="scroll"><table><thead><tr><th>Arm</th><th>Representation</th><th>Selection</th><th>Prediction</th></tr></thead><tbody id="methods"></tbody></table></div>
 <h3>What &ldquo;end to end&rdquo; means here</h3><p>The existing ARM2 semantic selector processes each timestamped occurrence, with cosine cluster threshold 0.55, cluster TTL 90 and the existing novelty/rarity logic.
 Its proposed keeps rank first, then remaining occurrences; novelty, rarity and a deterministic tie-break rank each group. The first floor(N &times; budget rate) are selected.
@@ -369,7 +375,7 @@ these are simulated arrival patterns, not historical IMDb traffic. Dimension and
 <p>Budgets count selected occurrences, including duplicates, not unique source reviews or paid judge calls. Labels are immediate when a selected occurrence arrives.
 Review-frequency reuse can inflate performance through exact matches; the novel-source diagnostic excludes targets whose source was already selected earlier.
 It does not eliminate distinct rows with identical review text or related movies.</p></div>
-<div class="card"><h2>Numerical implementation</h2><p>Prefix slicing and normalization reuse the earlier helper. Blocked distance evaluation re-normalizes in float64 rather than allocating a 50K-by-50K pairwise matrix.
+<div class="card"><h2>Numerical implementation</h2><p>MRL coordinate slicing and normalization reuse the earlier helper. Blocked distance evaluation re-normalizes in float64 rather than allocating a 50K-by-50K pairwise matrix.
 Retained scores are float64; exact tied-score ROC is calculated from those values. This experiment has its own source/runtime binding and does not claim bitwise parity with the earlier float32 distance-cache study.</p></div>
 </section>
 <section id="dataset" role="tabpanel" aria-labelledby="tab-dataset" hidden>
@@ -384,13 +390,13 @@ The downloaded archive and individual review text remain local; this report cont
 <p><a href="https://ai.stanford.edu/~amaas/data/sentiment/">Publisher and download</a> &middot;
 <a href="https://aclanthology.org/P11-1015/">Dataset paper and citation</a></p></div></section>
 <section id="results" role="tabpanel" aria-labelledby="tab-results" hidden>
-<div class="card"><h2>Results explorer</h2><p id="results-state"></p>
+<div class="card"><h2>Native / MRL results explorer</h2><p>This tab contains native and MRL results only. Learned PCA components are reported separately in PCA comparison.</p><p id="results-state"></p>
 <div class="controls"><label>Label budget<select id="budget"></select></label>
 <label>Arrival schedule<select id="schedule"><option value="all">Both schedules (paired seed mean)</option></select></label>
-<label>ROC dimension<select id="dimension"></select></label></div>
+<label>MRL / native ROC representation<select id="dimension"></select></label></div>
 <p class="small">All scores use positive sentiment as class 1 and <code>score &gt;= 0.5</code> for classification.
 Primary metrics exclude directly observed selected labels. Point-versus-lower comparisons use identical envelope-eligible target occurrences.</p></div>
-<div class="card"><h2>1. How much probability error does shortening add?</h2>
+<div class="card"><h2>1. How much error does MRL shortening add?</h2>
 <p><b>What it shows:</b> all-unselected point-score MAE on a 0&ndash;1 scale, lower is better. <b>How to read:</b> bars are seed means; whiskers are empirical 2.5th&ndash;97.5th percentiles of replay scores.</p>
 <div id="mae-chart" class="scroll"></div><p id="mae-takeaway" class="takeaway"></p>
 <p class="small">All-unselected includes explicitly identified priors/fallbacks. Selected labels are excluded. With both schedules selected, schedules are averaged within each seed first.
@@ -418,7 +424,7 @@ Observed label coverage is the fraction of eligible labels inside the full lower
 <div class="scroll"><table id="paired-table"><thead><tr><th>Dimension</th><th>Mean MAE difference</th><th>Replay 2.5% &ndash; 97.5%</th><th>Seeds</th></tr></thead><tbody></tbody></table></div></div>
 </section>
 <section id="pca" role="tabpanel" aria-labelledby="tab-pca" hidden>
-<div class="card"><h2>PCA versus native-coordinate prefixes</h2><p id="pca-fit-note"></p>
+<div class="card"><h2>PCA versus Matryoshka Representation Learning (MRL)</h2><p id="pca-fit-note"></p>
 <p>First normalize the native embedding, subtract the fitted corpus mean, rotate into the learned principal-component basis,
 keep its first d components and normalize each projected row to unit length. No sentiment labels enter fitting, no whitening is applied,
 and the fitted basis is reused across every replay. These are <b>learned components, not the first d original embedding coordinates</b>.</p>
@@ -429,22 +435,24 @@ from one full-rank basis. SVD is used internally to fit PCA; a separate uncenter
 <p>This is <b>transductive</b>: PCA sees all review embeddings, including later evaluation features, but never their labels.
 IDW and Lipschitz calibration still use only earlier selected labels. This is not a held-out reducer test or independent-population validation.</p>
 <div class="controls"><label>Label budget<select id="pca-budget"></select></label>
-<label>Arrival schedule<select id="pca-schedule"><option value="all">Both schedules (paired seed mean)</option></select></label>
-<label>ROC dimension<select id="pca-dimension"></select></label></div><p id="pca-scope"></p>
+<label>Arrival schedule<select id="pca-schedule"><option value="all">Both schedules (paired seed mean)</option></select></label></div><p id="pca-scope"></p>
 <p class="small">Membership is rerun in each geometry with the same novelty/rarity gate and hard budget.
 Comparisons share arrivals, source frequencies and seeds, not necessarily the same unselected targets.
-The existing native/prefix results are not rerun or overwritten.</p></div>
+The existing native/MRL results are not rerun or overwritten.</p></div>
 <div class="card"><h2>1. Does PCA reduce imputation error?</h2>
 <p><b>What it shows:</b> all-unselected MAE in paired pipelines. <b>How to read:</b> lower bars are better; whiskers show the 2.5/97.5 percentiles of seed means, not population confidence intervals.</p>
-<div class="legend"><span><i class="dot" style="background:#007d7c"></i>Native / original-coordinate prefix</span><span><i class="dot" style="background:#af5215"></i>PCA components</span></div>
+<div class="legend"><span><i class="dot" style="background:#007d7c"></i>MRL (native at 1536)</span><span><i class="dot" style="background:#af5215"></i>PCA</span></div>
 <div class="scroll" id="pca-mae-chart"></div><p id="pca-mae-takeaway" class="takeaway"></p>
-<h3>Paired change from the corresponding reference</h3><p><b>What it shows:</b> PCA minus same-dimension prefix MAE (native at 1536).
+<h3>Paired PCA minus MRL change at the same dimension</h3><p><b>What it shows:</b> PCA minus same-dimension MRL MAE (native at 1536).
 <b>How to read:</b> negative is an improvement. Pair seeds and schedules before calculating differences; crossing zero means effects vary across replay summaries.</p>
 <div class="scroll"><table id="pca-delta-table"><thead><tr><th>Dimension</th><th>Mean MAE difference</th><th>Replay 2.5% &ndash; 97.5%</th><th>Seeds</th></tr></thead><tbody></tbody></table></div></div>
 <div class="card"><h2>2. Do point and lower-envelope rankings change?</h2>
 <p><b>What it shows:</b> recall against false-positive rate. <b>How to read:</b> top-left is better; solid lines use point scores and dashed lines lower scores.
-Within each representation, both curves use identical envelope-eligible targets. The eligible sets can differ between PCA and prefix selection.</p>
-<div class="legend"><span><i class="dot" style="background:#007d7c"></i>Reference point / lower</span><span><i class="dot" style="background:#af5215"></i>PCA point / lower</span></div>
+Within each representation, both curves use identical envelope-eligible targets. The eligible sets can differ between PCA and MRL selection.</p>
+<div class="controls"><label>PCA ROC dimension<select id="pca-dimension"></select></label>
+<label>MRL / native ROC dimension<select id="pca-mrl-dimension"></select></label></div>
+<p id="pca-roc-scope" class="small" aria-live="polite"></p>
+<div class="legend"><span><i class="dot" style="background:#007d7c"></i><span id="pca-roc-reference-label"></span> point / lower</span><span><i class="dot" style="background:#af5215"></i><span id="pca-roc-pca-label"></span> point / lower</span></div>
 <div class="scroll" id="pca-roc-chart"></div><p id="pca-roc-takeaway" class="takeaway"></p>
 <p class="small">Displayed curves average per-seed interpolated ROC; AUROC comes from exact tied retained scores.
 The lower envelope is a conditional sensitivity construction, not a confidence interval or calibrated probability.</p></div>
@@ -452,7 +460,8 @@ The lower envelope is a conditional sensitivity construction, not a confidence i
 <p>All-unselected point scores exclude direct labels and include identified prior fallbacks. Classification uses score &gt;= 0.5.
 The novel-source diagnostic excludes earlier selected occurrences of the same source row, not related movies or duplicate text in another row.</p>
 <div class="scroll"><table id="pca-metrics-table"><thead><tr><th>Dimension</th><th>Representation</th><th>Mean n</th><th>MAE</th><th>Accuracy</th><th>Precision</th><th>Recall</th><th>F1</th><th>AUROC</th><th>Novel-source MAE</th></tr></thead><tbody></tbody></table></div>
-<h3>Matched envelope-eligible comparison</h3><div class="scroll"><table id="pca-envelope-table"><thead><tr><th>Representation</th><th>Estimator</th><th>Mean n</th><th>MAE</th><th>Accuracy</th><th>Precision</th><th>Recall</th><th>F1</th><th>AUROC</th></tr></thead><tbody></tbody></table></div>
+<h3>Selected PCA / MRL envelope comparison</h3><p class="small">Uses the independent PCA and MRL/native dimension selectors in the ROC section above. Point and lower estimates are matched within each representation; the two representations can have different eligible populations.</p>
+<div class="scroll"><table id="pca-envelope-table"><thead><tr><th>Representation</th><th>Estimator</th><th>Mean n</th><th>MAE</th><th>Accuracy</th><th>Precision</th><th>Recall</th><th>F1</th><th>AUROC</th></tr></thead><tbody></tbody></table></div>
 <h3>PCA scores: interpolation, exact matches and fallbacks</h3><div class="scroll"><table id="pca-diagnostics-table"><thead><tr><th>Dimension</th><th>Neighbor IDW</th><th>Exact match</th><th>Prior</th><th>Eligible sparse-L fallback</th><th>Observed label coverage</th></tr></thead><tbody></tbody></table></div></div>
 <div class="card"><h2>4. What PCA retained &mdash; and what the results mean</h2>
 <p><b>What it shows:</b> cumulative variance explained by the learned components before per-row normalization.
@@ -462,10 +471,20 @@ The novel-source diagnostic excludes earlier selected occurrences of the same so
 <p>Any advantage may combine different membership, centering and reduced-space donor geometry; it cannot be attributed solely to imputation.
 The fit is fixed, so the replay intervals do not include PCA-training uncertainty. Time-forward or separate-calibration-set fitting,
 and a fixed-membership diagnostic, would be needed to separate these effects before deployment.</p></div>
-<div class="card"><h2>5. PCA findings across all budgets</h2>
-<p><b>What it shows:</b> both schedules averaged within each of the 40 paired seeds, independent of the controls above.
-<b>How to read:</b> compare unselected MAE and accuracy together. The best-MAE PCA dimension is a descriptive grid minimum, not a deployment guarantee.</p>
-<div class="scroll"><table id="pca-budget-table"><thead><tr><th>Label budget</th><th>Native MAE</th><th>Prefix-8 MAE</th><th>PCA-8 MAE</th><th>PCA-8 accuracy</th><th>Lowest PCA MAE dimension</th></tr></thead><tbody></tbody></table></div>
+<div class="card"><h2>5. Compare PCA and MRL across all budgets</h2>
+<p><b>What it shows:</b> the selected PCA and MRL representations alongside native 1536, averaging both schedules within each paired seed.
+<b>How to read:</b> lower MAE is better; compare accuracy too. These selectors affect only this section, independently of the budget, schedule and ROC controls above.</p>
+<div class="controls"><label>PCA dimension<select id="compare-pca-dimension"></select></label>
+<label>MRL / native dimension<select id="compare-mrl-dimension"></select></label></div>
+<p id="pca-budget-scope" class="small" aria-live="polite"></p>
+<div class="legend"><span><i class="dot" style="background:#172d39"></i>Native 1536</span>
+<span><i class="dot" style="background:#007d7c"></i><span id="budget-mrl-label"></span></span>
+<span><i class="dot" style="background:#af5215"></i><span id="budget-pca-label"></span></span></div>
+<div id="pca-budget-chart" class="scroll"></div>
+<div class="scroll"><table id="pca-budget-table"><thead></thead><tbody></tbody></table></div>
+<p id="pca-budget-takeaway" class="takeaway"></p>
+<h3>Recorded findings across the full grid</h3>
+<p class="small">The findings below retain their explicitly stated dimensions and budgets; they do not change with the comparison selectors.</p>
 <div id="pca-conclusion"></div>
 <p class="small">The corpus contains polarized movie reviews, not production agent traces. Sentiment labels are the reference, not new LLM judgments.
 The PCA basis was learned from all source features once, including the reviews later scored; these results must not be presented as held-out benchmark accuracy.</p></div>
@@ -498,6 +517,11 @@ const $=id=>document.getElementById(id), complete=D.status==="completed";
 const fmt=(v,n=3)=>v==null?"Not measured":Number(v).toFixed(n);
 const count=v=>v==null?"Not measured":Math.round(v).toLocaleString("en-US");
 const text=(id,value)=>{$(id).textContent=value};
+const referenceLabel=d=>Number(d)===1536?"Native 1536":`MRL-${d}`;
+const pcaLabel=d=>`PCA-${d}`;
+const referenceCell=(d,rate,schedule="all")=>D.summaries.find(r=>r.dimension===d&&r.rate===rate&&r.schedule===schedule);
+const pcaCell=(d,rate,schedule="all")=>D.pca_summaries.find(r=>r.dimension===d&&r.rate===rate&&r.schedule===schedule);
+const selectDefault=(id,values,preferred=8)=>{$(id).value=String(values.includes(preferred)?preferred:values[0])};
 function activate(tab){document.querySelectorAll('[role="tab"]').forEach(t=>{const active=t===tab;t.setAttribute("aria-selected",active);t.tabIndex=active?0:-1;$(t.getAttribute("aria-controls")).hidden=!active});}
 $("tab-pca").hidden=!D.pca_study;
 const tabs=[...document.querySelectorAll('[role="tab"]')].filter(t=>!t.hidden);tabs.forEach((tab,i)=>{tab.addEventListener("click",()=>activate(tab));tab.addEventListener("keydown",e=>{let j=null;if(e.key==="ArrowRight")j=(i+1)%tabs.length;if(e.key==="ArrowLeft")j=(i+tabs.length-1)%tabs.length;if(e.key==="Home")j=0;if(e.key==="End")j=tabs.length-1;if(j!==null){e.preventDefault();tabs[j].focus();activate(tabs[j])}})});
@@ -505,12 +529,12 @@ function addOption(select,value,label){const o=document.createElement("option");
 function addRow(body,values){const tr=document.createElement("tr");values.forEach(v=>{const td=document.createElement(body.tagName==="THEAD"?"th":"td");td.textContent=v;tr.append(td)});body.append(tr)}
 function addDl(id,pairs){const dl=$(id);pairs.forEach(([k,v])=>{const dt=document.createElement("dt"),dd=document.createElement("dd");dt.textContent=k;dd.textContent=v;dl.append(dt,dd)})}
 text("status",complete?"COMPLETED REPLAY STUDY":"DATA READY / RESULTS NOT MEASURED");
-text("representation-description",`Native 1,536-dimensional full-review embeddings versus normalized prefixes of ${D.protocol.dimensions.filter(d=>d!==1536).join(", ")} coordinates.`);
-text("dimension-count",D.protocol.dimensions.length);text("prefix-count",`Native plus ${D.protocol.dimensions.length-1} prefix lengths`);
+text("representation-description",`Native 1,536-dimensional full-review embeddings versus MRL at ${D.protocol.dimensions.filter(d=>d!==1536).join(", ")} dimensions.`);
+text("dimension-count",D.protocol.dimensions.length);text("prefix-count",`Native plus ${D.protocol.dimensions.length-1} MRL dimensions`);
 text("n",count(P.sessions));text("repetitions",D.protocol.repetitions);text("repeat-label",complete?"Repeated labels, not independent data":"Planned; no replay results yet");
 $("run-status").innerHTML=complete?`<h2>Measured replay results</h2><p>Explore ${D.protocol.dimensions.length} pipelines by budget and arrival schedule. Read uncertainty as replay sensitivity, not production confidence.</p>`:D.embeddings_ready?'<h2>Embeddings are ready; replay results are pending.</h2><p>The input cache is complete but no completed replay aggregate was supplied. This is not a performance result.</p>':'<h2>The data is ready. The performance question is still open.</h2><p>Azure OpenAI configuration was unavailable in this isolated worktree. No embedding calls or benchmark replays were performed. This is a prepared experiment and dataset report, not a completed performance report. There are no substituted embeddings, invented metrics or placeholder ROC curves.</p>';
 text("replay-design",`${D.protocol.repetitions} seed draws x ${D.protocol.schedules.length} arrival schedules x ${D.protocol.rates.length} budgets x ${D.protocol.dimensions.length} dimensions = ${count(D.protocol.planned_cells)} planned replay cells. Every cell contains ${count(P.sessions)} review occurrences.`);
-D.protocol.dimensions.forEach(d=>{addRow($("methods"),[d===1536?"Native 1536":`${d}-coordinate prefix`,"First "+d+" coordinates, L2 normalized","ARM2 semantic novelty/rarity; rerun in this geometry","Causal angular IDW + conditional lower envelope"]);addOption($("dimension"),d,d===1536?"Native 1536":`${d} dimensions`)});
+D.protocol.dimensions.forEach(d=>{addRow($("methods"),[referenceLabel(d),d===1536?"Full uncentered embedding, L2 normalized":"MRL: first "+d+" original coordinates, L2 normalized","ARM2 semantic novelty/rarity; rerun in this geometry","Causal angular IDW + conditional lower envelope"]);addOption($("dimension"),d,referenceLabel(d))});
 D.protocol.rates.forEach(r=>{const b=Math.max(1,Math.floor(P.sessions*r));addRow($("budgets"),[`${r*100}%`,count(b),count(P.sessions-b)]);addOption($("budget"),r,`${r*100}% (${count(b)} selected)`)});
 D.protocol.schedules.forEach(s=>addOption($("schedule"),s,s.replaceAll("_"," ")));$("budget").value=String(D.protocol.rates.includes(.05)?.05:D.protocol.rates[0]);
 [["Positive reviews",P.positive_count],["Negative reviews",P.negative_count],["Unique embedding inputs",P.unique_texts]].forEach(([k,v])=>{const box=document.createElement("div");box.className="stat";const span=document.createElement("span"),strong=document.createElement("strong");span.textContent=k;strong.textContent=count(v);box.append(span,strong);$("data-cards").append(box)});
@@ -526,7 +550,7 @@ text("reproduction-commands",String.raw`.\.venv-v3\Scripts\python.exe scripts\ex
 .\.venv-v3\Scripts\python.exe scripts\validate_imdb_experiment.py --run outputs_imdb\private_runs\imdb-40-replay-extended
 .\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py --input outputs_imdb\private_runs\imdb-40-replay-extended\aggregate.json --output outputs_imdb\reports\imdb-40-replay --numerical-validation outputs_imdb\reports\imdb-40-replay\numerical_validation.json
 .\.venv-v3\Scripts\python.exe .github\skills\sampling-experiment-report\quality_check.py --html outputs_imdb\reports\imdb-40-replay\report.html --screenshots outputs_imdb\reports\imdb-40-replay\validation_screenshots`);
-text("embedding-cost-note","These commands require the preserved original run and native cache. They make no embedding, LLM judge or Azure Search calls. The extra dimensions use prefix slicing only. Completed checkpoints are source-bound and resumable; source input, method or runtime changes fail closed.");
+text("embedding-cost-note","These commands require the preserved original run and native cache. They make no embedding, LLM judge or Azure Search calls. The extra MRL dimensions retain and normalize leading original coordinates. Completed checkpoints are source-bound and resumable; source input, method or runtime changes fail closed.");
 if(D.execution){const x=D.execution,p=document.createElement("p");p.textContent=`Execution was continued with ${x.workers} independent worker processes and ${x.blas_threads_per_worker} numerical threads per worker. All ${count(x.checkpoint_cells_preserved_at_switch)} additional cells completed before that switch remained byte-identical. Only scheduling changed; the scientific binding and original reference results did not.`;
 $("extension-note").append(p);
 const commands=$("reproduction-commands").textContent.split("\n");commands[0]=String.raw`.\.venv-v3\Scripts\python.exe scripts\run_imdb_parallel.py --workers 3`;text("reproduction-commands",commands.join("\n"));
@@ -539,20 +563,20 @@ function axes(ylabel){let s='<line x1="65" y1="260" x2="715" y2="260" stroke="#9
 function empty(id){$(id).innerHTML='<div class="empty">Not measured. Real Azure embeddings and completed replay cells are required before this chart can be drawn.</div>'}
 function draw(){
 const rows=scopeRows(),dimension=Number($("dimension").value),chosen=rows.find(r=>r.dimension===dimension);
-text("results-state",complete?`Showing ${$("budget").selectedOptions[0].textContent}; ${$("schedule").selectedOptions[0].textContent}. Counts and metrics refer only to this scope.`:"No performance measurements exist yet. Filters describe the planned comparisons; changing them cannot create results.");
+text("results-state",complete?`Native / MRL only: ${$("budget").selectedOptions[0].textContent}; ${$("schedule").selectedOptions[0].textContent}. All-dimension charts and tables use this scope; ROC uses ${referenceLabel(dimension)}.`:"No performance measurements exist yet. Filters describe the planned comparisons; changing them cannot create results.");
 $("metrics-table").tBodies[0].replaceChildren();$("paired-table").tBodies[0].replaceChildren();$("diagnostics-table").tBodies[0].replaceChildren();
-if(!rows.length){["mae-chart","classification-chart","roc-chart"].forEach(empty);text("mae-takeaway","Native-versus-prefix MAE is not yet known.");text("roc-takeaway","Point and lower-envelope ROC / AUROC are not yet known.");text("count-detail","Selected, IDW, exact-match and fallback occurrence counts have not been measured.");return}
+if(!rows.length){["mae-chart","classification-chart","roc-chart"].forEach(empty);text("mae-takeaway","Native-versus-MRL MAE is not yet known.");text("roc-takeaway","Point and lower-envelope ROC / AUROC are not yet known.");text("count-detail","Selected, IDW, exact-match and fallback occurrence counts have not been measured.");return}
 const step=650/rows.length, x=i=>65+step*(i+.5), colors=["#007d7c","#235fba","#af5215","#7b489b"];
 let mae=axes("MAE (0-1; lower is better)"), cls=axes("Metric (0-1; higher is better)");
-rows.forEach((r,i)=>{const m=r.cohorts.all_unselected.mae;if(m.mean!=null){const y=260-m.mean*240;mae+=`<rect x="${x(i)-24}" y="${y}" width="48" height="${m.mean*240}" fill="${r.dimension===1536?'#172d39':'#007d7c'}"/><line x1="${x(i)}" y1="${260-m.high*240}" x2="${x(i)}" y2="${260-m.low*240}" stroke="#af5215" stroke-width="3"/><text x="${x(i)}" y="${Math.max(32,260-m.high*240-10)}" text-anchor="middle">${fmt(m.mean)}</text>`}["accuracy","precision","recall","f1"].forEach((metric,j)=>{const v=r.cohorts.all_unselected[metric].mean;if(v!=null)cls+=`<rect x="${x(i)-34+j*17}" y="${260-v*240}" width="14" height="${v*240}" fill="${colors[j]}"/>`});const label=r.dimension===1536?"1536 native":r.dimension;mae+=`<text x="${x(i)}" y="287" text-anchor="middle">${label}</text>`;cls+=`<text x="${x(i)}" y="287" text-anchor="middle">${label}</text>`;
-COHORTS.forEach(c=>{const metrics=r.cohorts[c];addRow($("metrics-table").tBodies[0],[r.dimension,c.replaceAll("_"," "),count(metrics.n.mean),...METRICS.map(m=>fmt(metrics[m].mean))])});});
-rows.forEach(r=>{const d=r.paired_mae_delta_native;addRow($("paired-table").tBodies[0],[r.dimension,fmt(d.mean,4),`${fmt(d.low,4)} to ${fmt(d.high,4)}`,d.replays])});
-rows.forEach(r=>{const d=r.diagnostics;addRow($("diagnostics-table").tBodies[0],[r.dimension,count(d.idw.mean),count(d.exact_match.mean),count(d.prior.mean),count(d.calibration_fallback_eligible.mean),fmt(d.envelope_label_coverage.mean)])});
-$("mae-chart").innerHTML=svg(mae,"Mean unselected MAE by embedding dimension with replay quantiles");$("classification-chart").innerHTML=svg(cls,"Unselected accuracy precision recall and F1 by dimension");
+rows.forEach((r,i)=>{const m=r.cohorts.all_unselected.mae;if(m.mean!=null){const y=260-m.mean*240;mae+=`<rect x="${x(i)-24}" y="${y}" width="48" height="${m.mean*240}" fill="${r.dimension===1536?'#172d39':'#007d7c'}"/><line x1="${x(i)}" y1="${260-m.high*240}" x2="${x(i)}" y2="${260-m.low*240}" stroke="#af5215" stroke-width="3"/><text x="${x(i)}" y="${Math.max(32,260-m.high*240-10)}" text-anchor="middle">${fmt(m.mean)}</text>`}["accuracy","precision","recall","f1"].forEach((metric,j)=>{const v=r.cohorts.all_unselected[metric].mean;if(v!=null)cls+=`<rect x="${x(i)-34+j*17}" y="${260-v*240}" width="14" height="${v*240}" fill="${colors[j]}"/>`});const label=r.dimension===1536?"Native":referenceLabel(r.dimension);mae+=`<text x="${x(i)}" y="287" text-anchor="middle">${label}</text>`;cls+=`<text x="${x(i)}" y="287" text-anchor="middle">${label}</text>`;
+COHORTS.forEach(c=>{const metrics=r.cohorts[c];addRow($("metrics-table").tBodies[0],[referenceLabel(r.dimension),c.replaceAll("_"," "),count(metrics.n.mean),...METRICS.map(m=>fmt(metrics[m].mean))])});});
+rows.forEach(r=>{const d=r.paired_mae_delta_native;addRow($("paired-table").tBodies[0],[referenceLabel(r.dimension),fmt(d.mean,4),`${fmt(d.low,4)} to ${fmt(d.high,4)}`,d.replays])});
+rows.forEach(r=>{const d=r.diagnostics;addRow($("diagnostics-table").tBodies[0],[referenceLabel(r.dimension),count(d.idw.mean),count(d.exact_match.mean),count(d.prior.mean),count(d.calibration_fallback_eligible.mean),fmt(d.envelope_label_coverage.mean)])});
+$("mae-chart").innerHTML=svg(mae,"Native 1536 and MRL unselected MAE by dimension with replay quantiles");$("classification-chart").innerHTML=svg(cls,"Native 1536 and MRL accuracy precision recall and F1 by dimension");
 const native=rows.find(r=>r.dimension===1536),eight=rows.find(r=>r.dimension===8);
-if(chosen){const all=chosen.cohorts.all_unselected.n.mean,eligible=chosen.cohorts.eligible_point.n.mean; text("count-detail",`${dimension}d: ${count(P.sessions-all)} directly observed selected occurrences, ${count(all)} unselected targets, ${count(eligible)} envelope-eligible IDW/exact targets, and ${count(all-eligible)} prior/fallback targets per replay cell. Novel-source diagnostic n: ${count(chosen.cohorts.novel_source.n.mean)}.`)}
-text("mae-takeaway",native&&eight?`In this scope: native MAE ${fmt(native.cohorts.all_unselected.mae.mean)}, 8d MAE ${fmt(eight.cohorts.all_unselected.mae.mean)}. Paired 8d-minus-native change: ${fmt(eight.paired_mae_delta_native.mean,4)}. Do not generalize this average to every replay.`:"Compare dimensions within this budget and schedule; lower MAE is better.");
-if(chosen&&chosen.roc.point.tpr.length&&chosen.roc.lower.tpr.length){let roc=axes("True-positive rate / recall");for(let i=0;i<=4;i++)roc+=`<text x="${65+i/4*650}" y="282" text-anchor="middle">${(i/4).toFixed(2)}</text>`;roc+='<line x1="65" y1="260" x2="715" y2="20" stroke="#9bafb5" stroke-dasharray="5 5"/><text x="390" y="310" text-anchor="middle">False-positive rate</text>';["point","lower"].forEach((method,j)=>{const c=chosen.roc[method],path=c.fpr.map((v,i)=>`${i?"L":"M"}${65+v*650},${260-c.tpr[i]*240}`).join(" ");roc+=`<path d="${path}" fill="none" stroke="${j?'#af5215':'#007d7c'}" stroke-width="3" ${j?'stroke-dasharray="8 5"':''}/>`});$("roc-chart").innerHTML=svg(roc,"Paired eligible IDW point and lower-envelope ROC curves");text("roc-takeaway",`${dimension}d: mean exact AUROC point ${fmt(chosen.cohorts.eligible_point.auc.mean)}, lower ${fmt(chosen.cohorts.eligible_lower.auc.mean)}; eligible n ${count(chosen.cohorts.eligible_point.n.mean)} per replay cell. At threshold 0.5, recall is ${fmt(chosen.cohorts.eligible_point.recall.mean)} versus ${fmt(chosen.cohorts.eligible_lower.recall.mean)}.`)}else{empty("roc-chart");text("roc-takeaway","No defined two-class eligible ROC for this scope.")}
+if(chosen){const all=chosen.cohorts.all_unselected.n.mean,eligible=chosen.cohorts.eligible_point.n.mean; text("count-detail",`${referenceLabel(dimension)}: ${count(P.sessions-all)} directly observed selected occurrences, ${count(all)} unselected targets, ${count(eligible)} envelope-eligible IDW/exact targets, and ${count(all-eligible)} prior/fallback targets per replay cell. Novel-source diagnostic n: ${count(chosen.cohorts.novel_source.n.mean)}.`)}
+text("mae-takeaway",native&&eight?`In this scope: Native 1536 MAE ${fmt(native.cohorts.all_unselected.mae.mean)}, MRL-8 MAE ${fmt(eight.cohorts.all_unselected.mae.mean)}. Paired MRL-8 minus native change: ${fmt(eight.paired_mae_delta_native.mean,4)}. Do not generalize this average to every replay.`:"Compare native/MRL dimensions within this budget and schedule; lower MAE is better.");
+if(chosen&&chosen.roc.point.tpr.length&&chosen.roc.lower.tpr.length){let roc=axes("True-positive rate / recall");for(let i=0;i<=4;i++)roc+=`<text x="${65+i/4*650}" y="282" text-anchor="middle">${(i/4).toFixed(2)}</text>`;roc+='<line x1="65" y1="260" x2="715" y2="20" stroke="#9bafb5" stroke-dasharray="5 5"/><text x="390" y="310" text-anchor="middle">False-positive rate</text>';["point","lower"].forEach((method,j)=>{const c=chosen.roc[method],path=c.fpr.map((v,i)=>`${i?"L":"M"}${65+v*650},${260-c.tpr[i]*240}`).join(" ");roc+=`<path d="${path}" fill="none" stroke="${j?'#af5215':'#007d7c'}" stroke-width="3" ${j?'stroke-dasharray="8 5"':''}/>`});$("roc-chart").innerHTML=svg(roc,`${referenceLabel(dimension)}: paired eligible IDW point and lower-envelope ROC`);text("roc-takeaway",`${referenceLabel(dimension)}: mean exact AUROC point ${fmt(chosen.cohorts.eligible_point.auc.mean)}, lower ${fmt(chosen.cohorts.eligible_lower.auc.mean)}; eligible n ${count(chosen.cohorts.eligible_point.n.mean)} per replay cell. At threshold 0.5, recall is ${fmt(chosen.cohorts.eligible_point.recall.mean)} versus ${fmt(chosen.cohorts.eligible_lower.recall.mean)}.`)}else{empty("roc-chart");text("roc-takeaway","No defined two-class eligible ROC for this scope.")}
 }
 ["budget","schedule","dimension"].forEach(id=>$(id).addEventListener("change",draw));
 function paragraph(message){const p=document.createElement("p");p.textContent=message;$("conclusion").append(p)}
@@ -563,31 +587,33 @@ const a=cell(1536,.05),b=cell(8,.05),c=cell(32,.05);
 const added=[256,128,64].map(d=>cell(d,.05)).filter(Boolean);
 const five=D.protocol.dimensions.map(d=>cell(d,.05)).filter(Boolean);
 const wins=D.protocol.rates.filter(rate=>{const n=cell(1536,rate);return n&&D.protocol.dimensions.filter(d=>d!==1536).every(d=>cell(d,rate).cohorts.all_unselected.mae.mean>n.cohorts.all_unselected.mae.mean)}).length;
-paragraph(`Measured across budgets: native 1536d has strictly lower mean unselected MAE than every tested prefix in ${wins} of ${D.protocol.rates.length} budget averages, with both schedules averaged within each seed. This compares complete pipelines: shortening can change both selected membership and donor geometry.`);
-if(five.length){const best=Math.min(...five.map(r=>r.cohorts.all_unselected.mae.mean)),leaders=five.filter(r=>Math.abs(r.cohorts.all_unselected.mae.mean-best)<1e-12);paragraph(`At 5% budget, the lowest mean MAE across all tested dimensions is ${fmt(best)}, at ${leaders.map(r=>`${r.dimension}d`).join(", ")}. This is a descriptive replay average, not a pre-specified non-inferiority threshold or a production generalization guarantee.`)}
-if(a&&b){paragraph(`At the 5% label budget, native MAE is ${fmt(a.cohorts.all_unselected.mae.mean)} and accuracy is ${fmt(100*a.cohorts.all_unselected.accuracy.mean,1)}%. The 8d prefix has MAE ${fmt(b.cohorts.all_unselected.mae.mean)} and accuracy ${fmt(100*b.cohorts.all_unselected.accuracy.mean,1)}%; its paired MAE change is ${fmt(b.paired_mae_delta_native.mean,4)}. ${c?`The 32d compromise has MAE ${fmt(c.cohorts.all_unselected.mae.mean)} and accuracy ${fmt(100*c.cohorts.all_unselected.accuracy.mean,1)}%.`:""} Compare this measured loss with the coordinate-storage savings, not an assumed quality-neutral reduction.`);
-if(added.length)paragraph(`Additional prefix results at the same 5% label budget: ${added.map(r=>`${r.dimension}d MAE ${fmt(r.cohorts.all_unselected.mae.mean)}, accuracy ${fmt(100*r.cohorts.all_unselected.accuracy.mean,1)}%, F1 ${fmt(r.cohorts.all_unselected.f1.mean)}`).join("; ")}. Compare the paired differences and replay ranges in Results, not rounded means alone.`);
+paragraph(`Measured within native/MRL only: Native 1536 has strictly lower mean unselected MAE than every tested MRL dimension in ${wins} of ${D.protocol.rates.length} budget averages, with both schedules averaged within each seed. PCA is excluded from this conclusion. These are complete pipelines: shortening can change both selected membership and donor geometry.`);
+if(five.length){const best=Math.min(...five.map(r=>r.cohorts.all_unselected.mae.mean)),leaders=five.filter(r=>Math.abs(r.cohorts.all_unselected.mae.mean-best)<1e-12);paragraph(`At 5% budget, the lowest mean MAE within the native/MRL family is ${fmt(best)}, for ${leaders.map(r=>referenceLabel(r.dimension)).join(", ")}. This is a descriptive replay average, not a pre-specified non-inferiority threshold or a production generalization guarantee.`)}
+if(a&&b){paragraph(`At the 5% label budget, Native 1536 MAE is ${fmt(a.cohorts.all_unselected.mae.mean)} and accuracy is ${fmt(100*a.cohorts.all_unselected.accuracy.mean,1)}%. MRL-8 has MAE ${fmt(b.cohorts.all_unselected.mae.mean)} and accuracy ${fmt(100*b.cohorts.all_unselected.accuracy.mean,1)}%; its paired MAE change is ${fmt(b.paired_mae_delta_native.mean,4)}. ${c?`MRL-32 has MAE ${fmt(c.cohorts.all_unselected.mae.mean)} and accuracy ${fmt(100*c.cohorts.all_unselected.accuracy.mean,1)}%.`:""} Compare this measured loss with the coordinate-storage savings, not an assumed quality-neutral reduction.`);
+if(added.length)paragraph(`Additional MRL results at the same 5% label budget: ${added.map(r=>`${referenceLabel(r.dimension)} MAE ${fmt(r.cohorts.all_unselected.mae.mean)}, accuracy ${fmt(100*r.cohorts.all_unselected.accuracy.mean,1)}%, F1 ${fmt(r.cohorts.all_unselected.f1.mean)}`).join("; ")}. Compare paired differences and replay ranges in MRL results, not rounded means alone.`);
 paragraph(`For the native lower-envelope classifier at threshold 0.5, eligible precision changes from ${fmt(100*a.cohorts.eligible_point.precision.mean,1)}% to ${fmt(100*a.cohorts.eligible_lower.precision.mean,1)}%, while recall changes from ${fmt(100*a.cohorts.eligible_point.recall.mean,1)}% to ${fmt(100*a.cohorts.eligible_lower.recall.mean,1)}%. Mean exact AUROC changes from ${fmt(a.cohorts.eligible_point.auc.mean)} to ${fmt(a.cohorts.eligible_lower.auc.mean)}. Higher precision alone is not an overall improvement.${a.cohorts.eligible_lower.recall.mean<.1?" Here, very few true positives remain.":""}`);
-paragraph(`In the novel-source diagnostic at 5%, native MAE is ${fmt(a.cohorts.novel_source.mae.mean)} versus ${fmt(b.cohorts.novel_source.mae.mean)} at 8d. This excludes earlier observations of the same source row, not different rows with identical text or related movies.${b.cohorts.novel_source.mae.mean>a.cohorts.novel_source.mae.mean?" Repeated-review reuse therefore does not explain away this native/8d quality gap.":""}`);
+paragraph(`In the novel-source diagnostic at 5%, Native 1536 MAE is ${fmt(a.cohorts.novel_source.mae.mean)} versus MRL-8 ${fmt(b.cohorts.novel_source.mae.mean)}. This excludes earlier observations of the same source row, not different rows with identical text or related movies.${b.cohorts.novel_source.mae.mean>a.cohorts.novel_source.mae.mean?" Repeated-review reuse therefore does not explain away this native/MRL-8 quality gap.":""}`);
 if(D.score_validation){const e=D.score_validation.native_5pct_equal_cell_diagnostics;paragraph(`The retained-score audit helps explain the native envelope behavior at 5%: ${fmt(100*e.lower_zero_fraction,1)}% of eligible lower scores are clipped to zero, and the mean full-envelope width is ${fmt(e.mean_envelope_width)} on the 0-1 outcome scale. Broad intervals can cover many observed labels without supplying informative classification. This is an observed diagnostic, not calibrated confidence.`)}
 }else paragraph("The default 5% analysis scope was not included; no conclusion is substituted from a different budget.");
 const low8=cell(8,.01),low32=cell(32,.01);
 const mid=cell(64,.05),high128=cell(128,.2),highNative=cell(1536,.2);
-if(mid&&c)paragraph(`The added dimensions reinforce a non-monotonic tradeoff: at 5% budget, 64d MAE is ${fmt(mid.cohorts.all_unselected.mae.mean)} versus ${fmt(c.cohorts.all_unselected.mae.mean)} at 32d, even though 64d F1 is ${fmt(mid.cohorts.all_unselected.f1.mean)} versus ${fmt(c.cohorts.all_unselected.f1.mean)}. More coordinates do not guarantee better end-to-end results. Selection membership changes with the geometry, so these outcomes do not isolate imputation geometry alone.`);
-else if(low8&&low32)paragraph(`The prefixes are not globally monotonic: at 1% budget, 8d MAE is ${fmt(low8.cohorts.all_unselected.mae.mean)} and 32d MAE is ${fmt(low32.cohorts.all_unselected.mae.mean)}. Read each budget and metric rather than inferring that every additional coordinate must help. Novelty-based membership changes are a possible contributor, not a proven causal explanation.`);
-if(high128&&highNative){const delta=high128.paired_mae_delta_native;paragraph(`At 20% budget, 128d mean MAE is ${fmt(high128.cohorts.all_unselected.mae.mean,4)} versus native ${fmt(highNative.cohorts.all_unselected.mae.mean,4)}. Its paired difference is ${fmt(delta.mean,4)}, with replay 2.5%-97.5% range ${fmt(delta.low,4)} to ${fmt(delta.high,4)}. Accuracy is ${fmt(100*high128.cohorts.all_unselected.accuracy.mean,2)}% versus native ${fmt(100*highNative.cohorts.all_unselected.accuracy.mean,2)}%. ${delta.low<0&&delta.high>0?"The MAE difference is not uniformly favorable across replays, and a lower average MAE does not imply better thresholded classification.":""} This range describes replay sensitivity, not independent-population confidence.`)}
-paragraph((wins===D.protocol.rates.length?"Conclusion: prefer native geometry when predictive quality is the priority for this evaluated corpus; accept a shorter prefix only with its observed budget-specific loss. ":"Conclusion: no universal native-preference rule follows across all tested budgets; choose by the observed budget-specific tradeoff. ")+"Treat the lower envelope as a sensitivity/abstention diagnostic, not a calibrated probability or a general replacement classifier. A time-forward, movie-disjoint evaluation and independent calibration would be needed before a deployment decision.");
-addRow($("budget-overview").tHead,["Dimensions",...D.protocol.rates.map(r=>`${100*r}% labels`)]);
-D.protocol.dimensions.forEach(d=>{const values=D.protocol.rates.map(r=>cell(d,r).cohorts.all_unselected.mae.mean);addRow($("budget-overview").tBodies[0],[d,...values.map(v=>fmt(v))]);const cells=$("budget-overview").tBodies[0].lastElementChild.children;values.forEach((v,i)=>{cells[i+1].style.backgroundColor=`hsl(30 75% ${97-Math.min(1,v)*38}%)`})});
-text("budget-conclusion",`Native has the lowest mean MAE in ${wins}/${D.protocol.rates.length} tested budget averages. Increasing label budget and increasing dimension are different decisions; neither should be summarized by one pooled winner score.`);
+if(mid&&c)paragraph(`MRL is non-monotonic: at 5% budget, MRL-64 MAE is ${fmt(mid.cohorts.all_unselected.mae.mean)} versus MRL-32 ${fmt(c.cohorts.all_unselected.mae.mean)}, even though MRL-64 F1 is ${fmt(mid.cohorts.all_unselected.f1.mean)} versus MRL-32 ${fmt(c.cohorts.all_unselected.f1.mean)}. More coordinates do not guarantee better end-to-end results. Selection membership changes with the geometry, so these outcomes do not isolate imputation geometry alone.`);
+else if(low8&&low32)paragraph(`MRL is not globally monotonic: at 1% budget, MRL-8 MAE is ${fmt(low8.cohorts.all_unselected.mae.mean)} and MRL-32 MAE is ${fmt(low32.cohorts.all_unselected.mae.mean)}. Read each budget and metric rather than inferring that every additional coordinate must help. Novelty-based membership changes are a possible contributor, not a proven causal explanation.`);
+if(high128&&highNative){const delta=high128.paired_mae_delta_native;paragraph(`At 20% budget, MRL-128 mean MAE is ${fmt(high128.cohorts.all_unselected.mae.mean,4)} versus Native 1536 ${fmt(highNative.cohorts.all_unselected.mae.mean,4)}. Its paired difference is ${fmt(delta.mean,4)}, with replay 2.5%-97.5% range ${fmt(delta.low,4)} to ${fmt(delta.high,4)}. MRL-128 accuracy is ${fmt(100*high128.cohorts.all_unselected.accuracy.mean,2)}% versus native ${fmt(100*highNative.cohorts.all_unselected.accuracy.mean,2)}%. ${delta.low<0&&delta.high>0?"The MAE difference is not uniformly favorable across replays, and a lower average MAE does not imply better thresholded classification.":""} This range describes replay sensitivity, not independent-population confidence.`)}
+paragraph((wins===D.protocol.rates.length?"Native/MRL conclusion: native geometry leads mean MAE at all tested budgets; accept MRL shortening only with its observed budget-specific loss. ":"Native/MRL conclusion: no universal native-preference rule follows across all tested budgets; choose by the observed budget-specific tradeoff. ")+"This conclusion excludes PCA. Treat the lower envelope as a sensitivity/abstention diagnostic, not a calibrated probability or a general replacement classifier. A time-forward, movie-disjoint evaluation and independent calibration would be needed before a deployment decision.");
+addRow($("budget-overview").tHead,["Representation",...D.protocol.rates.map(r=>`${100*r}% labels`)]);
+D.protocol.dimensions.forEach(d=>{const values=D.protocol.rates.map(r=>cell(d,r).cohorts.all_unselected.mae.mean);addRow($("budget-overview").tBodies[0],[referenceLabel(d),...values.map(v=>fmt(v))]);const cells=$("budget-overview").tBodies[0].lastElementChild.children;values.forEach((v,i)=>{cells[i+1].style.backgroundColor=`hsl(30 75% ${97-Math.min(1,v)*38}%)`})});
+text("budget-conclusion",`Within native/MRL only, Native 1536 has the lowest mean MAE in ${wins}/${D.protocol.rates.length} tested budget averages. PCA is excluded here. Increasing label budget and increasing dimension are different decisions; neither should be summarized by one pooled winner score.`);
 }
 text("numeric-audit",D.score_validation?`Source-bound retained-score validation passed for ${count(D.score_validation.cells_checked)} cells. Maximum absolute difference across recomputed metrics: ${D.score_validation.maximum_absolute_metric_difference}. Validation artifact SHA-256: ${D.score_validation.sha256}`:"No numerical audit artifact was attached to this report build; consult the separately generated validation files.");
 function drawPca(){
-const rate=Number($("pca-budget").value),schedule=$("pca-schedule").value,dimension=Number($("pca-dimension").value);
+const rate=Number($("pca-budget").value),schedule=$("pca-schedule").value,dimension=Number($("pca-dimension").value),mrlDimension=Number($("pca-mrl-dimension").value);
 const rows=D.pca_study.dimensions.map(d=>D.pca_summaries.find(r=>r.dimension===d&&r.rate===rate&&r.schedule===schedule));
 const reference=d=>D.summaries.find(r=>r.dimension===d&&r.rate===rate&&r.schedule===schedule);
-const pca=rows.find(r=>r.dimension===dimension),base=reference(dimension);
-text("pca-scope",`Showing ${100*rate}% labels; ${$("pca-schedule").selectedOptions[0].textContent}. ROC compares ${dimension} components with the same-dimension reference.`);
+const pca=rows.find(r=>r.dimension===dimension),base=reference(mrlDimension);
+text("pca-scope",`PCA vs MRL: ${100*rate}% labels; ${$("pca-schedule").selectedOptions[0].textContent}. The MAE chart and all-dimension tables compare equal dimensions (native at 1536). The ROC selectors below can compare different dimensions.`);
+text("pca-roc-scope",`${pcaLabel(dimension)} vs ${referenceLabel(mrlDimension)} at ${100*rate}% labels; ${$("pca-schedule").selectedOptions[0].textContent}. These dimension selectors also update the matched envelope table, not the all-dimension MAE chart.`);
+text("pca-roc-reference-label",referenceLabel(mrlDimension));text("pca-roc-pca-label",pcaLabel(dimension));
 ["pca-delta-table","pca-metrics-table","pca-envelope-table","pca-diagnostics-table"].forEach(id=>$(id).tBodies[0].replaceChildren());
 let chart=axes("All-unselected MAE (lower is better)"),step=650/rows.length;
 rows.forEach((r,i)=>{
@@ -595,48 +621,83 @@ rows.forEach((r,i)=>{
  [b,r].forEach((item,j)=>{const m=item.cohorts.all_unselected.mae,cx=x+(j?14:-14);if(m.mean!=null){chart+=`<rect x="${cx-11}" y="${260-m.mean*240}" width="22" height="${m.mean*240}" fill="${j?'#af5215':'#007d7c'}"/><line x1="${cx}" x2="${cx}" y1="${260-m.high*240}" y2="${260-m.low*240}" stroke="#172d39" stroke-width="2"/>`}});
  chart+=`<text x="${x}" y="287" text-anchor="middle">${r.dimension}</text>`;
  const delta=r.paired_mae_delta_prefix;addRow($("pca-delta-table").tBodies[0],[r.dimension,fmt(delta.mean,4),`${fmt(delta.low,4)} to ${fmt(delta.high,4)}`,delta.replays]);
- [[b,r.dimension===1536?"Native":"Prefix"],[r,"PCA"]].forEach(([item,label])=>{const m=item.cohorts.all_unselected;addRow($("pca-metrics-table").tBodies[0],[r.dimension,label,count(m.n.mean),...METRICS.map(k=>fmt(m[k].mean)),fmt(item.cohorts.novel_source.mae.mean)])});
+ [[b,referenceLabel(r.dimension)],[r,pcaLabel(r.dimension)]].forEach(([item,label])=>{const m=item.cohorts.all_unselected;addRow($("pca-metrics-table").tBodies[0],[r.dimension,label,count(m.n.mean),...METRICS.map(k=>fmt(m[k].mean)),fmt(item.cohorts.novel_source.mae.mean)])});
  const q=r.diagnostics;addRow($("pca-diagnostics-table").tBodies[0],[r.dimension,count(q.idw.mean),count(q.exact_match.mean),count(q.prior.mean),count(q.calibration_fallback_eligible.mean),fmt(q.envelope_label_coverage.mean)]);
 });
-$("pca-mae-chart").innerHTML=svg(chart,"PCA and same-dimension reference MAE with paired replay variability");
+$("pca-mae-chart").innerHTML=svg(chart,"PCA versus same-dimension MRL (native at 1536): MAE with paired replay variability");
 const improvements=rows.filter(r=>r.paired_mae_delta_prefix.mean<0).length;
-text("pca-mae-takeaway",`PCA has lower mean MAE than its same-dimension reference in ${improvements}/${rows.length} comparisons in this scope. This includes the centered PCA-1536 versus uncentered native control. Negative paired differences favor PCA; inspect replay ranges before choosing a cutoff.`);
+text("pca-mae-takeaway",`PCA has lower mean MAE than same-dimension MRL (native at 1536) in ${improvements}/${rows.length} comparisons in this scope. PCA-1536 is centered; native is not. Negative paired differences favor PCA; inspect replay ranges before choosing a cutoff.`);
 let roc=axes("True-positive rate / recall");
 for(let i=0;i<=4;i++)roc+=`<text x="${65+i/4*650}" y="282" text-anchor="middle">${(i/4).toFixed(2)}</text>`;
 roc+='<line x1="65" y1="260" x2="715" y2="20" stroke="#9bafb5" stroke-dasharray="5 5"/><text x="390" y="310" text-anchor="middle">False-positive rate</text>';
-[[base,"Reference","#007d7c"],[pca,"PCA","#af5215"]].forEach(([item,label,color])=>{
- ["point","lower"].forEach(method=>{const c=item.roc[method];if(c.tpr.length){const path=c.fpr.map((v,i)=>`${i?"L":"M"}${65+v*650},${260-c.tpr[i]*240}`).join(" ");roc+=`<path d="${path}" fill="none" stroke="${color}" stroke-width="3" ${method==="lower"?'stroke-dasharray="8 5"':''}/>`}
- const m=item.cohorts[method==="point"?"eligible_point":"eligible_lower"];addRow($("pca-envelope-table").tBodies[0],[`${label} ${dimension}d`,method,count(m.n.mean),...METRICS.map(k=>fmt(m[k].mean))]);
+[[base,referenceLabel(mrlDimension),"#007d7c"],[pca,pcaLabel(dimension),"#af5215"]].forEach(([item,label,color])=>{
+ ["point","lower"].forEach(method=>{const c=item.roc[method];if(c.tpr.length){const path=c.fpr.map((v,i)=>`${i?"L":"M"}${65+v*650},${260-c.tpr[i]*240}`).join(" ");roc+=`<path data-representation="${label}" data-estimator="${method}" d="${path}" fill="none" stroke="${color}" stroke-width="3" ${method==="lower"?'stroke-dasharray="8 5"':''}/>`}
+ const m=item.cohorts[method==="point"?"eligible_point":"eligible_lower"];addRow($("pca-envelope-table").tBodies[0],[label,method,count(m.n.mean),...METRICS.map(k=>fmt(m[k].mean))]);
  });
 });
-$("pca-roc-chart").innerHTML=svg(roc,"PCA and reference point and lower-envelope ROC");
-text("pca-roc-takeaway",`${dimension}d exact eligible mean AUROC: PCA point ${fmt(pca.cohorts.eligible_point.auc.mean)} / lower ${fmt(pca.cohorts.eligible_lower.auc.mean)}; reference point ${fmt(base.cohorts.eligible_point.auc.mean)} / lower ${fmt(base.cohorts.eligible_lower.auc.mean)}. Their eligible n are ${count(pca.cohorts.eligible_point.n.mean)} and ${count(base.cohorts.eligible_point.n.mean)} per cell.`);
+$("pca-roc-chart").innerHTML=svg(roc,`${pcaLabel(dimension)} versus ${referenceLabel(mrlDimension)}: point and lower-envelope ROC`);
+text("pca-roc-takeaway",`${pcaLabel(dimension)} exact eligible mean AUROC: point ${fmt(pca.cohorts.eligible_point.auc.mean)} / lower ${fmt(pca.cohorts.eligible_lower.auc.mean)}; ${referenceLabel(mrlDimension)}: point ${fmt(base.cohorts.eligible_point.auc.mean)} / lower ${fmt(base.cohorts.eligible_lower.auc.mean)}. Their eligible n are ${count(pca.cohorts.eligible_point.n.mean)} and ${count(base.cohorts.eligible_point.n.mean)} per cell. Eligibility is matched within each representation, not between the two representations.`);
 const best=[...rows].sort((a,b)=>a.cohorts.all_unselected.mae.mean-b.cohorts.all_unselected.mae.mean)[0],native=reference(1536);
-text("pca-analysis",`In this scope, the lowest PCA mean MAE is ${fmt(best.cohorts.all_unselected.mae.mean)} at ${best.dimension}d, with accuracy ${fmt(100*best.cohorts.all_unselected.accuracy.mean,2)}% and F1 ${fmt(best.cohorts.all_unselected.f1.mean)}. Native MAE is ${fmt(native.cohorts.all_unselected.mae.mean)}; the same-dimension reference MAE is ${fmt(reference(best.dimension).cohorts.all_unselected.mae.mean)}. This is a descriptive grid result, not a validated optimal dimension. Lower MAE, threshold accuracy and lower-envelope precision/recall must be considered separately.`);
+text("pca-analysis",`In this scope, the lowest PCA mean MAE is ${fmt(best.cohorts.all_unselected.mae.mean)} for ${pcaLabel(best.dimension)}, with accuracy ${fmt(100*best.cohorts.all_unselected.accuracy.mean,2)}% and F1 ${fmt(best.cohorts.all_unselected.f1.mean)}. Native 1536 MAE is ${fmt(native.cohorts.all_unselected.mae.mean)}; ${referenceLabel(best.dimension)} MAE is ${fmt(reference(best.dimension).cohorts.all_unselected.mae.mean)}. This is a descriptive grid result, not a validated optimal dimension. Lower MAE, threshold accuracy and lower-envelope precision/recall must be considered separately.`);
+}
+function drawBudgetComparison(){
+const pcaDimension=Number($("compare-pca-dimension").value),mrlDimension=Number($("compare-mrl-dimension").value);
+const pcaName=pcaLabel(pcaDimension),mrlName=referenceLabel(mrlDimension),rates=D.protocol.rates;
+text("budget-mrl-label",mrlName);text("budget-pca-label",pcaName);
+text("pca-budget-scope",`${pcaName} vs ${mrlName}, with Native 1536 as a fixed baseline. All ${rates.length} label budgets; both schedules averaged within each of ${D.protocol.repetitions} paired seeds. MAE and accuracy exclude directly observed labels.`);
+const table=$("pca-budget-table");table.tHead.replaceChildren();table.tBodies[0].replaceChildren();
+addRow(table.tHead,["Label budget","Native 1536 MAE",`${mrlName} MAE`,`${pcaName} MAE`,`${mrlName} accuracy`,`${pcaName} accuracy`,"Lowest PCA MAE dimension (all tested)"]);
+const scope=rates.map(rate=>({rate,native:referenceCell(1536,rate),mrl:referenceCell(mrlDimension,rate),pca:pcaCell(pcaDimension,rate)}));
+for(const row of scope){
+ const allPca=D.pca_study.dimensions.map(d=>pcaCell(d,row.rate)),minimum=Math.min(...allPca.map(r=>r.cohorts.all_unselected.mae.mean));
+ const winners=allPca.filter(r=>Math.abs(r.cohorts.all_unselected.mae.mean-minimum)<1e-12).map(r=>pcaLabel(r.dimension));
+ const n=row.native.cohorts.all_unselected,m=row.mrl.cohorts.all_unselected,p=row.pca.cohorts.all_unselected;
+ addRow(table.tBodies[0],[`${100*row.rate}%`,fmt(n.mae.mean,4),fmt(m.mae.mean,4),fmt(p.mae.mean,4),`${fmt(100*m.accuracy.mean,2)}%`,`${fmt(100*p.accuracy.mean,2)}%`,winners.join(", ")]);
+}
+const minRate=Math.min(...rates),range=Math.max(...rates)-minRate,x=rate=>range?65+(rate-minRate)/range*650:390;
+let chart=axes("All-unselected MAE (0-1; lower is better)");
+for(const rate of rates)chart+=`<text x="${x(rate)}" y="282" text-anchor="middle">${100*rate}%</text>`;
+chart+='<text x="390" y="310" text-anchor="middle">Selected-label budget (% of occurrences)</text>';
+for(const [key,label,color,dash] of [["native","Native 1536","#172d39",true],["mrl",mrlName,"#007d7c",false],["pca",pcaName,"#af5215",false]]){
+ const points=scope.map(row=>({x:x(row.rate),value:row[key].cohorts.all_unselected.mae.mean}));
+ const path=points.map((point,i)=>`${i?"L":"M"}${point.x},${260-point.value*240}`).join(" ");
+ chart+=`<path data-series="${key}" d="${path}" fill="none" stroke="${color}" stroke-width="3" ${dash?'stroke-dasharray="5 4"':''}/>`;
+ points.forEach(point=>{chart+=`<circle data-series="${key}" data-value="${point.value}" cx="${point.x}" cy="${260-point.value*240}" r="4" fill="${color}"><title>${label}: MAE ${fmt(point.value,4)}</title></circle>`});
+}
+$("pca-budget-chart").innerHTML=svg(chart,`${pcaName} versus ${mrlName} and Native 1536: MAE across all label budgets`);
+const improved=scope.filter(row=>row.pca.cohorts.all_unselected.mae.mean<row.mrl.cohorts.all_unselected.mae.mean).length;
+text("pca-budget-takeaway",`${pcaName} has lower mean MAE than ${mrlName} at ${improved}/${rates.length} tested budgets for these selected dimensions. The last table column searches all PCA dimensions, independently of the selected pair. This graph shows replay means, not confidence bounds.${mrlDimension===1536?" The MRL-side control is set to Native 1536, so its curve overlaps the fixed native baseline.":""}`);
 }
 if(D.pca_study){
 const p=D.pca_study,prep=D.pca_preparation;
-document.title="IMDb | Native, prefix and PCA sampling";
-$("pca-overview").hidden=false;text("tab-results","Prefix results");text("reference-analysis-title","Native / prefix analysis (preserved scope)");
-text("representation-description",`Native embeddings, normalized original-coordinate prefixes and centered PCA at ${D.protocol.dimensions.join(", ")} dimensions.`);
-text("prefix-count",`${D.protocol.dimensions.length} native/prefix arms + ${p.dimensions.length} PCA arms`);
-text("pca-overview-text",`${count(p.added_cells)} PCA settings were added to ${count(p.reused_cells)} unchanged native/prefix settings, using the same real embeddings and exact paired arrival streams. A single unlabeled PCA fit on ${count(p.fit_source_count)} source reviews supplies every PCA dimension. No new embedding or judge calls were made. Full-rank PCA-1536 is a centered control, not the native vector.`);
-text("representation-method-note","The reference arms use normalized original-coordinate prefixes. Additional PCA arms center the full normalized input, project onto a single fitted component basis and normalize the retained components. Selection, budgets, causal IDW and conditional-envelope rules are unchanged. See PCA comparison for the fit scope and controls.");
+document.title="IMDb | Native, MRL and PCA sampling";
+$("pca-overview").hidden=false;$("pca-method-key").hidden=false;text("tab-results","MRL results");text("reference-analysis-title","Native / MRL analysis (PCA excluded)");
+text("representation-description",`Native embeddings, Matryoshka Representation Learning (MRL) coordinate shortening, and Principal Component Analysis (PCA). Tested dimensions: ${D.protocol.dimensions.join(", ")}.`);
+text("prefix-count",`${D.protocol.dimensions.length} native/MRL arms + ${p.dimensions.length} PCA arms`);
+text("pca-overview-text",`${count(p.added_cells)} PCA settings were added to ${count(p.reused_cells)} unchanged native/MRL settings, using the same real embeddings and exact paired arrival streams. A single unlabeled PCA fit on ${count(p.fit_source_count)} source reviews supplies every PCA dimension. No new embedding or judge calls were made. Full-rank PCA-1536 is a centered control, not the native vector.`);
+text("representation-method-note","MRL retains the first d original embedding coordinates and normalizes them; no reducer is fitted. PCA centers the normalized embeddings, learns a principal-component basis on the full unlabeled source pool, retains d components and normalizes again. Native 1536 is the full uncentered baseline. Selection, budgets, causal IDW and conditional-envelope rules are unchanged across these families.");
 text("replay-design",`${D.protocol.repetitions} seeds x ${D.protocol.schedules.length} schedules x ${D.protocol.rates.length} budgets x ${D.protocol.dimensions.length+p.dimensions.length} representations = ${count(D.protocol.planned_cells)} cells. Each representation sees the same paired ${count(P.sessions)}-occurrence streams.`);
-$("run-status").innerHTML=`<h2>Measured native, prefix and PCA results</h2><p>${count(D.protocol.planned_cells)} completed replay cells. The original prefix results remain unchanged; the PCA comparison has a separate tab and disclosed transductive fit.</p>`;
+$("run-status").innerHTML=`<h2>Measured native, MRL and PCA results</h2><p>${count(D.protocol.planned_cells)} completed replay cells. MRL results and PCA comparison are separately labeled; the PCA comparison has a disclosed transductive fit.</p>`;
 text("pca-fit-note",`Fit once on all ${count(p.fit_source_count)} source embeddings; solver=${p.solver}, whitening=${p.whiten}, recorded fit seed=${p.fit_seed}. Fit time: ${fmt(prep.fit_seconds,1)} seconds. The full source pool is used, including distinct rows containing duplicate text.`);
 for(const r of D.protocol.rates)addOption($("pca-budget"),r,`${100*r}% (${count(Math.floor(P.sessions*r))} selected)`);
 for(const schedule of D.protocol.schedules)addOption($("pca-schedule"),schedule,schedule.replaceAll("_"," "));
-for(const d of p.dimensions){addOption($("pca-dimension"),d,`${d} dimensions${d===1536?" (centering control)":""}`);const v=prep.explained_variance_by_dimension?.[String(d)];addRow($("pca-variance-table").tBodies[0],[d,v==null?"Not measured":`${fmt(100*v,2)}%`])}
+for(const d of p.dimensions){
+ for(const id of ["pca-dimension","compare-pca-dimension"])addOption($(id),d,`${pcaLabel(d)}${d===1536?" (centering control)":""}`);
+ const v=prep.explained_variance_by_dimension?.[String(d)];addRow($("pca-variance-table").tBodies[0],[pcaLabel(d),v==null?"Not measured":`${fmt(100*v,2)}%`]);
+ addRow($("methods"),[pcaLabel(d),d===1536?"Full centered PCA basis, L2 normalized (centering control)":`PCA: first ${d} learned components, L2 normalized`,"ARM2 semantic novelty/rarity; rerun in this geometry","Causal angular IDW + conditional lower envelope"]);
+}
+for(const d of D.protocol.dimensions)for(const id of ["pca-mrl-dimension","compare-mrl-dimension"])addOption($(id),d,referenceLabel(d));
+for(const id of ["pca-dimension","compare-pca-dimension"])selectDefault(id,p.dimensions);
+for(const id of ["pca-mrl-dimension","compare-mrl-dimension"])selectDefault(id,D.protocol.dimensions);
 $("pca-budget").value=String(D.protocol.rates.includes(.05)?.05:D.protocol.rates[0]);
 const headlineRows=D.pca_summaries.filter(r=>r.rate===Number($("pca-budget").value)&&r.schedule==="all").sort((a,b)=>a.cohorts.all_unselected.mae.mean-b.cohorts.all_unselected.mae.mean);
 const best=headlineRows[0];text("pca-headline",`At ${100*Number($("pca-budget").value)}% labels across both schedules, the lowest PCA mean MAE is ${fmt(best.cohorts.all_unselected.mae.mean)} at ${best.dimension}d; accuracy ${fmt(100*best.cohorts.all_unselected.accuracy.mean,2)}%. This is a scoped mean, not a validated winner. Open PCA comparison for paired differences and all budgets.`);
-addDl("provenance-list",[["Preserved prefix aggregate SHA-256",p.baseline_aggregate_sha256],["PCA preparation manifest SHA-256",p.pca_manifest_sha256],["PCA fit scope",`${p.fit_scope}; ${count(p.fit_source_count)} rows; no labels; no whitening`]]);
+addDl("provenance-list",[["Preserved native/MRL aggregate SHA-256",p.baseline_aggregate_sha256],["PCA preparation manifest SHA-256",p.pca_manifest_sha256],["PCA fit scope",`${p.fit_scope}; ${count(p.fit_source_count)} rows; no labels; no whitening`],["Artifact naming","Retained source keys such as prefix and paired_mae_delta_prefix identify the MRL coordinate-shortening arm. These original keys are preserved for reproducibility; displayed labels use MRL."]]);
 text("reproduction-commands",String.raw`.\.venv-v3\Scripts\python.exe scripts\prepare_imdb_pca.py
 .\.venv-v3\Scripts\python.exe scripts\run_imdb_pca.py --resume --workers 3
 .\.venv-v3\Scripts\python.exe scripts\validate_imdb_experiment.py --run outputs_imdb\private_runs\imdb-pca-40-replay
 .\.venv-v3\Scripts\python.exe scripts\build_imdb_report.py --input outputs_imdb\private_runs\imdb-pca-40-replay\aggregate.json --output outputs_imdb\reports\imdb-40-replay --numerical-validation outputs_imdb\reports\imdb-40-replay\numerical_validation.json`);
-text("embedding-cost-note","These commands fit PCA and replay cached real vectors locally. They make no embedding, LLM judge or Azure Search calls. The original native/prefix run is preserved and supplies the exact paired reference streams.");
+text("embedding-cost-note","These commands fit PCA and replay cached real vectors locally. They make no embedding, LLM judge or Azure Search calls. The original native/MRL run is preserved and supplies the exact paired reference streams. This report-only clarification does not rerun any experiment.");
 if(D.pca_execution?.scaling){const x=D.pca_execution,lines=$("reproduction-commands").textContent.split("\n");
 lines[0]=String.raw`.\.venv-v3\Scripts\python.exe scripts\prepare_imdb_pca.py --resume`;lines[1]=String.raw`.\.venv-v3\Scripts\python.exe scripts\scale_imdb_pca.py --workers 6`;text("reproduction-commands",lines.join("\n"));
 addDl("provenance-list",[["PCA replay workers",x.workers],["PCA checkpoints preserved when scaling",count(x.scaling.preserved_cells)],["PCA scaling transition SHA-256",x.scaling.transition_sha256]]);
@@ -649,11 +710,9 @@ for(const rate of D.protocol.rates){
  const winners=rs.filter(r=>Math.abs(r.cohorts.all_unselected.mae.mean-minimum)<1e-12).map(r=>r.dimension);
  if(winners.includes(8))eightBest++;
  for(const r of rs){comparisons++;if(r.cohorts.all_unselected.mae.mean<refCell(r.dimension,rate).cohorts.all_unselected.mae.mean)improved++}
- const n=refCell(1536,rate),r=refCell(8,rate),q=pcaCell(8,rate);
- addRow($("pca-budget-table").tBodies[0],[`${100*rate}%`,fmt(n?.cohorts.all_unselected.mae.mean,4),fmt(r?.cohorts.all_unselected.mae.mean,4),fmt(q?.cohorts.all_unselected.mae.mean,4),q?`${fmt(100*q.cohorts.all_unselected.accuracy.mean,2)}%`:"Not measured",winners.join(", ")]);
 }
 function pcaConclusion(message){const paragraph=document.createElement("p");paragraph.textContent=message;$("pca-conclusion").append(paragraph)}
-pcaConclusion(`Measured: PCA has lower mean MAE than its corresponding native/prefix reference in ${improved}/${comparisons} dimension-budget averages. PCA-8 attains the lowest PCA mean MAE in ${eightBest}/${D.protocol.rates.length} budgets. These averages use the same paired source arrivals; they are not independent-label confidence estimates.`);
+pcaConclusion(`Measured: PCA has lower mean MAE than its corresponding MRL representation (native at 1536) in ${improved}/${comparisons} dimension-budget averages. PCA-8 attains the lowest PCA mean MAE in ${eightBest}/${D.protocol.rates.length} budgets. These averages use the same paired source arrivals; they are not independent-label confidence estimates.`);
 const eight=pcaCell(8,.05),native=refCell(1536,.05),centered=pcaCell(1536,.05);
 if(eight&&native&&centered){
  const e=eight.cohorts,delta=eight.paired_mae_delta_native,nativeMae=native.cohorts.all_unselected.mae.mean;
@@ -663,7 +722,8 @@ if(eight&&native&&centered){
 }
 const endRate=D.protocol.rates[D.protocol.rates.length-1],endRows=p.dimensions.map(d=>pcaCell(d,endRate)),accuracyBest=Math.max(...endRows.map(r=>r.cohorts.all_unselected.accuracy.mean)),accuracyLeaders=endRows.filter(r=>Math.abs(r.cohorts.all_unselected.accuracy.mean-accuracyBest)<1e-12).map(r=>r.dimension);
 pcaConclusion(`Metric choice still matters: at ${100*endRate}% labels, the highest mean PCA accuracy is ${fmt(100*accuracyBest,2)}% at ${accuracyLeaders.join(", ")} components; the lowest-MAE choice need not be the highest-accuracy choice. Explained embedding variance is not task accuracy. The next discriminating check is a separate or time-forward PCA calibration set, plus fixed-membership comparisons to isolate selection effects. No universally optimal dimension or production rollout is established here.`);
-["pca-budget","pca-schedule","pca-dimension"].forEach(id=>$(id).addEventListener("change",drawPca));drawPca();
+["pca-budget","pca-schedule","pca-dimension","pca-mrl-dimension"].forEach(id=>$(id).addEventListener("change",drawPca));drawPca();
+["compare-pca-dimension","compare-mrl-dimension"].forEach(id=>$(id).addEventListener("change",drawBudgetComparison));drawBudgetComparison();
 }
 draw();
 </script></body></html>

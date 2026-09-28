@@ -125,3 +125,33 @@ def test_pca_tab_filters_roc_and_numeric_parity(tmp_path):
     result = validate_report(output / "report.html", output / "validation_screenshots")
     assert result["ok"], result["issues"]
     assert sum(check.get("pca_filter_combinations", 0) for check in result["checks"]) == 108
+    assert sum(check.get("roc_dimension_pairs", 0) for check in result["checks"]) == 972
+    assert sum(check.get("budget_dimension_pairs", 0) for check in result["checks"]) == 162
+
+
+def test_mrl_display_names_do_not_rename_retained_data(tmp_path):
+    data = report_fixture()
+    source = tmp_path / "fixture.json"
+    source.write_text(json.dumps(data))
+    output = tmp_path / "report"
+    before = copy.deepcopy(data)
+    build_report(source, output)
+    payload = json.loads((output / "summary.json").read_text())
+    document = (output / "report.html").read_text()
+    assert "Matryoshka Representation Learning (MRL)" in document
+    assert "Principal Component Analysis (PCA)" in document
+    assert ">MRL results<" in document
+    assert ">Prefix results<" not in document
+    assert "Prefix-8 MAE" not in document
+    assert "no MRL model is trained in this experiment" in document
+    assert 'id="compare-pca-dimension"' in document
+    assert 'id="compare-mrl-dimension"' in document
+    assert 'id="pca-mrl-dimension"' in document
+    assert "PCA is excluded from this conclusion" in document
+    assert payload["summaries"] == summarize_rows([r for r in data["rows"] if r.get("representation") != "pca"])
+    assert payload["pca_summaries"] == summarize_pca(
+        [r for r in data["rows"] if r.get("representation") == "pca"],
+        [r for r in data["rows"] if r.get("representation") != "pca"],
+    )
+    assert data == before
+    assert json.loads(source.read_text()) == before
