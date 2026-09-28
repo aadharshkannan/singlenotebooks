@@ -29,9 +29,13 @@ quality checker. Existing notebooks and run paths are retained for compatibility
 The [IMDb experiment report](outputs_imdb/reports/imdb-40-replay/report.html)
 documents a new single-agent sentiment study using the original Stanford
 50,000 labeled movie reviews. Native 1536-dimensional `text-embedding-3-small`
-vectors are compared with normalized prefixes of 256, 128, 64, 32, 24, 16, 12 and 8.
+vectors are compared with Matryoshka Representation Learning (MRL) shortening:
+normalized original-coordinate prefixes of 256, 128, 64, 32, 24, 16, 12 and 8.
 The same dimensions also have a separate centered PCA comparison, including
 a full-rank PCA-1536 centering control.
+The report labels the two methods explicitly as **MRL** and **PCA**, with
+independent dimension selectors for ROC comparisons and the across-budget
+MAE chart/table. Native 1536 remains a separately labeled baseline.
 The completed sweep has 40 paired bootstrap seeds, uniform/bursty arrivals and
 five label budgets. It measures unselected MAE, accuracy, precision, recall,
 F1 and matched-cohort point/lower-envelope ROC, with a separate novel-source

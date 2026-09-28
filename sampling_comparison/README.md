@@ -345,6 +345,23 @@ same-dimension MAE differences, accuracy/precision/recall/F1, point/lower ROC,
 novel-source diagnostics, explained variance and explicit fit assumptions.
 Each representation's point/lower ROC pair uses identical eligible targets;
 PCA and prefix memberships and eligible target populations may differ.
+In the report UI, the original-coordinate prefix method is named
+**Matryoshka Representation Learning (MRL)**. This is a display clarification,
+not a new training run: it retains the first d coordinates of the existing
+embedding and normalizes them. Native 1536 is the full uncentered baseline;
+PCA learns centered components and includes a separate PCA-1536 control.
+Original source identifiers and keys such as `prefix` and
+`paired_mae_delta_prefix` stay unchanged for reproducibility.
+
+The **MRL results** tab and overview's native/MRL analysis exclude PCA
+explicitly. The **PCA comparison** tab keeps its same-dimension MAE grid, but
+offers independent PCA and MRL/native dimension selectors for ROC and its
+matched-envelope table. A separate across-budget comparison has its own PCA
+and MRL/native selectors, updating the MAE graph, table headers, numeric values,
+accuracy columns, legends and scope text together. It always averages both
+schedules within seeds; upper controls do not silently change its population.
+The best-PCA-dimension column still searches all tested PCA dimensions, and
+fixed findings below the interactive table retain their stated scopes.
 The final independent audit checks 7,200 cells, 17,467 artifact hashes and
 332,640,000 repeated unselected occurrences, with zero discrepancy in
 recomputed metrics. Every projected PCA row also matches the frozen
